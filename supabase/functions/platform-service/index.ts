@@ -1,13 +1,13 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import { serveWithConfiguredCors, referralCorsHeaders } from '../_shared/serve-with-cors.ts';
-import { createAppSessionToken, createRequestBoardBridgeToken, createPlatformMemberToken, getEnv, parsePlatformMemberToken, parseAppSessionTokenDetailed, parseDesignerCompanyNameFromAffiliation } from '../_shared/request-board-auth.ts';
+import { createAppSessionToken, createRequestBoardBridgeToken, createPlatformMemberToken, getEnv, parsePlatformMemberToken, parseAppSessionTokenDetailed, parseDesignerCompanyNameFromAffiliation, sha256Hex } from '../_shared/request-board-auth.ts';
 import { verifySessionGeneration } from '../_shared/session-generation.ts';
 import { hashPassword, signupCodeHash, toBase64 } from '../_shared/password-hash.ts';
 import { sendSignupSms } from '../_shared/signup-sms.ts';
 import { processPasswordResetChallenge } from '../_shared/password-reset-challenge.ts';
 import { getKoreanYmd } from '../_shared/exam-payment-proof.ts';
 import { resolveManagerAffiliation } from '../_shared/manager-affiliation.ts';
-import { createRequestBoardAccountRetirementAssertion, sha256Hex } from '../_shared/request-board-auth.ts';
+import { retireRequestBoardFcAccount } from '../_shared/request-board-fc-retirement.ts';
 import { drainAccountDeletionCleanup } from '../_shared/account-deletion-cleanup.ts';
 import { drainMessengerAttachmentCleanup } from '../_shared/messenger-attachment-service.ts';
 
@@ -155,39 +155,12 @@ async function finishWithdrawal(job: WithdrawalJob,digest: string) {
     let affiliateState='not_applicable';
     let preservedRole: string|null=null;
     if(job.source_fc_id) {
-      const syncUrl=getEnv('REQUEST_BOARD_PASSWORD_SYNC_URL')?.trim() ?? '';
-      const bridgeSecret=getEnv('REQUEST_BOARD_PASSWORD_SYNC_TOKEN')?.trim() ?? '';
       // The source phone is still present until local erasure below.
       const {data:source,error:sourceError}=await db.from('fc_profiles').select('phone').eq('id',job.source_fc_id).maybeSingle();
       if(sourceError) return result(false,'affiliate_unavailable');
-      const sourcePhone=typeof source?.phone==='string' && /^01[0-9]{9}$/.test(source.phone) ? source.phone : undefined;
-      const assertion=await createRequestBoardAccountRetirementAssertion(job.source_fc_id,operationId,sourcePhone);
-      if(!syncUrl || !bridgeSecret || !assertion) return result(false,'affiliate_unavailable');
-      try {
-        const endpoint=new URL(syncUrl);
-        if(endpoint.protocol!=='https:' || endpoint.username || endpoint.password) return result(false,'affiliate_unavailable');
-        endpoint.pathname='/api/auth/retire-affiliate-account'; endpoint.search=''; endpoint.hash='';
-        const response=await fetch(endpoint,{method:'POST',redirect:'error',
-          headers:{'Content-Type':'application/json','x-request-bridge-token':bridgeSecret},
-          body:JSON.stringify({authAssertion:assertion}),signal:AbortSignal.timeout(10000)});
-        const receipt=await response.json();
-        if(response.status===409 && ['AFFILIATE_IDENTITY_UNBOUND','AFFILIATE_COMPANY_IDENTITY_REVIEW_REQUIRED'].includes(receipt?.code))
-          return result(false,'affiliate_identity_unbound');
-        const data=receipt?.data;
-        if(!response.ok || receipt?.success!==true || data?.operationId!==operationId
-          || data?.upstreamAccountId!==job.source_fc_id || data?.policyVersion!=='2026-10-14'
-          || typeof data?.alreadyApplied!=='boolean') return result(false,'affiliate_unavailable');
-        if(data.accountErased===true && data.runtimeRevoked===true
-          && data.runtimeRevocationScope==='persisted_auth_and_local_runtime'
-          && data.remoteSocketRevalidationIntervalMs===5000) affiliateState='erased';
-        // GaramLink holds no account for the signed phone: nothing remains to erase.
-        else if(sourcePhone && data.status==='no_affiliate_account' && data.accountErased===false && data.runtimeRevoked===false)
-          affiliateState='erased';
-        else if(data.status==='company_account_preserved' && data.accountErased===false && data.runtimeRevoked===false
-          && data.preservedRole==='designer' && data.independentLoginAvailable===true) {
-          affiliateState='company_account_preserved'; preservedRole=data.preservedRole;
-        } else return result(false,'affiliate_unavailable');
-      } catch { return result(false,'affiliate_unavailable'); }
+      const retired=await retireRequestBoardFcAccount(job.source_fc_id,operationId,typeof source?.phone==='string' ? source.phone : undefined);
+      if(retired.ok===false) return result(false,retired.reason);
+      affiliateState=retired.affiliateState; preservedRole=retired.preservedRole;
     }
     job=withdrawalJob(await rpc('erase_platform_withdrawal_v1',{p_operation_id:operationId,p_session_digest:digest,
       p_affiliate_state:affiliateState,p_preserved_company_role:preservedRole}));

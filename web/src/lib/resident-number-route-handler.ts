@@ -44,6 +44,8 @@ type ResidentNumberRouteHandlerDeps = {
   }) => Promise<ResidentNumberReadResult>;
   logInvalidJson: (error: unknown) => void;
   logReadFailure: (error: unknown) => void;
+  /** Durably records which FCs' numbers are about to be shown; false withholds them. */
+  recordView: (fcIds: string[]) => Promise<boolean>;
 };
 
 const RESIDENT_NUMBER_ROUTE_LOG_PREFIX = '[api/admin/resident-numbers]';
@@ -59,6 +61,7 @@ export async function handleResidentNumberRoutePost({
   readResidentNumbers,
   logInvalidJson,
   logReadFailure,
+  recordView,
 }: ResidentNumberRouteHandlerDeps): Promise<ResidentNumberRouteResponse> {
   const sessionCheck = await getSession();
   if (!sessionCheck.ok) {
@@ -123,6 +126,16 @@ export async function handleResidentNumberRoutePost({
       staffPhone: sessionCheck.session.residentDigits,
       logPrefix: RESIDENT_NUMBER_ROUTE_LOG_PREFIX,
     });
+
+    const viewedFcIds = Object.entries(result.residentNumbers)
+      .filter(([, value]) => typeof value === 'string' && value.length > 0)
+      .map(([fcId]) => fcId);
+    if (viewedFcIds.length > 0 && !(await recordView(viewedFcIds))) {
+      return {
+        body: { error: '조회 기록을 남기지 못해 주민번호를 표시하지 않았습니다.' },
+        status: 503,
+      };
+    }
 
     return {
       body: { ok: true, ...result },

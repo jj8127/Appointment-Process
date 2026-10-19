@@ -32,6 +32,7 @@ import {
 import { resolveNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
+import { returnTo } from '@/lib/back-navigation';
 
 type Notice = {
   id: string;
@@ -94,7 +95,7 @@ export default function NoticeScreen() {
 
   useEffect(() => {
     if (role === 'admin' && isRequestBoardDesigner) {
-      router.replace('/request-board');
+      returnTo(router, '/request-board');
     }
   }, [isRequestBoardDesigner, role]);
 

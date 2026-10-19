@@ -315,6 +315,25 @@ describe('Request Board authentication recovery', () => {
     }
   });
 
+  test.each(['FC_IDENTITY_BINDING_CONFLICT', 'FC_ACCOUNT_RETIRED'])('initial bridge %s asks for review instead of relogin', async (code) => {
+    await setBridgeToken('synthetic-bridge');
+    await setAppSessionToken('synthetic-app-session');
+    global.fetch = jest.fn(async () => jsonResponse({ success: false, code }, 409));
+
+    const result = await rbCheckAuth();
+    expect(result).toMatchObject({ authenticated: false, status: 409, retryable: false, needsRelogin: false });
+    expect(isRequestBoardSessionReauthError(result.error)).toBe(false);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(supabase.functions.invoke).not.toHaveBeenCalled();
+  });
+
+  test('initial bridge FC_IDENTITY_SYNC_V2_REQUIRED keeps relogin guidance', async () => {
+    await setBridgeToken('synthetic-bridge');
+    global.fetch = jest.fn(async () => jsonResponse({ success: false, code: 'FC_IDENTITY_SYNC_V2_REQUIRED' }, 409));
+
+    expect(await rbCheckAuth()).toMatchObject({ authenticated: false, status: 401, needsRelogin: true });
+  });
+
   test('initial auth check requires relogin for a canonical expired app session', async () => {
     await setAppSessionToken('synthetic-app-session');
     jest.mocked(supabase.functions.invoke).mockResolvedValueOnce({

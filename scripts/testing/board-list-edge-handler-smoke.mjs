@@ -18,6 +18,7 @@ const AUTOMATION_PHONE = '01091000001';
 const APP_ADMIN_PHONE = '01091000002';
 const APP_ADMIN_ID = '00000000-0000-4000-8000-000000000201';
 const RAW_TITLE_SECRET = 'loopback-title-secret-not-production';
+const DIGEST_POST_ID = '00000000-0000-4000-8000-00000000d1d1';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const edgeEntry = path.join(repoRoot, 'supabase', 'functions', 'board-list', 'index.ts');
 
@@ -26,15 +27,22 @@ let scenarioCount = 0;
 
 const fixturePost = (sequence, overrides = {}) => ({
   id: `00000000-0000-4000-8000-${String(sequence).padStart(12, '0')}`,
-  category_id: 'category-any', title: `Fictional post ${sequence}`, content: 'Synthetic board content',
+  category_id: '00000000-0000-4000-8000-0000000ca7e9', title: `Fictional post ${sequence}`, content: 'Synthetic board content',
   author_name: 'Fictional author', author_role: 'fc', author_resident_id: 'fictional-actor',
   created_at: '2026-07-12T00:00:00.123456Z', updated_at: '2026-07-12T00:00:00.123456Z',
   edited_at: null, is_pinned: false, pinned_at: null,
-  comment_count: 4, reaction_count: 7, attachment_count: 0, view_count: 0,
+  comment_count: 4, reaction_count: 0, attachment_count: 0, view_count: 0,
   ...overrides,
 });
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// PostgREST honours offset/limit; page collectors read until an empty page, so the fake must too.
+function pageOf(url, rows) {
+  const offset = Number(url.searchParams.get('offset') ?? 0);
+  const limit = url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : rows.length;
+  return rows.slice(offset, offset + limit);
+}
 
 function sendJson(response, status, payload) {
   const body = JSON.stringify(payload);
@@ -87,7 +95,7 @@ function fakePostgrest(request, response) {
   if (table === 'board_posts_with_stats') {
     if (state.name === 'valid automation duplicate check') {
       sendJson(response, 200, [{
-        id: 'digest-post-1',
+        id: DIGEST_POST_ID,
         title: `Insurance digest API_TOKEN=${RAW_TITLE_SECRET}`,
         created_at: '2026-07-12T00:00:00.000Z',
         content: 'must never reach automation',
@@ -97,7 +105,7 @@ function fakePostgrest(request, response) {
     }
     if (state.name.startsWith('app pagination')) {
       if (url.searchParams.get('is_pinned') === 'eq.true') {
-        sendJson(response, 200, [fixturePost(100, { is_pinned: true })]);
+        sendJson(response, 200, pageOf(url, [fixturePost(100, { is_pinned: true })]));
         return;
       }
       const orders = url.searchParams.get('order');
@@ -123,10 +131,20 @@ function fakePostgrest(request, response) {
         // Every row has equal timestamps and counts, so only the ID tie break can advance.
         rows = rows.slice(boundary + 1);
       }
-      sendJson(response, 200, rows.slice(0, Number(url.searchParams.get('limit'))));
+      sendJson(response, 200, pageOf(url, rows));
       return;
     }
     sendJson(response, 200, []);
+    return;
+  }
+
+  if (table === 'board_post_views') {
+    assert.match(url.searchParams.get('resident_id') ?? '', /^eq./);
+    // The viewer opened the pinned post twice; duplicate view rows must still mean "read".
+    const pinnedId = fixturePost(100).id;
+    sendJson(response, 200, pageOf(url, state.name.startsWith('app pagination')
+      ? [{ post_id: pinnedId }, { post_id: pinnedId }]
+      : []));
     return;
   }
 
@@ -324,7 +342,7 @@ async function runScenarios() {
       ok: true,
       data: {
         items: [{
-          id: 'digest-post-1',
+          id: DIGEST_POST_ID,
           title: 'Insurance digest API_TOKEN=[redacted]',
           createdAt: '2026-07-12T00:00:00.000Z',
         }],
@@ -336,7 +354,7 @@ async function runScenarios() {
     const params = reads[0].url.searchParams;
     assert.equal(params.get('select'), 'id,title,created_at');
     assert.equal(params.get('category_id'), 'eq.category-general');
-    assert.equal(params.get('order'), 'created_at.desc');
+    assert.equal(params.get('order'), 'created_at.desc,id.desc');
     assert.equal(params.get('limit'), '20');
     assert.deepEqual([...params.keys()].sort(), ['category_id', 'limit', 'order', 'select']);
     assert.equal(tableRequests('board_post_reactions').length, 0);
@@ -367,7 +385,7 @@ async function runScenarios() {
     );
     assert.deepEqual(
       reads.map(({ url }) => url.searchParams.get('limit')).sort(),
-      ['10', '8'],
+      ['200', '8'],
     );
     assert.equal(tableRequests('board_categories').length, 0);
   });
@@ -380,6 +398,10 @@ async function runScenarios() {
         assert.equal(first.status, 200);
         assert.equal(first.body.data.items.filter((post) => !post.isPinned).length, 20);
         assert.equal(first.body.data.items.filter((post) => post.isPinned).length, 1);
+        assert.deepEqual(
+          first.body.data.items.map((post) => post.isRead),
+          first.body.data.items.map((post) => post.isPinned),
+        );
         assert.equal(typeof first.body.data.nextCursor, 'string');
         const second = await invoke({ sort, order, limit: 20, cursor: first.body.data.nextCursor }, headers);
         assert.equal(second.status, 200);

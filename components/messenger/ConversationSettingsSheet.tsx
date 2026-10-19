@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { SystemBarsModal } from '@/components/SystemBarsModal';
 import {
   buildMessengerNotificationPreferenceChange,
   getMessengerNotificationRoomLabel,
@@ -42,7 +42,6 @@ export function ConversationSettingsSheet({
   onRetryLoad,
   onRetryPreferenceChange,
 }: ConversationSettingsSheetProps) {
-  const insets = useSafeAreaInsets();
   const interactionDisabled = pending || disabled;
   const retryDisabled = pending || (disabled && failure?.operation !== 'load');
   const roomKindLabel = getMessengerNotificationRoomLabel(room);
@@ -79,14 +78,13 @@ export function ConversationSettingsSheet({
   };
 
   return (
-    <Modal
+    <SystemBarsModal
       visible={visible}
       transparent
       animationType="slide"
-      statusBarTranslucent
       onRequestClose={handleClose}
     >
-      <View style={styles.backdrop}>
+      {(insets) => <View style={styles.backdrop}>
         <Pressable
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
@@ -99,7 +97,7 @@ export function ConversationSettingsSheet({
           accessibilityViewIsModal
           style={[
             styles.sheet,
-            { paddingBottom: Math.max(insets.bottom, SPACING.base) },
+            { paddingBottom: insets.bottom + SPACING.base },
           ]}
           testID="conversation-settings-sheet"
         >
@@ -235,8 +233,8 @@ export function ConversationSettingsSheet({
             </Pressable>
           ) : null}
         </View>
-      </View>
-    </Modal>
+      </View>}
+    </SystemBarsModal>
   );
 }
 

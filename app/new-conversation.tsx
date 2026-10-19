@@ -16,7 +16,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { MessengerHubNotice } from '@/components/messenger/MessengerHubRows';
 import { useSession } from '@/hooks/use-session';
-import { goBackOrReplace } from '@/lib/back-navigation';
+import { goBackOrReplace, resetTo } from '@/lib/back-navigation';
 import { fetchFcChatTargets, fetchInternalChatList } from '@/lib/internal-chat-api';
 import { logger } from '@/lib/logger';
 import {
@@ -262,7 +262,7 @@ export default function NewConversationScreen() {
   useEffect(() => {
     if (!hydrated) return;
     if (!role) {
-      router.replace('/login');
+      resetTo(router, '/login');
       return;
     }
     void loadAll();

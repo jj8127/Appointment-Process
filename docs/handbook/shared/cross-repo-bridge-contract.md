@@ -2,10 +2,26 @@ doc_id: SHARED-BRIDGE-CONTRACT
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-10-13
-source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/functions/_shared/request-board-password-sync.ts + supabase/functions/sync-request-board-session/index.ts + supabase/functions/refresh-app-session/index.ts + request_board/server/src/routes/auth.ts + request_board/supabase/migrations/20261013030000_add_password_sync_v2_idempotency.sql + lib/request-board-api.ts
+last_verified: 2026-10-16
+source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/functions/_shared/request-board-password-sync.ts + supabase/functions/sync-request-board-session/index.ts + supabase/functions/refresh-app-session/index.ts + request_board/server/src/routes/auth.ts + request_board/supabase/migrations/20261013030000_add_password_sync_v2_idempotency.sql + lib/request-board-api.ts + supabase/functions/messenger-garamlink-sync/index.ts + request_board/server/src/routes/messengerExport.ts
 
 # Cross-Repo Bridge Contract
+
+## 2026-10-16 Messenger export pull (unified messenger stage 1)
+
+fc-onboarding-app's `messenger-garamlink-sync` Edge function pulls GaramLink chats from `GET /api/messenger-export` on request_board.
+- The call sends `Authorization: Bearer <token>`.
+- Secrets that must match:
+  - fc-onboarding `REQUEST_BOARD_MESSENGER_EXPORT_TOKEN` and request_board `FC_ONBOARDING_MESSENGER_EXPORT_TOKEN`.
+  - fc-onboarding also needs `REQUEST_BOARD_MESSENGER_EXPORT_URL`.
+  - If either side is unset, the pull stops: GaramLink returns 503, and the Edge returns `not_configured`.
+- The export is read-only. It merges request chats and direct chats in `(createdAt, source, id)` order and pages by that cursor.
+- It leaves out deleted messages and messages younger than 60 seconds.
+- Each batch has the shape `messenger_import_request_board_v1` expects. Request messages carry `requestId`. A sender outside the request pair gets `peerUserId: null` and is recorded as `participant_missing`.
+- Each message carries `attachments: [{id, fileName, fileType, fileSize, downloadUrl}]`.
+  - `downloadUrl` is a 10-minute signed link, or the row's own public storage URL. It is `null` when the file cannot be located.
+  - fc-onboarding fetches only links under `REQUEST_BOARD_STORAGE_ORIGIN/storage/v1/object/` and copies them into its private `messenger-imported-attachments` bucket.
+- `GET /api/messenger-export/deletions?afterDeletedAt=&afterSource=&afterId=&limit=` returns `{deletions:[{source,id,deletedAt}], cursor, hasMore}` in `(deletedAt, source, id)` order with the same 60-second settle window.
 
 ## 2026-10-15 Withdrawal retirement assertion phone
 

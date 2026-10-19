@@ -74,11 +74,9 @@ import {
     parseDirectMessengerMessage,
     parseDirectMessengerMessageList,
 } from '@/lib/messenger-message-contract';
+import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
 
 // --- Constants ---
-const HANWHA_ORANGE = '#f36f21';
-const CHARCOAL = '#111827';
-const MUTED = '#6b7280';
 const ROOM_POLL_INTERVAL_MS = 15000;
 const CHAT_LIST_REFETCH_INTERVAL_MS = 30000;
 const PRESENCE_POLL_INTERVAL_MS = 30_000;
@@ -284,7 +282,7 @@ function ChatAccountPage() {
             {deepLinkedConversationId && deepLinkedSelection ? <NotificationDestinationReady /> : null}
             <Group justify="space-between" mb="lg">
                 <div>
-                    <Title order={2} c={CHARCOAL}>실시간 상담</Title>
+                    <Title order={2} c={CHARCOAL}>1:1 메신저</Title>
                     <Text c={MUTED} size="sm">FC들과 실시간으로 1:1 대화를 나눌 수 있습니다.</Text>
                 </div>
             </Group>

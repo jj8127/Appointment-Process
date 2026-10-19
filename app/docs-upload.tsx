@@ -22,6 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { Button } from '@/components/Button';
+import { OnboardingStepNowCard } from '@/components/OnboardingStepNowCard';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
@@ -31,7 +32,9 @@ import {
   invokeFcNotifyForDelivery,
 } from '@/lib/fc-notify-client';
 import { presentPostCommitNotificationDelivery } from '@/lib/fc-notify-post-commit';
+import { returnTo } from '@/lib/back-navigation';
 import { logger } from '@/lib/logger';
+import { getDocsStepNow } from '@/lib/onboarding-step-now';
 import { INSURANCE_HOME_ROUTE } from '@/lib/service-home';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import { openExternalUrl } from '@/lib/open-external-url';
@@ -185,6 +188,12 @@ function DocsUploadScreenContent() {
   const isDocsApproved = fc?.status === HANWHA_HANDOFF_STATUS;
   const footerRoute = !isAdmin && isDocsApproved ? '/hanwha-commission' : INSURANCE_HOME_ROUTE;
   const footerLabel = !isAdmin && isDocsApproved ? '다위촉 URL 단계로 이동' : '홈으로 가기';
+  // Home is a parent screen: go back to it rather than stacking another copy; the next step opens forward.
+  const openFooterRoute = () => (footerRoute === INSURANCE_HOME_ROUTE ? returnTo(router, footerRoute) : router.replace(footerRoute as any));
+  const stepNow = getDocsStepNow({
+    handedOff: isDocsApproved,
+    docs: docs.map((doc) => ({ status: doc.status, hasFile: Boolean(doc.storagePath) })),
+  });
 
   const beginRead = useReadAttempt();
   const beginMutation = useReadAttempt();
@@ -251,6 +260,7 @@ function DocsUploadScreenContent() {
       });
 
       const statusRank = (doc: DocItem) => {
+        if (doc.status === 'rejected') return -1; // 반려됨: 다시 올릴 서류가 맨 위
         if (doc.status === 'approved') return 2; // 승인됨
         if (!doc.storagePath) return 0; // 미제출
         return 1; // 미승인 (제출됨)
@@ -639,6 +649,7 @@ function DocsUploadScreenContent() {
         onRetry={() => void notificationReceipt.retryMarkRead()}
       />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        {isAdmin ? (
         <View style={styles.headerContainer}>
           <View style={styles.headerRow}>
             <View>
@@ -716,6 +727,7 @@ function DocsUploadScreenContent() {
             </Text>
           </View>
         </View>
+        ) : null}
 
         <ScrollView
           contentContainerStyle={[styles.scrollContent, { paddingBottom: keyboardPadding + 100 }]}
@@ -723,6 +735,15 @@ function DocsUploadScreenContent() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="none"
         >
+          {!isAdmin ? (
+            <OnboardingStepNowCard
+              step={2}
+              now={fc?.docs_deadline_at && stepNow.tone !== 'done'
+                ? { ...stepNow, detail: [stepNow.detail, `마감 ${fc.docs_deadline_at}`].filter(Boolean).join(' · ') }
+                : stepNow}
+              action={isDocsApproved ? { label: footerLabel, onPress: () => openFooterRoute() } : undefined}
+            />
+          ) : null}
           <View style={styles.list}>
             {docs.map((doc) => {
               const isUploaded = !!doc.storagePath;
@@ -731,11 +752,11 @@ function DocsUploadScreenContent() {
               const isRejected = doc.status === 'rejected';
 
               return (
-                <View key={doc.type} style={styles.card}>
+                <View key={doc.type} style={[styles.card, isRejected && styles.cardRejected]}>
                   <View style={styles.cardTopRow}>
                     {/* left icon */}
                     <View style={styles.cardIcon}>
-                      <Feather name="file-text" size={18} color={COLORS.primary} />
+                      <Feather name="file-text" size={18} color={COLORS.primaryButton} />
                     </View>
 
                     {/* title + filename */}
@@ -751,23 +772,18 @@ function DocsUploadScreenContent() {
                               isLocked ? styles.chipApproved : isRejected ? styles.chipRejected : styles.chipSubmitted,
                             ]}
                           >
-                            <Feather
-                              name={isRejected ? 'alert-triangle' : 'check'}
-                              size={12}
-                              color={isLocked ? '#1D4ED8' : isRejected ? '#B91C1C' : '#059669'}
-                            />
                             <Text
                               style={[
                                 styles.chipText,
-                                { color: isLocked ? '#1D4ED8' : isRejected ? '#B91C1C' : '#059669' },
+                                { color: isLocked ? '#047857' : isRejected ? '#B91C1C' : '#9a3412' },
                               ]}
                             >
-                              {isLocked ? '승인됨' : isRejected ? '재제출 요청' : '제출됨'}
+                              {isLocked ? '승인됨' : isRejected ? '반려됨' : '확인 중'}
                             </Text>
                           </View>
                         ) : (
                           <View style={[styles.chip, styles.chipPending]}>
-                            <Text style={[styles.chipText, { color: COLORS.text.secondary }]}>미제출</Text>
+                            <Text style={[styles.chipText, { color: COLORS.text.secondary }]}>제출 필요</Text>
                           </View>
                         )}
                       </View>
@@ -782,14 +798,21 @@ function DocsUploadScreenContent() {
                               : 'PDF 파일을 업로드해주세요'}
                       </Text>
 
-                      {!!doc.reviewerNote && (
+                      {!!doc.reviewerNote && !isRejected && (
                         <Text style={styles.cardNote} numberOfLines={2}>
-                          <Text style={styles.cardNoteLabel}>{isRejected ? '반려 사유: ' : '검토 메모: '}</Text>
+                          <Text style={styles.cardNoteLabel}>검토 메모: </Text>
                           <Text style={styles.cardNoteText}>{doc.reviewerNote}</Text>
                         </Text>
                       )}
                     </View>
                   </View>
+
+                  {isRejected && !!doc.reviewerNote && (
+                    <View style={styles.rejectBox}>
+                      <Text style={styles.rejectLabel}>반려 사유</Text>
+                      <Text style={styles.rejectText}>{doc.reviewerNote}</Text>
+                    </View>
+                  )}
 
                   {/* action bar */}
                   <View style={styles.cardActions}>
@@ -822,9 +845,10 @@ function DocsUploadScreenContent() {
                       </Pressable>
                     )}
 
-                    <Pressable
+                    {!isLocked ? <Pressable
                       style={({ pressed }) => [
                         styles.btnSecondary,
+                        isRejected && styles.btnRetry,
                         (isUploading || isLocked) && styles.btnDisabled,
                         pressed && !isLocked && !isUploading && styles.pressed,
                       ]}
@@ -835,15 +859,15 @@ function DocsUploadScreenContent() {
                         <BrandedLoadingSpinner size="sm" color={COLORS.primary} />
                       ) : (
                         <>
-                          <Feather name="upload" size={16} color={COLORS.primary} />
-                          <Text style={styles.btnSecondaryText}>
-                            {isLocked ? '승인 완료' : isUploaded ? '재업로드' : '파일 선택'}
+                          <Feather name="upload" size={16} color={isRejected ? '#fff' : COLORS.primaryButton} />
+                          <Text style={[styles.btnSecondaryText, isRejected && styles.btnRetryText]}>
+                            {isLocked ? '승인 완료' : isRejected ? '다시 올리기' : isUploaded ? '재업로드' : '파일 선택'}
                           </Text>
                         </>
                       )}
-                    </Pressable>
+                    </Pressable> : null}
 
-                    {isUploaded && (
+                    {isUploaded && !isLocked && (
                       <Pressable
                         style={({ pressed }) => [styles.iconDanger, pressed && styles.pressed]}
                         onPress={() => handleDelete(doc.type, doc.storagePath)}
@@ -857,21 +881,21 @@ function DocsUploadScreenContent() {
                 </View>
               );
             })}
-            {!docs.length && (
+            {!docs.length && isAdmin && (
               <View style={styles.emptyState}>
                 <Text style={styles.emptyText}>요청된 서류가 없습니다.</Text>
               </View>
             )}
           </View>
-          <Button
-            onPress={() => router.replace(footerRoute as any)}
+          {isAdmin || !isDocsApproved ? <Button
+            onPress={() => openFooterRoute()}
             variant="primary"
             size="lg"
             fullWidth
             style={{ marginTop: 12, marginBottom: 24 }}
           >
             {footerLabel}
-          </Button>
+          </Button> : null}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -879,7 +903,7 @@ function DocsUploadScreenContent() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.white },
+  safe: { flex: 1, backgroundColor: '#f3f4f6' },
 
   headerContainer: {
     paddingHorizontal: 24,
@@ -962,21 +986,10 @@ const styles = StyleSheet.create({
     color: '#9A3412',
   },
 
-  scrollContent: { padding: 24 },
+  scrollContent: { padding: 16 },
 
-  noticeBox: {
-    flexDirection: 'row',
-    backgroundColor: COLORS.background.secondary,
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    gap: 8,
-  },
-  noticeText: { fontSize: 13, color: COLORS.text.primary, flex: 1, lineHeight: 18 },
 
-  list: { gap: 16 },
+  list: { gap: 12 },
 
   emptyState: { padding: 20, alignItems: 'center' },
   emptyText: { color: COLORS.text.secondary, fontSize: 14 },
@@ -985,18 +998,19 @@ const styles = StyleSheet.create({
 
   // Modern Card Styles
   card: {
-    borderWidth: 1,
-    borderColor: '#EEF2F7',
     backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 14,
+    borderRadius: 20,
+    padding: 16,
     gap: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 2,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
   },
+  cardRejected: { borderColor: '#fecaca' },
+  rejectBox: { padding: 12, borderRadius: 12, borderLeftWidth: 3, borderLeftColor: COLORS.error, backgroundColor: COLORS.gray[50] },
+  rejectLabel: { fontSize: 12, fontWeight: '800', color: '#b91c1c' },
+  rejectText: { marginTop: 4, fontSize: 15, lineHeight: 22, color: COLORS.gray[800] },
+  btnRetry: { backgroundColor: COLORS.primaryButton, borderColor: COLORS.primaryButton },
+  btnRetryText: { color: '#fff' },
 
   cardTopRow: {
     flexDirection: 'row',
@@ -1008,9 +1022,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: '#FFF7ED',
-    borderWidth: 1,
-    borderColor: '#FFEDD5',
+    backgroundColor: '#fdf3ea',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1054,15 +1066,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 4,
     borderRadius: 999,
-    borderWidth: 1,
   },
 
-  chipPending: { backgroundColor: '#F9FAFB', borderColor: '#E5E7EB' },
-  chipSubmitted: { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
-  chipApproved: { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' },
-  chipRejected: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+  chipPending: { backgroundColor: COLORS.gray[100] },
+  chipSubmitted: { backgroundColor: COLORS.primaryPale },
+  chipApproved: { backgroundColor: '#ecfdf5' },
+  chipRejected: { backgroundColor: '#fef2f2' },
 
   chipText: {
     fontSize: 12,
@@ -1075,27 +1086,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
 
-  btnPrimary: {
-    flex: 1,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: COLORS.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 8,
-    shadowColor: '#f36f21',
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
-  },
 
-  btnPrimaryText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '900',
-  },
 
   btnGhost: {
     height: 44,
@@ -1133,17 +1124,15 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 44,
     borderRadius: 12,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryPale,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 8,
   },
   btnSecondaryText: {
-    color: COLORS.primary,
+    color: COLORS.primaryButton,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '800',
   },
 });

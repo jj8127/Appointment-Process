@@ -1,6 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Image,
   Modal,
@@ -37,10 +38,17 @@ type ImagePreviewModalProps = {
   images: PreviewImageItem[];
   initialIndex?: number;
   onClose: () => void;
+  /** Shows a save button for the image on screen; callers without saving omit it. */
+  onSave?: (index: number) => void;
+  /** Shows a share button (system share sheet) for the image on screen. */
+  onShare?: (index: number) => void;
+  saving?: boolean;
 };
 
 const OVERLAY_HORIZONTAL_PADDING = 16;
 const DOUBLE_TAP_SCALE = 2.5;
+// The Android pager is not virtualized, so only the visible page and its neighbours load an image.
+const STATIC_PAGE_WINDOW = 1;
 
 const clampIndex = (index: number, length: number) => {
   if (length <= 0) return 0;
@@ -60,10 +68,42 @@ type ZoomableImageProps = {
   onZoomStateChange: (zoomed: boolean) => void;
 };
 
+type PreviewImageLoadState = 'loading' | 'loaded' | 'failed';
+
+// An expired signed URL or a slow large image otherwise leaves only the black overlay on screen.
+// Android decodes remote images at full size unless resizeMethod="resize"; the non-virtualized Android pager
+// mounts every page at once, so several camera photos could exhaust memory and fail to draw.
+function usePreviewImageLoadState(uri: string) {
+  const [loadState, setLoadState] = useState<PreviewImageLoadState>('loading');
+  useEffect(() => {
+    setLoadState('loading');
+  }, [uri]);
+  const imageProps = useMemo(() => ({
+    onLoad: () => setLoadState('loaded'),
+    onError: () => setLoadState('failed'),
+  }), []);
+  return { loadState, imageProps };
+}
+
+function PreviewImageStatus({ loadState }: { loadState: PreviewImageLoadState }) {
+  if (loadState === 'loaded') return null;
+  return (
+    <View pointerEvents="none" style={styles.imageStatus}>
+      {loadState === 'loading' ? (
+        <ActivityIndicator color="#fff" />
+      ) : (
+        <Text style={styles.emptyText}>이미지를 불러올 수 없습니다.</Text>
+      )}
+    </View>
+  );
+}
+
 function StaticPreviewImage({ uri, pageWidth, pageHeight }: Pick<ZoomableImageProps, 'uri' | 'pageWidth' | 'pageHeight'>) {
+  const { loadState, imageProps } = usePreviewImageLoadState(uri);
   return (
     <View style={[styles.zoomFrame, { width: pageWidth, height: pageHeight }]}>
-      <Image source={{ uri }} style={[styles.image, { width: pageWidth, height: pageHeight }]} resizeMode="contain" />
+      <Image source={{ uri }} style={[styles.image, { width: pageWidth, height: pageHeight }]} resizeMode="contain" resizeMethod="resize" {...imageProps} />
+      <PreviewImageStatus loadState={loadState} />
     </View>
   );
 }
@@ -76,6 +116,7 @@ export function ZoomableImage({ uri, pageWidth, pageHeight, isZoomed, onZoomStat
   const translateY = useSharedValue(0);
   const startX = useSharedValue(0);
   const startY = useSharedValue(0);
+  const { loadState, imageProps } = usePreviewImageLoadState(uri);
 
   useAnimatedReaction(
     () => scale.value > 1.01,
@@ -176,18 +217,20 @@ export function ZoomableImage({ uri, pageWidth, pageHeight, isZoomed, onZoomStat
     <GestureDetector gesture={composedGesture}>
       <View style={[styles.zoomFrame, { width: pageWidth, height: pageHeight }]}>
         <Animated.View style={animatedImageStyle}>
-          <Image source={{ uri }} style={[styles.image, { width: pageWidth, height: pageHeight }]} resizeMode="contain" />
+          <Image source={{ uri }} style={[styles.image, { width: pageWidth, height: pageHeight }]} resizeMode="contain" resizeMethod="resize" {...imageProps} />
         </Animated.View>
+        <PreviewImageStatus loadState={loadState} />
       </View>
     </GestureDetector>
   );
 }
 
-export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose }: ImagePreviewModalProps) {
+export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose, onSave, onShare, saving }: ImagePreviewModalProps) {
   const { width, height } = useWindowDimensions();
   const pageWidth = Math.max(width - OVERLAY_HORIZONTAL_PADDING * 2, 1);
   const defaultBodyHeight = Math.max(height - 140, 1);
   const listRef = useRef<FlatList<PreviewImageItem>>(null);
+  const scrollRef = useRef<ScrollView>(null);
   const safeImages = useMemo(() => images.filter((item) => !!item?.url), [images]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [bodyHeight, setBodyHeight] = useState(defaultBodyHeight);
@@ -214,6 +257,7 @@ export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose }
     if (totalCount === 0) return;
     const timer = setTimeout(() => {
       listRef.current?.scrollToOffset({ offset: startIndex * pageWidth, animated: false });
+      scrollRef.current?.scrollTo({ x: startIndex * pageWidth, y: 0, animated: false });
     }, 0);
     return () => clearTimeout(timer);
   }, [pageWidth, startIndex, totalCount, visible]);
@@ -251,6 +295,31 @@ export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose }
                 <Text style={styles.indexText}>{`총 ${totalCount}장 중 ${currentIndex + 1}번째`}</Text>
               )}
             </View>
+            {onShare && totalCount > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="사진 공유"
+                disabled={saving}
+                style={({ pressed }) => [styles.closeButton, (pressed || saving) && { opacity: 0.7 }]}
+                onPress={() => onShare(currentIndex)}
+              >
+                <Feather aria-hidden accessible={false} name="share-2" size={20} color="#fff" />
+              </Pressable>
+            ) : null}
+            {onSave && totalCount > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="사진 저장"
+                accessibilityState={{ busy: !!saving, disabled: !!saving }}
+                disabled={saving}
+                style={({ pressed }) => [styles.closeButton, (pressed || saving) && { opacity: 0.7 }]}
+                onPress={() => onSave(currentIndex)}
+              >
+                {saving
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Feather aria-hidden accessible={false} name="download" size={20} color="#fff" />}
+              </Pressable>
+            ) : null}
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="사진 미리보기 닫기"
@@ -295,6 +364,8 @@ export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose }
               />
             ) : totalCount > 0 ? (
               <ScrollView
+                ref={scrollRef}
+                contentOffset={{ x: startIndex * pageWidth, y: 0 }}
                 horizontal
                 pagingEnabled
                 scrollEnabled
@@ -305,11 +376,13 @@ export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose }
               >
                 {safeImages.map((item, index) => (
                   <View key={`${item.url}-${index}`} style={[styles.imagePage, { width: pageWidth, height: bodyHeight }]}>
-                    <StaticPreviewImage
-                      uri={item.url}
-                      pageWidth={pageWidth}
-                      pageHeight={bodyHeight}
-                    />
+                    {Math.abs(index - currentIndex) <= STATIC_PAGE_WINDOW && (
+                      <StaticPreviewImage
+                        uri={item.url}
+                        pageWidth={pageWidth}
+                        pageHeight={bodyHeight}
+                      />
+                    )}
                   </View>
                 ))}
               </ScrollView>
@@ -338,11 +411,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 8,
     marginBottom: 12,
   },
   headerTextWrap: {
     flex: 1,
-    marginRight: 12,
+    marginRight: 4,
   },
   title: {
     color: '#fff',
@@ -381,6 +455,11 @@ const styles = StyleSheet.create({
   image: {
     maxWidth: '100%',
     maxHeight: '100%',
+  },
+  imageStatus: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyText: {
     color: '#d1d5db',

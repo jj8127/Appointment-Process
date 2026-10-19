@@ -10,7 +10,7 @@ import { COLORS, SHADOWS } from '@/lib/theme';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { create } = require('react-test-renderer');
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-const router = { push: jest.fn(), navigate: jest.fn(), replace: jest.fn(), setParams: jest.fn() };
+const router = { push: jest.fn(), navigate: jest.fn(), replace: jest.fn(), setParams: jest.fn(), dismissTo: jest.fn() };
 let pathname = '/board';
 const exported: Record<string, unknown> = {};
 const output = ts.transpileModule(readFileSync(join(__dirname, '../BottomNavigation.tsx'), 'utf8'), {
@@ -24,6 +24,8 @@ new Function('require', 'exports', output)((name: string) => {
   if (name === 'react-native') return { Pressable: 'Pressable', Text: 'Text', View: 'View', StyleSheet: { create: (styles: unknown) => styles } };
   if (name === 'react-native-reanimated') return { default: { View: 'AnimatedView' } };
   if (name === '@/lib/service-home') return { INSURANCE_HOME_ROUTE };
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  if (name === '@/lib/back-navigation') return require('@/lib/back-navigation');
   if (name === '@/lib/theme') return { COLORS, SHADOWS };
   throw new Error(`Unexpected dependency: ${name}`);
 }, exported);
@@ -40,7 +42,9 @@ describe('bottom navigation service context', () => {
     pathname = current;
     mount({ preset: 'fc', activeKey: 'board' });
     press('홈');
-    expect(router.replace).toHaveBeenCalledWith({ pathname: '/', params: { mode: 'insurance' } });
+    // Back to the insurance home already in the history instead of stacking another copy.
+    expect(router.dismissTo).toHaveBeenCalledWith({ pathname: '/', params: { mode: 'insurance' } });
+    expect(router.replace).not.toHaveBeenCalled();
     expect(router.push).not.toHaveBeenCalled();
   });
 
@@ -60,8 +64,18 @@ describe('bottom navigation service context', () => {
     expect(buttons.find((item: { props: Record<string, unknown> }) => item.props.accessibilityLabel === '이용내역').props['aria-current']).toBe('page');
     expect(buttons.find((item: { props: Record<string, unknown> }) => item.props.accessibilityLabel === '홈').props['aria-current']).toBeUndefined();
     press('홈');
-    expect(router.navigate).toHaveBeenCalledWith('/');
+    expect(router.dismissTo).toHaveBeenCalledWith('/');
+    expect(router.navigate).not.toHaveBeenCalled();
     expect(router.replace).not.toHaveBeenCalled();
+  });
+
+  it('opens another tab as one layer above home, returning to home first', () => {
+    pathname = '/services/activity';
+    mount({ preset: 'service-hub', activeKey: 'activity' });
+    press('내 정보');
+    expect(router.dismissTo).toHaveBeenCalledWith('/');
+    expect(router.navigate).toHaveBeenCalledWith('/services/account');
+    expect(router.dismissTo.mock.invocationCallOrder[0]).toBeLessThan(router.navigate.mock.invocationCallOrder[0]);
   });
 
   it('repeated account entry reuses navigation instead of dispatching duplicate pushes', () => {
@@ -77,9 +91,10 @@ describe('bottom navigation service context', () => {
     pathname = '/admin-board-manage';
     mount({ preset, activeKey: 'board' });
     press('위촉');
-    expect(router.replace).toHaveBeenLastCalledWith({ pathname: '/', params: { mode: 'onboarding' } });
+    expect(router.dismissTo).toHaveBeenLastCalledWith({ pathname: '/', params: { mode: 'onboarding' } });
     press('시험');
-    expect(router.replace).toHaveBeenLastCalledWith({ pathname: '/', params: { mode: 'exam' } });
+    expect(router.dismissTo).toHaveBeenLastCalledWith({ pathname: '/', params: { mode: 'exam' } });
+    expect(router.navigate).not.toHaveBeenCalled();
   });
 
   it('uses the existing in-place administrator tab callback', () => {

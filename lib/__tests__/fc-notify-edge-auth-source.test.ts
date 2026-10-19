@@ -24,7 +24,9 @@ describe('fc-notify Edge authentication wiring', () => {
   it('separates exact service-key and signed app-session callers before action handlers', () => {
     expect(source).toContain("req.headers.get('apikey')");
     expect(source).toContain('isTrustedFcNotifyServiceKey');
-    expect(source).toContain('requireAppSessionFromRequest(req)');
+    expect(source).toContain('requireAppSessionFromRequest(req, (payload) => {');
+    // The account lookup may start early but is used only after the session is accepted.
+    expect(source).toContain('const actorResult = await (actorRequest ?? resolveFcNotifyAppActor(sessionResult.session));');
     expect(source).toContain('resolveFcNotifyAppActor');
     expect(source).toContain('buildAppFcNotifyPayload');
 

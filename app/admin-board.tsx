@@ -15,6 +15,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -31,6 +32,7 @@ import { useBoardEditorSource } from '@/hooks/use-board-editor-source';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useReadSessionScope } from '@/hooks/use-read-session-scope';
 import { useSession } from '@/hooks/use-session';
+import { openBoardAttachment } from '@/lib/board-attachment-actions';
 import {
   deliverBoardAttachments,
   type BoardAttachmentManifest,
@@ -51,6 +53,7 @@ import {
   signBoardAttachments,
   type BoardNotificationRetry,
   type BoardActor,
+  pinBoardPost,
   updateBoardPost,
 } from '@/lib/board-api';
 
@@ -117,6 +120,8 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
   const queryClient = useQueryClient();
   const keyboardPadding = useKeyboardPadding();
   const canWrite = actor?.role === 'admin' || actor?.role === 'manager';
+  // board-pin accepts only admins; read-only admins are already mapped to manager.
+  const canPin = actor?.role === 'admin';
   const isEditMode = !!postId;
   const screenTitle = isEditMode ? '게시글 수정' : '게시글 작성';
   const screenSubtitle = isEditMode ? '게시글 내용을 수정합니다.' : '정보 게시판에 새 글을 작성합니다.';
@@ -126,6 +131,8 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
   const [contentHeight, setContentHeight] = useState(200);
   const [loading, setLoading] = useState(false);
   const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [isPinned, setIsPinned] = useState(false);
+  const pinWarning = useRef(false);
   const [attachments, setAttachments] = useState<LocalAttachment[]>([]);
   const [existingAttachments, setExistingAttachments] = useState<LocalAttachment[]>([]);
   const [pendingAttachmentRetry, setPendingAttachmentRetry] =
@@ -197,7 +204,7 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
     ...initialDetail.attachments.filter(file => file.fileType !== 'image'),
   ].map(file => file.id).join(',') : '';
   const draftChanged = isEditMode
-    ? !!initialDetail && (title !== initialDetail.post.title || content !== initialDetail.post.content || categoryId !== initialDetail.post.categoryId || attachments.length > 0 || existingAttachments.map(file => file.id).join(',') !== initialAttachmentOrder)
+    ? !!initialDetail && (title !== initialDetail.post.title || content !== initialDetail.post.content || categoryId !== initialDetail.post.categoryId || isPinned !== initialDetail.post.isPinned || attachments.length > 0 || existingAttachments.map(file => file.id).join(',') !== initialAttachmentOrder)
     : !!(title.trim() || content.trim() || attachments.length);
   const allowSavedExit = useDraftExitGuard(!savedExit && !pendingAttachmentRetry && draftChanged, !savedExit && loading);
 
@@ -218,6 +225,7 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
     setTitle(initialDetail.post.title);
     setContent(initialDetail.post.content);
     setCategoryId(initialDetail.post.categoryId);
+    setIsPinned(initialDetail.post.isPinned);
     setExistingAttachments(
       groupImagesFirst(initialDetail.attachments.map((file) => ({
         id: file.id,
@@ -338,7 +346,10 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
     const successMessage = operation === 'update'
       ? '게시글이 수정되었습니다.'
       : '게시글이 성공적으로 작성되었습니다.';
-    const notificationWarningMessage = getBoardNotificationWarningMessage(notificationWarning);
+    const notificationWarningMessage = [
+      getBoardNotificationWarningMessage(notificationWarning),
+      pinWarning.current ? '필독 설정은 저장되지 않았습니다. 글을 수정해서 다시 지정해주세요.' : null,
+    ].filter(Boolean).join('\n\n');
     const buttons = notificationWarningMessage
       ? [
           { text: '나중에', onPress: completeSavedPost },
@@ -467,6 +478,18 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
         if (!isCurrentMutation()) return;
         notificationWarning = updateResult.notificationWarning;
         notificationRetry = updateResult.notificationRetry;
+      }
+      const savedPinned = isEditMode ? initialDetail?.post.isPinned === true : false;
+      pinWarning.current = false;
+      if (canPin && isPinned !== savedPinned) {
+        // The post is already saved; a failed pin is reported with the result instead of failing the save.
+        try {
+          await pinBoardPost(actor, targetPostId, isPinned);
+        } catch (pinError) {
+          logBoardError('post-pin', pinError);
+          pinWarning.current = true;
+        }
+        if (!isCurrentMutation()) return;
       }
       if (attachments.length > 0) {
         const attachmentResult = await uploadSelectedAttachments(targetPostId, null);
@@ -622,14 +645,10 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
             pressed && { opacity: 0.7 },
           ]}
           onPress={() => {
-            if (item.uri) {
-              openExternalUrl(item.uri).catch(() => {
-                Alert.alert('오류', '첨부파일을 열 수 없습니다.');
-              });
-            }
+            void openBoardAttachment({ signedUrl: item.uri, openExternalUrl, alert: Alert.alert });
           }}
         >
-          <Image source={{ uri: item.uri }} style={styles.attachmentThumbnail} />
+          <Image source={{ uri: item.uri }} style={styles.attachmentThumbnail} resizeMethod="resize" />
           <View style={{ flex: 1 }}>
             <Text style={styles.attachmentName} numberOfLines={1}>
               {item.fileName}
@@ -678,7 +697,7 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
             pressed && { opacity: 0.7 },
           ]}
         >
-          <Image source={{ uri: item.uri }} style={styles.attachmentThumbnail} />
+          <Image source={{ uri: item.uri }} style={styles.attachmentThumbnail} resizeMethod="resize" />
           <View style={{ flex: 1 }}>
             <Text style={styles.attachmentName} numberOfLines={1}>
               {item.fileName}
@@ -820,6 +839,20 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
             </ScrollView>
           </View>
 
+          {canPin && (
+            <View style={styles.pinRow}>
+              <Text style={styles.label}>필독</Text>
+              <Switch
+                accessibilityLabel="필독으로 고정"
+                value={isPinned}
+                onValueChange={setIsPinned}
+                disabled={!canEditComposer}
+                trackColor={{ false: BORDER, true: HANWHA_ORANGE }}
+                thumbColor="#fff"
+              />
+            </View>
+          )}
+
           <FormInput
             label="제목"
             placeholder="게시글 제목을 입력하세요"
@@ -907,11 +940,7 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
                             pressed && { opacity: 0.7 },
                           ]}
                           onPress={() => {
-                            if (file.uri) {
-                              openExternalUrl(file.uri).catch(() => {
-                                Alert.alert('오류', '첨부파일을 열 수 없습니다.');
-                              });
-                            }
+                            void openBoardAttachment({ signedUrl: file.uri, openExternalUrl, alert: Alert.alert });
                           }}
                         >
                           <View style={styles.attachmentIcon}>
@@ -1082,6 +1111,17 @@ const styles = StyleSheet.create({
   form: { gap: 20 },
   field: { gap: 8 },
   label: { fontSize: 14, fontWeight: '700', color: CHARCOAL },
+  pinRow: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
   categoryRow: { gap: 10, paddingVertical: 4 },
   categoryChip: {
     paddingHorizontal: 14,

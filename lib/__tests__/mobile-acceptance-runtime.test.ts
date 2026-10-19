@@ -5,7 +5,7 @@ import * as ts from 'typescript';
 import { createReadScope } from '../request-board-read-state';
 import { getDesignerRequestDetailActions } from '../request-board-review-actions';
 import { getMessengerHubCapabilities } from '../messenger-role-capabilities';
-import { goBackOrReplace } from '../back-navigation';
+import { goBackOrReplace, resetTo, returnTo } from '../back-navigation';
 import { INSURANCE_HOME_ROUTE } from '../service-home';
 import { normalizePhone, validateEmail, validatePassword, validatePhone, validateRequired } from '../validation';
 import { resolvePlatformAuthRoute, resolveSessionLandingRoute } from '../session-landing';
@@ -37,7 +37,9 @@ function routeHandler<T = Handler>(path: string, name: string, dependencies: Rec
   const code = ts.transpileModule(`const result = ${expression.getText(file)}; return result;`, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   }).outputText;
-  return new Function(...Object.keys(dependencies), code)(...Object.values(dependencies)) as T;
+  // Screens navigate through the shared back-navigation helpers; give callbacks the real ones unless a test overrides them.
+  const scope = { resetTo, returnTo, ...dependencies };
+  return new Function(...Object.keys(scope), code)(...Object.values(scope)) as T;
 }
 
 function deferred<T>() {

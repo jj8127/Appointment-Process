@@ -1,3 +1,4 @@
+import { HANWHA_ORANGE } from '@/lib/brand-colors';
 import type { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
@@ -11,7 +12,7 @@ export default function manifest(): MetadataRoute.Manifest {
     display: 'standalone',
     orientation: 'any',
     background_color: '#ffffff',
-    theme_color: '#f97316',
+    theme_color: HANWHA_ORANGE,
     lang: 'ko-KR',
     categories: ['business', 'productivity'],
     icons: [

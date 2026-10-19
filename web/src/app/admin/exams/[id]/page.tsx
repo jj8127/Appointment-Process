@@ -42,6 +42,7 @@ import {
 } from '@/lib/exam-applicant-list-display';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { requireExamTransitionSuccess } from '@/lib/user-intent-policy';
+import { HANWHA_ORANGE, CHARCOAL } from '@/lib/brand-colors';
 
 type FilterState = {
   name: string;
@@ -61,8 +62,6 @@ const initialFilters: FilterState = {
   status: null,
 };
 
-const HANWHA_ORANGE = '#F37321';
-const CHARCOAL = '#111827';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);

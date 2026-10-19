@@ -56,6 +56,13 @@ import {
 } from '@/lib/request-board-customer-input';
 import { REQUEST_BOARD_DRIVING_STATUS_OPTIONS } from '@/lib/request-board-driving-status';
 import {
+  buildRequestReadiness,
+  describeRequestFanOut,
+  firstRequestBlocker,
+  type RequestReadinessItem,
+  type RequestReadinessKey,
+} from '@/lib/request-board-submit-readiness';
+import {
   canCreateRequestBoardRequest,
   resolveRequestBoardCreateInitialStep,
   resolveRequestBoardCreateBackTarget,
@@ -94,6 +101,7 @@ import {
 import { createReadScope } from '@/lib/request-board-read-state';
 import { isRequestBoardSessionReauthError, toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { resetTo, returnTo } from '@/lib/back-navigation';
 
 type StepKey = 'customer' | 'newCustomer' | 'compose' | 'sent';
 type SortMode = 'name' | 'created';
@@ -645,6 +653,11 @@ export default function RequestBoardCreateScreen() {
   const [requestText, setRequestText] = useState('');
   const [attachments, setAttachments] = useState<PickedAttachment[]>([]);
   const [sheetVisible, setSheetVisible] = useState(false);
+  const [drivingPickerOpen, setDrivingPickerOpen] = useState(false);
+  const [savingDriving, setSavingDriving] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const requestInputRef = useRef<TextInput>(null);
+  const sectionOffsets = useRef<Partial<Record<RequestReadinessKey, number>>>({});
   const [sentRequestIds, setSentRequestIds] = useState<number[]>([]);
   const [failedRequestJobCount, setFailedRequestJobCount] = useState(0);
   const [pendingAttachmentDelivery, setPendingAttachmentDelivery] =
@@ -813,7 +826,7 @@ export default function RequestBoardCreateScreen() {
 
   useEffect(() => {
     if (!hydrated || canUseCreateFlow) return;
-    router.replace('/request-board' as any);
+    returnTo(router, '/request-board' as any);
   }, [canUseCreateFlow, hydrated, router]);
 
   useEffect(() => {
@@ -869,6 +882,59 @@ export default function RequestBoardCreateScreen() {
     selectedProductIds.length > 0 &&
     selectedDesignerIds.length > 0 &&
     requestText.trim().length > 0;
+
+  // Same FC-code rule as submitRequest, evaluated while composing so the blocker shows up early.
+  const companiesMissingFcCode = useMemo(
+    () => selectedDesigners
+      .filter((designer) => {
+        const code = findFcCodeForDesigner(designer, fcCodes);
+        return !(code?.code_name ?? code?.insurer_name) || !code?.code_value;
+      })
+      .map((designer) => getDesignerCompany(designer) ?? '선택한 회사'),
+    [fcCodes, selectedDesigners],
+  );
+  const readiness = useMemo(() => buildRequestReadiness({
+    drivingStatus: selectedCustomer?.drivingStatus,
+    productCount: selectedProductIds.length,
+    requestText,
+    designerCount: selectedDesignerIds.length,
+    companiesMissingFcCode,
+  }), [companiesMissingFcCode, requestText, selectedCustomer?.drivingStatus, selectedDesignerIds.length, selectedProductIds.length]);
+  const submitBlocker = firstRequestBlocker(readiness);
+  const fanOutText = describeRequestFanOut(selectedProductIds.length, selectedDesignerIds.length);
+
+  const scrollToSection = (key: RequestReadinessKey) => {
+    const y = sectionOffsets.current[key === 'fcCode' ? 'designer' : key];
+    if (typeof y === 'number') scrollRef.current?.scrollTo({ y: Math.max(y - 12, 0), animated: true });
+  };
+  const resolveBlocker = (item: RequestReadinessItem) => {
+    scrollToSection(item.key);
+    if (item.key === 'driving') setDrivingPickerOpen(true);
+    if (item.key === 'request') setTimeout(() => requestInputRef.current?.focus(), 250);
+    if (item.key === 'designer') setSheetVisible(true);
+    if (item.key === 'fcCode') {
+      router.push({
+        pathname: '/request-board-fc-codes',
+        params: { company: companiesMissingFcCode[0] ?? '', returnTo: 'request-create' },
+      } as any);
+    }
+  };
+  // Fixing the driving status here keeps the products, manager and request text already entered.
+  const saveDrivingStatus = async (drivingStatus: string) => {
+    if (!selectedCustomer || savingDriving) return;
+    setSavingDriving(true);
+    try {
+      const result = await rbSaveCustomer({ ...mapCustomerProfileToSavePayload(selectedCustomer), drivingStatus });
+      if (!result.success || !result.data) throw new Error(result.error ?? '운전구분을 저장하지 못했습니다.');
+      setCustomers((prev) => mergeCustomerIntoList(prev, result.data!));
+      setSelectedCustomer(result.data);
+      setDrivingPickerOpen(false);
+    } catch (error) {
+      Alert.alert('운전구분 저장 실패', toRequestBoardSessionErrorMessage(error, '운전구분을 저장하지 못했습니다.'));
+    } finally {
+      setSavingDriving(false);
+    }
+  };
 
   const updateCustomerField = <K extends keyof RbSaveCustomerPayload>(
     key: K,
@@ -1969,6 +2035,7 @@ export default function RequestBoardCreateScreen() {
     }
     return (
       <>
+        <View onLayout={(event) => { sectionOffsets.current.driving = event.nativeEvent.layout.y; }}>
         <View style={styles.summaryCard}>
           <View style={styles.summaryMain}>
             <Text style={styles.summaryName}>{selectedCustomer.name}</Text>
@@ -1981,9 +2048,43 @@ export default function RequestBoardCreateScreen() {
             <Text style={styles.selectedBadgeText}>선택됨</Text>
           </View>
         </View>
+        {!String(selectedCustomer.drivingStatus ?? '').trim() ? (
+          <View style={styles.drivingFixPanel}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: drivingPickerOpen }}
+              style={styles.drivingFixHeader}
+              onPress={() => setDrivingPickerOpen((open) => !open)}
+            >
+              <Feather name="alert-circle" size={16} color={COLORS.warning.dark} />
+              <Text style={styles.drivingFixTitle}>운전구분이 없어 요청을 보낼 수 없어요</Text>
+              {savingDriving ? <ActivityIndicator size="small" color={COLORS.warning.dark} /> : (
+                <Text style={styles.drivingFixAction}>{drivingPickerOpen ? '접기' : '선택'}</Text>
+              )}
+            </Pressable>
+            {drivingPickerOpen ? (
+              <View style={styles.drivingStatusGrid}>
+                {REQUEST_BOARD_DRIVING_STATUS_OPTIONS.map((option) => (
+                  <Pressable
+                    key={option.value}
+                    disabled={savingDriving}
+                    style={({ pressed }) => [styles.drivingStatusChip, pressed && { opacity: 0.85 }]}
+                    onPress={() => void saveDrivingStatus(option.value)}
+                  >
+                    <Text style={styles.drivingStatusText}>{option.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+        </View>
 
-        <View style={styles.block}>
-          <Text style={styles.sectionTitle}>보험 상품</Text>
+        <View style={styles.block} onLayout={(event) => { sectionOffsets.current.product = event.nativeEvent.layout.y; }}>
+          <View style={styles.sectionTitleRow}>
+            <Text style={styles.sectionTitle}>보험 상품</Text>
+            <Text style={styles.requiredBadge}>필수</Text>
+          </View>
           <View style={styles.productGrid}>
             {products.map((product) => {
               const selected = selectedProductIds.includes(product.id);
@@ -2011,10 +2112,13 @@ export default function RequestBoardCreateScreen() {
           </View>
         </View>
 
-        <View style={styles.block}>
+        <View style={styles.block} onLayout={(event) => { sectionOffsets.current.request = event.nativeEvent.layout.y; }}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>요청 예시</Text>
-            <Text style={styles.sectionMeta}>탭하면 문구에 추가됩니다</Text>
+            <View style={styles.sectionTitleRow}>
+              <Text style={styles.sectionTitle}>요청 내용</Text>
+              <Text style={styles.requiredBadge}>필수</Text>
+            </View>
+            <Text style={styles.sectionMeta}>예시를 탭하면 추가돼요</Text>
           </View>
           <ScrollView keyboardShouldPersistTaps="always"
             horizontal
@@ -2033,6 +2137,7 @@ export default function RequestBoardCreateScreen() {
             ))}
           </ScrollView>
           <TextInput
+            ref={requestInputRef}
             key={`request-text-${composeDraftKey}`}
             style={[styles.input, styles.requestTextarea]}
             multiline
@@ -2075,7 +2180,7 @@ export default function RequestBoardCreateScreen() {
           )}
         </View>
 
-        <View style={styles.block}>
+        <View style={styles.block} onLayout={(event) => { sectionOffsets.current.designer = event.nativeEvent.layout.y; }}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <Text style={styles.sectionTitle}>설계매니저</Text>
@@ -2100,16 +2205,59 @@ export default function RequestBoardCreateScreen() {
             </View>
             <Feather name="chevron-right" size={18} color={COLORS.gray[500]} />
           </Pressable>
+          {companiesMissingFcCode.length > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.codeMissingRow, pressed && { opacity: 0.8 }]}
+              onPress={() => resolveBlocker(readiness.find((item) => item.key === 'fcCode')!)}
+            >
+              <Feather name="alert-circle" size={16} color={COLORS.warning.dark} />
+              <Text style={styles.codeMissingText}>{[...new Set(companiesMissingFcCode)].join(', ')} 설계코드가 필요해요</Text>
+              <Text style={styles.drivingFixAction}>등록</Text>
+            </Pressable>
+          ) : null}
+        </View>
+
+        <View style={styles.checklistCard}>
+          <Text style={styles.checklistTitle}>보내기 전 확인</Text>
+          {readiness.map((item) => (
+            <Pressable
+              key={item.key}
+              accessibilityRole="button"
+              accessibilityLabel={`${item.label}, ${item.detail}`}
+              disabled={item.ok !== false}
+              style={({ pressed }) => [styles.checklistRow, pressed && { opacity: 0.7 }]}
+              onPress={() => resolveBlocker(item)}
+            >
+              <Feather
+                name={item.ok === true ? 'check-circle' : item.ok === false ? 'alert-circle' : 'circle'}
+                size={18}
+                color={item.ok === true ? COLORS.success : item.ok === false ? COLORS.warning.dark : COLORS.gray[400]}
+              />
+              <Text style={styles.checklistLabel}>{item.label}</Text>
+              <Text style={[styles.checklistDetail, item.ok === false && styles.checklistDetailMissing]} numberOfLines={1}>
+                {item.detail}
+              </Text>
+              {item.ok === false ? <Feather name="chevron-right" size={16} color={COLORS.warning.dark} /> : null}
+            </Pressable>
+          ))}
         </View>
 
         <View style={styles.fixedActionSpacer} />
         <View style={[styles.fixedActions, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          {fanOutText && !submitBlocker ? <Text style={styles.fanOutText}>{fanOutText}</Text> : null}
+          {/* While something is missing the button names it and takes the FC there instead of greying out. */}
           <Pressable
-            style={[styles.cta, (!canSubmit || submitting) && styles.disabledButton]}
-            onPress={() => void submitRequest()}
-            disabled={!canSubmit || submitting}
+            accessibilityRole="button"
+            style={[submitBlocker ? styles.ctaOutline : styles.cta, submitting && styles.disabledButton]}
+            onPress={() => (submitBlocker ? resolveBlocker(submitBlocker) : void submitRequest())}
+            disabled={submitting}
           >
-            {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.ctaText}>설계 요청 보내기</Text>}
+            {submitting ? <ActivityIndicator color="#fff" /> : (
+              <Text style={submitBlocker ? styles.ctaOutlineText : styles.ctaText}>
+                {submitBlocker ? submitBlocker.action : '설계 요청 보내기'}
+              </Text>
+            )}
           </Pressable>
         </View>
       </>
@@ -2189,7 +2337,7 @@ export default function RequestBoardCreateScreen() {
       <Pressable style={styles.cta} onPress={() => router.replace('/request-board-requests' as any)}>
         <Text style={styles.ctaText}>진행중인 의뢰 보기</Text>
       </Pressable>
-      <Pressable style={styles.ctaOutline} onPress={() => router.replace('/request-board' as any)}>
+      <Pressable style={styles.ctaOutline} onPress={() => returnTo(router, '/request-board' as any)}>
         <Text style={styles.ctaOutlineText}>설계요청 홈</Text>
       </Pressable>
       {sentRequestIds.length > 0 ? (
@@ -2234,7 +2382,7 @@ export default function RequestBoardCreateScreen() {
             <Text style={styles.sentRetryText}>데이터 다시 불러오기</Text>
           </Pressable>
           {isRequestBoardSessionReauthError(dataError) ? (
-            <Pressable accessibilityRole="button" onPress={() => router.replace('/login?skipAuto=1')}>
+            <Pressable accessibilityRole="button" onPress={() => resetTo(router, '/login?skipAuto=1')}>
               <Text style={styles.sentRetryText}>다시 로그인</Text>
             </Pressable>
           ) : null}
@@ -2253,7 +2401,7 @@ export default function RequestBoardCreateScreen() {
             <Text style={styles.ctaText}>다시 시도</Text>
           </Pressable>
           {isRequestBoardSessionReauthError(dataError) ? (
-            <Pressable accessibilityRole="button" onPress={() => router.replace('/login?skipAuto=1')}>
+            <Pressable accessibilityRole="button" onPress={() => resetTo(router, '/login?skipAuto=1')}>
               <Text style={styles.loadingText}>다시 로그인</Text>
             </Pressable>
           ) : null}
@@ -2264,6 +2412,7 @@ export default function RequestBoardCreateScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <ScrollView
+            ref={scrollRef}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="always" disableScrollViewPanResponder
             keyboardDismissMode="none"
@@ -3174,8 +3323,46 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   codeStateMissing: {
-    color: COLORS.error,
+    color: COLORS.warning.dark,
   },
+  drivingFixPanel: {
+    marginTop: SPACING.sm,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.warning.border,
+    backgroundColor: COLORS.warning.light,
+    padding: SPACING.md,
+    gap: SPACING.md,
+  },
+  drivingFixHeader: { minHeight: 32, flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  drivingFixTitle: { flex: 1, color: COLORS.warning.dark, fontSize: TYPOGRAPHY.fontSize.sm, fontWeight: '700' },
+  drivingFixAction: { color: COLORS.primary, fontSize: TYPOGRAPHY.fontSize.sm, fontWeight: '800' },
+  codeMissingRow: {
+    minHeight: 44,
+    marginTop: SPACING.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.warning.light,
+  },
+  codeMissingText: { flex: 1, color: COLORS.warning.dark, fontSize: TYPOGRAPHY.fontSize.sm, fontWeight: '700' },
+  checklistCard: {
+    marginTop: SPACING.base,
+    borderRadius: RADIUS.lg,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    paddingHorizontal: SPACING.base,
+    paddingVertical: SPACING.sm,
+  },
+  checklistTitle: { paddingVertical: SPACING.sm, color: COLORS.gray[900], fontSize: TYPOGRAPHY.fontSize.md, fontWeight: '800' },
+  checklistRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  checklistLabel: { width: 76, color: COLORS.gray[800], fontSize: TYPOGRAPHY.fontSize.sm, fontWeight: '700' },
+  checklistDetail: { flex: 1, color: COLORS.gray[500], fontSize: TYPOGRAPHY.fontSize.sm, textAlign: 'right' },
+  checklistDetailMissing: { color: COLORS.warning.dark, fontWeight: '700' },
+  fanOutText: { textAlign: 'center', color: COLORS.gray[600], fontSize: TYPOGRAPHY.fontSize.sm },
   selectMark: {
     minWidth: 50,
     height: 38,

@@ -12,6 +12,7 @@ import {
 import type { NotificationTargetV1 } from '../_shared/notification-target.ts';
 import { validatePersistedNotificationForDelivery } from '../_shared/persisted-notification-delivery.ts';
 import { drainMessengerAttachmentCleanup } from '../_shared/messenger-attachment-service.ts';
+import { fcRetirementBlockedResponse, retireFcBeforeAccountDeletion } from '../_shared/request-board-fc-retirement.ts';
 import {
   buildFcDocWorkflowResetPayload,
   isFcStatus,
@@ -1590,6 +1591,20 @@ serve(async (req: Request) => {
       const { fcId } = payload as { fcId: string };
       if (!fcId) return fail('fcId is required');
 
+      const { data: fcProfile, error: fcProfileError } = await supabase
+        .from('fc_profiles')
+        .select('id,phone')
+        .eq('id', fcId)
+        .eq('is_manager_referral_shadow', false)
+        .maybeSingle();
+      if (fcProfileError) return fail('FC 계정을 삭제하지 못했습니다.', 500);
+      if (!fcProfile?.id) return fail('삭제할 FC 계정을 찾을 수 없습니다.', 404);
+      const retired = await retireFcBeforeAccountDeletion(fcProfile.id, fcProfile.phone);
+      if (retired.ok === false) {
+        const blocked = fcRetirementBlockedResponse(retired.reason);
+        return json({ ok: false, code: blocked.code, message: blocked.message }, blocked.status);
+      }
+
       const { data, error } = await supabase.rpc(
         'delete_account_core_transaction_v1',
         {
@@ -1655,6 +1670,7 @@ serve(async (req: Request) => {
 
       return json({
         ok: true,
+        deleted: result.deleted === true,
         cleanupWarning:
           postCommitCleanupFailed
           || Boolean(outboxError),

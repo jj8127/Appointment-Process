@@ -1,5 +1,12 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261019-messenger-unified-line-integration"></a>
+## 2026-10-19 운영 메신저 통합 모델 계열 통합
+
+- 대상: fix/back-navigation-20261018(5f6d01c1). 6c19783·69fdd38을 포함하고 메신저 통합 모델 migration 20261016104031~20261016151419와 관리자 감사 기록 20261016100000(운영 DB 적용 기록 없음)을 더한다.
+- 충돌 12개: FC 홈 3개(fc-home-sections, 시험, FcHomeNews)는 이 계열의 최신판(필독 글 우선), app/index·settings·chat back 시험은 이 계열판, fc-notify는 응답 후 푸시(runAfterResponse) 판, group-chat은 이 계열의 지연 측정 import에 release의 이전 페이지 측정 유지. 자동 병합으로 app/index.tsx에 중복 import가 생겨 제거했다.
+- 검증: 앱·웹 tsc, deno check(get-referral-tree, login-with-password, request-signup-otp, set-password; fc-notify·group-chat은 기준선도 같은 로컬 npm 의존성 오류), jest 새 실패 0, web 813/814(기존 범례 1), edge 139/143(실패 4건은 기준선 5f6d01c1도 동일), SQL PGlite 168/168.
+
 <a id="20261019-moduon-signup-prod-line-integration"></a>
 ## 2026-10-19 운영 모두온 가입·탈퇴·메신저 계열 통합
 
@@ -24,6 +31,18 @@
 - 요청 게시판·로그인·관리자 목록·시험 신청자·FC 상세·그룹채팅은 핫픽스의 행 검증(collectSupabaseRows, 수신 확인, parseLoginSuccessResponse)과 release의 화면 구조(acceptLoginResponse, 일괄 접수, FC 홈 개편, admin-route-auth)를 함께 유지했다. schema.sql은 서로 겹치지 않는 두 migration 묶음을 날짜순으로 이었다.
 - release가 Edge fixture에서 mobile-acceptance-runtime으로 옮긴 시험 대기 수·서류 재진입 시험은 핫픽스 fixture를 반영해 옮긴 쪽에 두고, 핸들러 시험의 중복본과 release가 지운 메시지 초안 시험은 다시 넣지 않았다. release 소스 추출 시험에는 핫픽스의 새 의존성을 주입했다.
 - 검증: 앱·웹 tsc, deno check(get-referral-tree, login-with-password, request-signup-otp), jest, web node, edge node를 release·핫픽스 기준선과 비교해 새 실패 0건. 핫픽스 커밋에서 이미 실패하던 소스 문자열 시험 15건과 referral-graph-responsive 범례 시험 1건은 그대로 남아 있다.
+<a id="20261016-board-attachment-black-screen"></a>
+## 2026-10-16 게시판 첨부 열기 검은 화면 수정
+
+- 기준: 운영 라인 `feature/messenger-ux-p1-20261015`(`8f9b8da`)에서 분기. 게시판 첨부 파일은 통합 빌드 `integration/local-all-20261016`과 같다.
+- 원인 1(파일): `lib/board-attachment-actions.ts`가 `openExternalUrl` 기본값으로 `WebBrowser.openBrowserAsync`(Android Custom Tab)를 썼다. PDF·HWP·Office 응답은 Custom Tab이 렌더링하지 못해 다운로드만 시작하고 빈(다크 모드에서 검은) 탭이 남는다. 메신저 첨부는 이미 `preferExternalBrowser: true`를 쓰고 있었다. `app/admin-board.tsx` 수정 화면의 기존 첨부도 같은 경로였다.
+- 원인 2(만료): `board-detail`은 첨부 URL을 1시간으로 서명한다. 상세를 열어 둔 채(또는 백그라운드 후 복귀, `refetchOnWindowFocus: false`) 1시간이 지나면 사진 미리보기는 빈 검은 오버레이, 파일은 저장소 오류 페이지가 된다. 수정: `fetchBoardDetail`이 `attachmentsSignedAt`을 기록하고, 열기 전에 `getFreshBoardAttachments`가 50분 이상 지난 경우 상세를 다시 조회한다. 재조회 실패 시 만료 URL로 열지 않고 실패를 알린다. URL이 없거나 안전하지 않을 때 아무 반응 없던 것도 실패 안내로 바꿨다.
+- 원인 3(표시): `components/ImagePreviewModal.tsx`는 이미지 로딩·실패 상태가 없어 큰 사진을 받는 동안이나 실패 시 0.92 검은 오버레이만 보였다. 페이지마다 로딩 표시와 `이미지를 불러올 수 없습니다.`를 추가했다.
+- 원인 4(메모리): RN 0.81 Android `Image`는 `resizeMethod` 기본값 auto에서 로컬 파일만 줄여 읽고 원격 https 이미지는 원본 해상도로 디코딩한다(`ReactImageView.shouldResize`). Android 미리보기는 가상화 없이 모든 장을 한 번에 마운트해 큰 사진 여러 장이면 메모리 부족으로 그리지 못할 수 있다. 미리보기·첨부 썸네일·그리드에 `resizeMethod="resize"`를 지정했다.
+- 원인 5(시작 위치): Android 미리보기의 ScrollView에는 처음 위치 이동이 연결돼 있지 않아(`listRef`는 FlatList 전용) 몇 번째 사진을 눌러도 1번째 사진이 보이고 제목만 "N번째"였다. 실기기(SM-S942N)에서 "10월 원수사 시책(생명보험)"(사진 20장, 14.7MB) 2번째 사진으로 재현. `contentOffset`·`scrollTo`로 누른 사진에서 시작하고, 현재 장과 앞뒤 한 장만 이미지를 그리게 했다.
+- 제보 맥락: 사용자 통화 녹음(로컬 faster-whisper로만 받아 적음)에서 시책 게시글의 사진 열몇 장 중 하나를 크게 보면 검은 화면으로 멈춘다는 제보(갤럭시, 최신 업데이트).
+- 검증: `board-attachment-actions`·`board-read-recovery`·`image-preview-modal-policy` suite에 회귀 추가, tsc·eslint·governance 통과. 실기기 확인은 폰이 PIN 잠금이라 하지 못했다. 배포·OTA·push 없음.
+
 <a id="20261015-ota-4220-msg"></a>
 ## 2026-10-15 메신저 사진·실시간 채널·가족간병 추천인 OTA
 
@@ -242,6 +261,19 @@
 - 기존 보험 초대는 유지하고 `service=care`는 공통 가입으로 연결한다. 목적별 pending과 owner 보호·명시 query 우선순위를 적용하며 신규 회원만 기존 서버 계약으로 연결한다. 공개 홍보 URL은 query-free다.
 - 기존 추천 공유·native controls·mobile acceptance suite를 확장했다. 오래된 mock의 판별기/수집기/로그인/문서 계약을 실제 기존 구현으로 갱신하며 새로운 러너나 일반 abstraction을 만들지 않는다.
 - 실제 제품 화면 컴포넌트를 React Native Web로 렌더하고 합성 계정·라우터 어댑터만 사용한다. 전체 Expo 개발 실행은 로컬 환경 설정 부재로 중단했다. native/실제 회원/SMS/OS 공유 전달은 미검증이며 설치 후 추천 코드 자동 보존을 보장하지 않는다. 최종 검사와 이미지 경로는 service-home revision-23 QA에 기록한다.
+<a id="20261016-admin-web-ux-r2-audit"></a>
+## 2026-10-16 관리자 web 메뉴·검색·브랜드 정리와 처리·다운로드·개인정보 조회 기록
+
+- 기준: 운영 `6b72d99` 위 `deploy/admin-web-ux-20261015`(운영 배포 `3d2fd16`). `release/all-surfaces-20261004`는 운영 계열이 아니어서 사용하지 않았다.
+- 메뉴: 홈 / 온보딩 / 시험 / 소통(공지사항 추가) / 추천·수당 / 관리(처리 이력, 관리자 쓰기 계정) / 개발(에이전트 룸, developer 전용). 상세 경로는 가장 구체적인 메뉴를 활성화한다. 에이전트 룸 API는 developer가 아니면 403.
+- 검색: 헤더 `GlobalFcSearch`가 대시보드와 같은 FC 목록 query key를 재사용하고, 이름·소속·연락처 숫자 3자리 이상으로 찾는다(Ctrl+K).
+- 브랜드: `lib/brand-colors.ts` 단일 주황 `#f36f21`, Mantine orange shade 6·theme-color·manifest 동일. 페이지 제목은 order 2·charcoal. 용어는 `서류 관리`, `1:1 메신저`로 정리하고 모바일과 공유하는 단계명 `2단계 문서제출`은 유지했다.
+- 기록: `supabase/migrations/20261016100000_admin_audit_events.sql`(schema.sql 동시 반영). 처리 기록은 변경 성공 후 best-effort, 엑셀 다운로드·주민번호 조회는 기록 실패 시 데이터를 반환하지 않는다(fail-closed). 주민번호·입력값은 저장하지 않는다. 상세는 `docs/handbook/backend/admin-audit-log.md`.
+- 검증: web-node 804/804, SQL PGlite 117/117(새 `admin-audit-events-sql` 포함), TypeScript, 변경 파일 ESLint, Sentry 업로드 없는 Next 운영 빌드. 합성 관리자 화면에서 메뉴 그룹·검색 확인.
+- 운영 적용(2026-10-16, 사용자 승인): Supabase MCP `apply_migration`은 도구 확인 단계가 자동 거절되어 3회 실패했고, 사용자가 SQL Editor에서 커밋본과 동일한 migration을 직접 실행했다. catalog로 테이블·RLS·권한(anon/authenticated 거부, service_role 허용)·append-only trigger 2개·주민번호 형태 check를 확인했다. 행은 쓰지 않았다. Supabase migration 이력(`supabase_migrations.schema_migrations`)에는 아직 기록되지 않았다.
+- 운영 배포: 다른 세션이 `3d2fd16` 위 핫픽스 `6c19783`을 이미 배포해 둔 상태여서, 이를 cherry-pick한 `f0dfa73b2daa27ded3711a3d7587a3ff7af3f7fa`(= `dc8062c` + `6c19783`)로 배포했다. 운영 대비 web 변경분이 `3d2fd16..dc8062c`와 동일함을 diff로 확인했다. Vercel `dpl_2KZ2XuBxLgEjra6U9iX5d7cUwWKY` READY, alias `adminweb-red.vercel.app`. 비로그인 요청에서 `/auth` 200, 대시보드 경로 307→`/auth`, 새 API 401. 배포 후 30분 오류 로그 0건·5xx 0건. 로그인 화면 동작은 사용자 확인 대기.
+- 처리 이력 화면 수정 배포: 조회 성공에도 오류 알림이 보이던 무조건 렌더링과 실패 시 빈 목록 문구, 잘리는 구분 배지를 고친 `d67cdfde5c732cb5b0bd3427eaefc17a1ef01161`을 `f0dfa73` 위에서 배포했다. Vercel `dpl_D8Y281HK6YYZ4oGsGCBw96ZLygW6` READY, alias `adminweb-red.vercel.app`, 경로 응답 정상, 배포 후 오류 로그 0건·5xx 0건. 목록 상태 회귀는 기존 `board-read-state-runtime` 목록 화면 반복 검사에 처리 이력을 추가해 고정했다.
+- 후속: migration 이력을 맞추려면 로컬 파일을 운영 최신(`20261016120000`) 이후 버전으로 바꾸고 `supabase migration repair --status applied <version>`을 별도 승인 후 실행한다.
 
 <a id="20261013-cutover-review-repair"></a>
 ## 2026-10-13 가입·공통 조회 릴리스 재검토 수리
@@ -14868,6 +14900,28 @@ Verification:
 - Route checks: unknown scope → 400 `invalid_input`; insurance scope with an invalid session → 401 `invalid_app_session`; short code check → 400; `get_hospital_regions` → 200. No withdrawal row was created. Post-deploy logs: only those four requests, no 5xx. Security advisors unchanged.
 - Remaining: the app-side `가람in 탈퇴` button needs an OTA/store release; until then old apps' settings `계정 삭제` uses `delete-account`, whose FC deletion now detaches instead of withdrawing 모두온.
 
+## <a id="20261015-copy-toast-release-press"></a> 2026-10-15 Copy toast and release-to-act controls
+
+- Source: interaction patterns from the Toss/NAVER/KakaoTalk/YouTube/Instagram study (`D:/hanhwa/outputs/moduon-ux-patterns-20261015.md`, items P1-1 and P1-2). Exact original timings were not measured and none are copied.
+- `components/Toast.tsx`: exported `showToast` reaches the mounted `ToastProvider`, replaces an identical visible toast, announces the message for screen readers, and falls back to `Alert.alert` only when no provider is mounted.
+- `lib/messenger-copy-actions.ts`: copy success/empty/failure use toasts; `feedback: 'none'` lets a modal caller show the result on its own control. Consent temp ID, exam fee account (both exam-apply screens), Garam Link URL and referral code copies now reuse the helper instead of their own Clipboard/Alert code.
+- Request-board image preview copy button switches to `복사됨`/`복사 실패` and resets when another image opens.
+- `app/group-chat.tsx`, `app/request-board-messenger.tsx` (2 headers) back buttons and `MessengerTabBar` tabs use `onPress` with a pressed background instead of `onPressIn`, so sliding off cancels. The 4.2.2 freeze had switched them to press-in without a recorded reason; the documented auth `submitOnPressIn` exception is unchanged.
+- Tests: new `components/__tests__/Toast.test.js` (dedupe, auto-dismiss, provider fallback, copy helper outcomes); updated shared UI, chat back navigation, messenger hub and request-board mobile UI source contracts; dependency boundaries in `mobile-native-controls` and `exam-cancellation-user-flow`.
+- Physical Android check (2026-10-15, Samsung SM-S942N/Android16, local release APK built from the working tree with EAS updates disabled only for that build, debug-signed; user signed in): settings referral copy, group-chat message copy, Garam Link URL copy and life exam fee account copy show the top success toast; three rapid copies leave one toast that auto-dismisses; messenger tab slide-off keeps the current tab and a normal tap switches; group-chat back slide-off stays in the room, and with the keyboard open one back tap leaves the room and closes the keyboard. App logcat had no JS errors.
+- Not verified: request-board messenger headers and image-preview copy (account has no Garam Link conversation), consent temp ID copy (no temp ID issued), iOS. No commit, OTA, EAS build or deployment.
+- Follow-up: Android 13+ (API 33) shows its own clipboard confirmation, so `copyTextWithFeedback` skips the app success toast there; empty/failure toasts, the image-preview inline label and the exam fee haptic are unchanged. Covered in `components/__tests__/Toast.test.js` for API 33 and 32. Rebuilt local release APK on the same Android16 phone: referral code copy shows only the system clipboard confirmation, with no app toast.
+
+## <a id="20261016-fc-home-redesign"></a> 2026-10-16 FC home redesign
+
+- Implemented the approved 가람in home prototype for the FC role only. Admin, manager and designer homes, the header and the bottom navigation (another session is editing it) are unchanged.
+- New `components/fc-home/`: progress card (reanimated check draw/pop and progress fill, run once per newly finished step, reduce-motion aware), messages row (총무팀 latest + unread badge nudge), exam rounds carousel (gesture-handler pan that follows the finger, distance/velocity settle, cancel returns), news (latest notice row, board category chips with sliding pill, pinned post card, rows sharing the board's `['board-posts']` cache prefix), shortcuts (Blender 3D icons from `outputs/garamin-home-shortcut-icons-20261015`, downscaled to 256px; allowance/referral cards; 사용법 tile).
+- Not invented: allowance amount, registration start date, per-post unread state and the "notify when registration opens" action are absent because no data/feature exists.
+- Tests: new `lib/__tests__/fc-home-sections.test.ts`; updated home guide, license source and InsuranceHomeNavigation dependency boundaries. Full Jest: 306/307 suites pass; the remaining failure is `BottomNavigation.test.tsx` against another session's uncommitted `components/BottomNavigation.tsx`. TypeScript and ESLint pass.
+- Device follow-up (Samsung SM-S942N, local release APK, user signed in): a null `exam_rounds.exam_date` crashed the home; fixed with `formatHomeMonthDay` and per-section `FcHomeSectionBoundary`. Then, per user review, the FC home page is gray (`#f3f4f6`) behind white section cards, and the 수당/내 추천 cards follow the prototype (title + chevron, large value, footer): 수당 shows the latest statement payment and performance month from `useReferralAllowance`, 내 추천 shows `directInviteeCount` with up to two initials and 코드 공유. No trend line is drawn because no monthly series is loaded. Exam carousel drag-follow, short-drag return and swipe settle were observed on the device.
+- Follow-up review: 새 소식 now follows the prototype order (header, category chips, one large post — pinned as 필독 or else the newest — with reactions/comments, then two rows with a dot for posts from the last 7 days; the latest 공지사항 is a row at the bottom). Board category tags get stable tints from `getHomeCategoryTone` (공지 orange, 교육 blue, 상품 teal, 시책 amber, 소식 indigo, 일반 gray). The 수당 card shows the 3D bar-chart image. Exam cards carry a type picture (new Blender heart for 생명, blue-roof house for 손해), a type chip and a type tint; titles are '생명 · 제3보험' and '손해 · 제3보험'. Verified on the device: both exam cards, chip switch to 상품추천 with skeleton then filtered post.
+- Life/non-life pictures are now shared across the home: shortcut tiles for /exam-apply and /exam-apply2, the 생명/손해 위촉 tiles and the 생명/손해 license chips use the same heart/house images as the exam cards (the unused calendar `exam.png` was removed). Board filter chips wear their category tint when idle and the sliding pill animates to the category's strong color (전체 stays dark). Verified on the device, including selecting 교육 일정.
+- 수당 card always shows an amount (`getHomeAllowanceDisplay`): the latest statement's payment with its performance month, or 0원 · 지급 내역 없음 when there is no statement or the FC is outside the allowance pilot (the endpoint answers 403 forbidden for non-recipients); only other read failures show 확인 필요. Section titles (메시지, 시험 접수, 새 소식, 바로가기) carry small 3D icons from the same Blender family (new chat bubble and tile icons; calendar and megaphone renders reused) under `assets/images/fc-home/section-*.png`. Verified on the device.
 ## <a id="20261016-login-navigation-stacked-signup"></a> 2026-10-16 Login navigation test for the stacked signup
 
 - Found by the full Jest comparison against `8f9b8da`: only `lib/__tests__/login-navigation.test.js` was new. It transpiles `app/services/signup.tsx` and required the real `react-native-reanimated`, which Jest cannot parse.

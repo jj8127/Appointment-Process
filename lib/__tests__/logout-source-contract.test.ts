@@ -10,7 +10,7 @@ describe('explicit mobile logout source contract', () => {
 
     expect(source).toContain("loginPath: string = '/login?skipAuto=1'");
     expect(source).toContain('logout();');
-    expect(source).toContain('router.replace(loginPath as any);');
+    expect(source).toContain('resetTo(router, loginPath as any);');
   });
 
   test('home logout does not enter a terminal Android-only loading surface', () => {

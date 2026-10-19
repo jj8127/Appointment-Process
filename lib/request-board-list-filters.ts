@@ -37,7 +37,16 @@ const getRequestStatusBucket = (
   if (status === 'accepted' || status === 'in_progress' || status === 'inprogress') {
     return 'in_progress';
   }
-  if (status === 'completed' || status === 'rejected') return 'completed';
+  // A manager's rejection ends a request without a design; it belongs with cancellations, not done.
+  if (status === 'rejected') return 'cancelled';
+  if (status === 'completed') {
+    const assignments = request.request_designers ?? [];
+    const allStopped = assignments.length > 0 && assignments.every((assignment) => {
+      const assignmentStatus = normalize(assignment.status);
+      return assignmentStatus === 'rejected' || assignmentStatus === 'cancelled' || assignmentStatus === 'canceled';
+    });
+    return allStopped ? 'cancelled' : 'completed';
+  }
   if (status === 'cancelled' || status === 'canceled') return 'cancelled';
   return null;
 };
@@ -50,8 +59,8 @@ const getAssignmentStatusBucket = (
   if (status === 'accepted' || status === 'in_progress' || status === 'inprogress') {
     return 'in_progress';
   }
-  if (status === 'completed' || status === 'rejected') return 'completed';
-  if (status === 'cancelled' || status === 'canceled') return 'cancelled';
+  if (status === 'completed') return 'completed';
+  if (status === 'rejected' || status === 'cancelled' || status === 'canceled') return 'cancelled';
   return null;
 };
 

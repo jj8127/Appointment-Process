@@ -49,11 +49,9 @@ import { z } from 'zod';
 import { useSession } from '@/hooks/use-session';
 import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
 import { sortExamRoundsNewestFirst } from '@/lib/exam-round-sort';
+import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
 
 // --- Constants ---
-const HANWHA_ORANGE = '#f36f21';
-const CHARCOAL = '#111827';
-const MUTED = '#6b7280';
 
 // --- Types ---
 type ExamRound = {

@@ -1,8 +1,21 @@
 import { Feather } from '@expo/vector-icons';
 import { getHeaderTitle } from '@react-navigation/elements';
+import { useRouter, type Href } from 'expo-router';
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { goBackOrReplace } from '@/lib/back-navigation';
+
+/** Back button for screens also opened from notifications, where there may be no previous screen. */
+export function FallbackBackButton({ href }: { href: Href }) {
+    const router = useRouter();
+    return (
+        <Pressable accessibilityRole="button" accessibilityLabel="뒤로가기" onPress={() => goBackOrReplace(router, href)} style={styles.backButton}>
+            <Feather aria-hidden accessible={false} name="arrow-left" size={24} color="#000" />
+        </Pressable>
+    );
+}
 
 export default function CompactHeader({ navigation, route, options, back }: any) {
     const title = getHeaderTitle(options, route.name);

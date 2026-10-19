@@ -1,4 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import { requireOptionalNativeModule } from 'expo-modules-core';
 import { Platform } from 'react-native';
 
 type DownloadRemoteFileToUserStorageOptions = {
@@ -100,4 +101,49 @@ export async function downloadRemoteFileToUserStorage({
     fileName: savedFileName,
     destinationLabel: Platform.OS === 'android' ? '다운로드 폴더' : '앱 문서 폴더',
   };
+}
+
+export type FileSharingModule = {
+  isAvailableAsync: () => Promise<boolean>;
+  shareAsync: (url: string, options?: { mimeType?: string; dialogTitle?: string }) => Promise<void>;
+};
+
+/**
+ * expo-sharing ships with a native module; store builds made before it was added lack it,
+ * and an OTA update must not crash them, so callers get null and hide the share action.
+ */
+export function loadFileSharing(): FileSharingModule | null {
+  if (!requireOptionalNativeModule('ExpoSharing')) return null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('expo-sharing') as FileSharingModule;
+  } catch {
+    return null;
+  }
+}
+
+/** Downloads a remote file under its real name and opens the system share sheet (KakaoTalk etc.). */
+export async function shareRemoteFile({
+  url,
+  fileName,
+  mimeType = 'application/octet-stream',
+  fallbackFileName,
+  sharing = loadFileSharing(),
+}: {
+  url: string;
+  fileName: string;
+  mimeType?: string;
+  fallbackFileName?: string;
+  sharing?: FileSharingModule | null;
+}): Promise<void> {
+  if (!sharing || !(await sharing.isAvailableAsync())) {
+    throw new Error('이 기기에서는 파일 공유를 사용할 수 없습니다.');
+  }
+  const baseDir = FileSystem.cacheDirectory;
+  if (!baseDir) throw new Error('공유할 파일을 준비할 경로를 찾을 수 없습니다.');
+  // A per-share folder keeps the original file name, which is what the recipient sees.
+  const shareDir = `${baseDir}share-${Date.now()}/`;
+  await FileSystem.makeDirectoryAsync(shareDir, { intermediates: true });
+  const downloaded = await FileSystem.downloadAsync(url, `${shareDir}${sanitizeNativeFileName(fileName, fallbackFileName)}`);
+  await sharing.shareAsync(downloaded.uri, { mimeType, dialogTitle: fileName });
 }

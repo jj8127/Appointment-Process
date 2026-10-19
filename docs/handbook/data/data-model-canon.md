@@ -7,6 +7,21 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
 
+## 2026-10-16 통합 메신저 1단계 모델 (가람in 운영 적용)
+
+`20261016104031`~`20261016120249` 마이그레이션 8개와 schema mirror가 1단계 모델을 이룬다. `111950`은 백필 뒤에 생긴 방을 첫 메시지에서 연결해 바로 복사하는 수정이고, `120249`는 지운 메시지의 비워진 본문·첨부 필드도 복사본에 옮기는 수정이고(개인정보), `120000`은 그림자 프로필에만 소속이 있는 본부장도 본부에 넣는 수정이다.
+
+- 통합 메신저 테이블: 사람(`messenger_actors`), 조직과 본부 하위 조직, 대화방, 참여자, 방별 순번 메시지와 이벤트, 반응, 옛 방 대응표, 동기화 이슈, 대조 기록, 가져오기 커서.
+- 옛 1:1·단체방 테이블에는 이중 기록 trigger가 붙는다.
+  - trigger는 실패해도 원래 쓰기를 막지 않고 이슈로만 남긴다.
+- pg_cron 작업 두 개:
+  - `messenger-unified-daily-sync`(03:30 KST): 백필 → 본부 → 순서 복구 → 대조
+  - `messenger-garamlink-sync`(10분): Vault 키가 없으면 아무것도 하지 않는다.
+- 비공개 bucket `messenger-imported-attachments`를 둔다.
+- 권한: 모든 테이블은 RLS를 켜고 anon/authenticated 권한을 회수한다. 함수는 service_role만 실행한다.
+- 앱은 아직 이 모델을 읽지 않는다. 그래서 순서 복구(번호 다시 매기기)가 안전하고, 2단계에서 클라이언트가 읽기 시작하기 전에 순서 복구 호출을 빼야 한다.
+- 운영 적용 순서와 되돌리기는 `docs/deployment/messenger-stage1-rollout.md`를 따른다.
+
 ## 2026-10-14 제휴 서비스별 추천 관계 (로컬)
 
 `supabase/migrations/20261014130000_platform_service_referrals.sql`과 schema mirror는 `platform_service_referral_codes`(회원·서비스별 코드)와 `platform_service_referrals`(회원·서비스별 추천인, 첫 등록 확정)를 추가한다. 두 테이블은 RLS/직접 접근 회수를 유지하고 service-role RPC만 사용한다. `create_platform_application`은 공통 `referrer_id` 대신 같은 서비스의 추천인을 스냅숏한다. 공통 `referrer_id`는 과거 기록으로 남고 새 정산에 쓰이지 않는다. 운영 DB 미적용.
@@ -290,3 +305,6 @@ Read-only preflight found zero catalog/cron dependencies and zero legacy challen
 - `erase_platform_withdrawal_v1`: 두 범위 모두 FC를 closure 방식으로 지우고(정산이 참조하는 UUID만 익명으로 남음), `all_affiliates`일 때만 `delete_platform_member`를 부른다.
 - `delete_platform_member`: 정산 기록이 없는 서비스 신청은 삭제하고, 정산된 신청은 익명화해 UUID만 남긴다.
 - FC 행 삭제 트리거(`platform_fc_delete_identity`)는 더 이상 모두온 계정을 탈퇴시키지 않고 연결만 끊는다. 관리자·본부장 계정 삭제는 기존처럼 연결된 회원을 지운다.
+## 2026-10-16 Admin audit events (local, not applied)
+
+`20261016100000_admin_audit_events.sql` adds append-only `public.admin_audit_events` for admin FC changes, personal-data exports and resident-number views. It stores actor role, staff type and staff phone digits, time, category, action, target FC, target count, reason and a detail object of action codes and edited field names. Resident numbers, decrypted values and entered values are never stored; a check constraint and the server builder reject resident-number-shaped detail or reason. RLS is enabled with select/insert granted to `service_role` only; update, delete and truncate are rejected by trigger. Retention is at least two years with no purge job yet. Verified only in a disposable PGlite database; production application requires separate approval and must precede the admin web release. See `docs/handbook/backend/admin-audit-log.md`.

@@ -56,6 +56,7 @@ import { supabase } from '@/lib/supabase';
 import { collectSupabaseRows } from '@/lib/supabase-query-contract';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
+import { returnTo } from '@/lib/back-navigation';
 
 const ORANGE = '#f36f21';
 const ORANGE_LIGHT = '#f7b182';
@@ -212,7 +213,7 @@ export default function ExamRegisterScreen() {
   useEffect(() => {
     if (role !== 'admin') {
       Alert.alert('접근 불가', '총무만 사용할 수 있는 메뉴입니다.');
-      router.replace('/');
+      returnTo(router, '/');
     }
   }, [role]);
 

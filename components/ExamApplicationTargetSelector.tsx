@@ -3,7 +3,6 @@ import { useMemo, useState } from 'react';
 import {
   FlatList,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -11,8 +10,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { SystemBarsModal } from '@/components/SystemBarsModal';
 import type { ExamApplicationTarget } from '@/lib/exam-payment-proof-api';
 
 type Props = {
@@ -39,7 +38,6 @@ export function ExamApplicationTargetSelector({
   disabled = false,
 }: Props) {
   const [open, setOpen] = useState(false);
-  const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
   const normalizedSearch = normalizeSearch(search);
   const filteredTargets = useMemo(
@@ -110,8 +108,8 @@ export function ExamApplicationTargetSelector({
       </Pressable>
       {!isLoading ? errorContent : null}
 
-      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
-        <KeyboardAvoidingView
+      <SystemBarsModal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+        {(insets) => <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.overlay}
         >
@@ -177,8 +175,8 @@ export function ExamApplicationTargetSelector({
               )}
             />
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        </KeyboardAvoidingView>}
+      </SystemBarsModal>
     </View>
   );
 }

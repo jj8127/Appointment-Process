@@ -20,6 +20,8 @@ Board/공지/댓글/첨부의 필수 쿼리는 query-result와 board-read contra
 - 모바일 일반/관리자 게시판과 관리자 웹은 첫 목록만 표시하지 않고 `nextCursor`를 이어 조회한다. 카테고리·검색·정렬·계정별 목록을 분리하고, 추가 조회 실패 시 이미 읽은 글과 재시도 동선을 유지한다. 반복 반환되는 고정글은 ID로 합친다.
 - signed-session `board-list`는 정렬 값과 게시글 ID를 함께 사용하는 커서를 반환한다. 댓글/반응 정렬은 작성 시각과 ID까지 비교해 동점의 다음 글을 읽는다. 한 건을 추가 조회해 실제 다음 페이지 유무를 판정하며, 기존 날짜 커서도 최신/업데이트 정렬에서 수용한다. 자동 게시용 목록의 카테고리·고정 20건·최소 응답·권한 계약은 유지한다.
 - 검증은 가상 게시물로 21번째 글, 동일 시각/동점, 네 정렬의 양방향 이동, 고정글 중복, 카테고리·세션 전환, 추가 조회 실패 후 재시도, 조회수/반응 캐시 갱신을 확인한다. 운영 적용에는 `board-list`와 웹 배포 및 모바일 업데이트가 필요하며, 이 항목은 배포 완료를 뜻하지 않는다.
+- signed-session `board-list` 항목은 `isRead`를 함께 반환한다. 요청자 본인 글이거나 `board_post_views`에 요청자 `resident_id` 조회 기록이 있으면 `true`다. 조회 기록 조회가 실패해도 목록은 실패시키지 않고 읽음 표시만 생략한다. 클라이언트는 `isRead`가 없으면 읽은 글로 취급해 배포 전후에 모든 글이 새 글로 보이지 않게 한다. 상세를 열면 목록 캐시의 조회수와 `isRead`를 함께 갱신한다(`patchBoardListViewedPost`).
+- 필독은 기존 고정(`is_pinned`, `board-pin`, 관리자 전용)을 그대로 쓴다. 앱 관리자 작성 화면은 저장 후 고정 상태가 바뀐 경우에만 `board-pin`을 호출하고, 실패하면 저장은 유지한 채 결과 알림에 필독 미저장을 함께 알린다. 관리자 웹은 게시글 메뉴의 필독 지정/해제로 같은 API를 호출한다.
 
 ## 2026-10-02 Atomic comment retries (prepared)
 
@@ -96,6 +98,11 @@ Board/공지/댓글/첨부의 필수 쿼리는 query-result와 board-read contra
 - `garam-pick`의 표시명은 `상품추천`이며 stable slug는 계속 `garam-pick`입니다.
 - `policy`는 `시책` 표시명과 sort order 5를 사용합니다.
 - canonical 5종 밖의 legacy category 게시글은 migration에서 `general`로 재배치하고 old category는 inactive 처리합니다.
+
+## 2026-10-16 첨부 서명 URL 재사용 한도
+
+- `board-detail` 첨부 URL은 1시간 서명이다. 모바일 `fetchBoardDetail`은 받은 시각을 `attachmentsSignedAt`으로 남기고, 상세·관리 화면은 첨부를 열기 전 50분 이상 지났으면 상세를 다시 조회한다. 서버 응답 형식과 서명 시간은 바꾸지 않았다.
+- 파일 첨부는 외부 브라우저(`preferExternalBrowser`)로 연다. Android Custom Tab은 PDF·HWP·Office 응답에서 빈 탭만 남긴다.
 
 ## 2026-07-13 actor·automation·attachment 계약
 

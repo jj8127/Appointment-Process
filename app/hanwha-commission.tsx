@@ -21,8 +21,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { Button } from '@/components/Button';
-import CompactHeader from '@/components/CompactHeader';
-import { ScreenHeader } from '@/components/ScreenHeader';
+import CompactHeader, { FallbackBackButton } from '@/components/CompactHeader';
+import { OnboardingStepNowCard } from '@/components/OnboardingStepNowCard';
+import { getHanwhaStepNow } from '@/lib/onboarding-step-now';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
 import { presentPostCommitNotificationDelivery } from '@/lib/fc-notify-post-commit';
@@ -32,8 +33,9 @@ import { useSession } from '@/hooks/use-session';
 import { downloadRemoteFileToUserStorage } from '@/lib/native-file-actions';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import { openExternalUrl } from '@/lib/open-external-url';
+import { INSURANCE_HOME_ROUTE } from '@/lib/service-home';
 import { supabase } from '@/lib/supabase';
-import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import type { FcStatus } from '@/types/fc';
 
@@ -60,12 +62,6 @@ type HanwhaProfile = {
   hanwha_commission_pdf_name?: string | null;
   dawichok_url_sent_at?: string | null;
   dawichok_url_sent_by?: string | null;
-};
-
-type StatusTone = {
-  label: string;
-  backgroundColor: string;
-  color: string;
 };
 
 type HanwhaSubmissionReceipt = {
@@ -233,43 +229,20 @@ function HanwhaCommissionScreenContent() {
     hanwha_commission_pdf_path: pdfPath,
     hanwha_commission_pdf_name: rawPdfName,
   });
-  const hasApprovedPdf = isApproved && hasAttachedPdf;
   const isPrerequisiteBlocked = !canSubmitHanwha && !isApproved && !isPending;
   const isLocked = isApproved || isPending || isPrerequisiteBlocked;
   const pdfCardTitle = isApproved ? '승인 PDF' : '첨부 PDF';
 
-  const statusTone = useMemo<StatusTone>(() => {
-    if (isPrerequisiteBlocked) {
-      return { label: '문서 승인 필요', backgroundColor: '#E0E7FF', color: '#3730A3' };
-    }
-    if (hasApprovedPdf) {
-      return { label: '승인 완료', backgroundColor: '#DCFCE7', color: '#166534' };
-    }
-    if (hasAttachedPdf) {
-      return { label: '파일 도착', backgroundColor: '#DBEAFE', color: '#1D4ED8' };
-    }
-    if (isApproved) {
-      return { label: 'PDF 대기', backgroundColor: '#FEF3C7', color: '#92400E' };
-    }
-    if (isRejected) {
-      return { label: '반려', backgroundColor: '#FEE2E2', color: '#B91C1C' };
-    }
-    if (isPending) {
-      return { label: '검토 중', backgroundColor: '#FFF7ED', color: '#C2410C' };
-    }
-    return { label: '입력 전', backgroundColor: COLORS.gray[100], color: COLORS.text.muted };
-  }, [hasApprovedPdf, hasAttachedPdf, isApproved, isPending, isPrerequisiteBlocked, isRejected]);
-
-  const statusDescription = useMemo(() => {
-    if (isPrerequisiteBlocked) return '서류 승인 후 진행';
-    if (hasApprovedPdf) return '첨부 PDF 확인 가능';
-    if (hasAttachedPdf && isRejected) return '반려 사유와 첨부 PDF를 확인하세요.';
-    if (hasAttachedPdf) return '첨부 PDF를 먼저 확인할 수 있습니다.';
-    if (isApproved) return '첨부 자료 등록 대기';
-    if (isRejected) return '반려 후 재제출';
-    if (isPending) return '총무 검토 중';
-    return 'URL 진행 후 제출';
-  }, [hasApprovedPdf, hasAttachedPdf, isApproved, isPending, isPrerequisiteBlocked, isRejected]);
+  const stepNow = getHanwhaStepNow({
+    blocked: isPrerequisiteBlocked,
+    approved: isApproved,
+    hasPdf: hasAttachedPdf,
+    rejected: isRejected,
+    pending: isPending,
+    rejectReason,
+  });
+  // The date form is only for my turn or a rejection; afterwards the submitted date is shown read-only.
+  const showDateForm = !isLocked;
 
   const handleDateChange = useCallback((event: DateTimePickerEvent, selectedDate?: Date) => {
     if (Platform.OS === 'android') {
@@ -446,6 +419,7 @@ function HanwhaCommissionScreenContent() {
           headerShown: true,
           title: '다위촉 URL',
           header: (props) => <CompactHeader {...props} />,
+          headerLeft: () => <FallbackBackButton href={INSURANCE_HOME_ROUTE} />,
         }}
       />
 
@@ -454,61 +428,33 @@ function HanwhaCommissionScreenContent() {
         contentInsetAdjustmentBehavior="never"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        <ScreenHeader
-          title="다위촉 URL"
-          subtitle="URL · 완료일 · 첨부 PDF"
+        <OnboardingStepNowCard
+          step={3}
+          now={stepNow}
         />
 
         {loading ? (
           <BrandedLoadingState variant="hanwha-commission" layout="section" />
         ) : (
           <>
+            {showDateForm ? (
             <View style={styles.card}>
-              <View style={styles.summaryHeader}>
-                <Text style={styles.sectionTitle}>다위촉 URL 검토</Text>
-                <View style={[styles.statusBadge, { backgroundColor: statusTone.backgroundColor }]}>
-                  <Text style={[styles.statusBadgeText, { color: statusTone.color }]}>{statusTone.label}</Text>
-                </View>
-              </View>
-              <Text style={styles.sectionDesc}>{statusDescription}</Text>
-              {!isPrerequisiteBlocked && (
-                <View style={styles.statusHintRow}>
-                  <Feather name="message-circle" size={16} color={COLORS.primary} />
-                  <Text style={styles.statusHintText}>
-                    카카오톡으로 다위촉 URL에 접속하여 진행 후 완료일을 입력해 주세요.
-                  </Text>
-                </View>
-              )}
-              {isPrerequisiteBlocked && (
-                <Text style={[styles.sectionDesc, { color: COLORS.text.muted, marginTop: 4 }]}>
-                  서류 승인 후 총무가 다위촉 URL을 안내합니다.
-                </Text>
-              )}
-              {!!rejectReason && (
-                <View style={styles.rejectBox}>
-                  <Text style={styles.rejectTitle}>반려 사유</Text>
-                  <Text style={styles.rejectText}>{rejectReason}</Text>
-                </View>
-              )}
-
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>다위촉 URL 완료일</Text>
                 {Platform.OS === 'web' ? (
                   <View style={styles.webDateWrapper}>
-                    <View style={[styles.dateInput, isLocked && styles.disabledInput]}>
+                    <View style={styles.dateInput}>
                       <Text style={[styles.dateText, !displayDate && styles.placeholderText]}>
                         {displayDate ? formatShortKoreanDate(displayDate) : '날짜를 선택하세요'}
                       </Text>
-                      <Feather name="calendar" size={18} color={COLORS.text.secondary} />
+                      <Feather name="calendar" size={18} color={COLORS.primaryButton} />
                     </View>
                     {/* @ts-ignore */}
                     <input
                       type="date"
                       style={styles.webDateInput}
                       value={displayDate ? toYMD(displayDate) : ''}
-                      disabled={isLocked}
                       onChange={(event: any) => {
-                        if (isLocked) return;
                         const nextDate = event.target.valueAsDate;
                         if (nextDate) {
                           handleDateChange({ type: 'set' } as DateTimePickerEvent, nextDate);
@@ -518,9 +464,8 @@ function HanwhaCommissionScreenContent() {
                   </View>
                 ) : (
                   <Pressable
-                    style={[styles.dateInput, isLocked && styles.disabledInput]}
+                    style={styles.dateInput}
                     onPress={() => {
-                      if (isLocked) return;
                       setTempDate(displayDate ?? new Date());
                       setShowPicker(true);
                     }}
@@ -528,7 +473,7 @@ function HanwhaCommissionScreenContent() {
                     <Text style={[styles.dateText, !displayDate && styles.placeholderText]}>
                       {displayDate ? formatKoreanDate(displayDate) : '날짜를 선택하세요'}
                     </Text>
-                    <Feather name="calendar" size={18} color={COLORS.text.secondary} />
+                    <Feather name="calendar" size={18} color={COLORS.primaryButton} />
                   </Pressable>
                 )}
 
@@ -543,31 +488,23 @@ function HanwhaCommissionScreenContent() {
 
               <Button
                 onPress={submitDate}
-                disabled={isLocked || !displayDate || saving}
+                disabled={!displayDate || saving}
                 loading={saving}
                 variant="primary"
                 size="lg"
                 fullWidth
-                style={{ marginTop: 8 }}
               >
-                {isApproved ? '승인 완료' : isPending ? '승인 대기 중' : '완료일 제출하기'}
+                완료일 제출하기
               </Button>
-              {hasAttachedPdf && <Text style={styles.fileCaption}>{pdfName}</Text>}
-
-              {hasAttachedPdf && (
-                <Button
-                  onPress={openPdf}
-                  loading={openingPdf}
-                  variant="outline"
-                  size="lg"
-                  fullWidth
-                  leftIcon={<Feather name="download" size={18} color={COLORS.primary} />}
-                >
-                  {pdfCardTitle} 확인
-                </Button>
-              )}
             </View>
+            ) : submittedDate ? (
+              <View style={[styles.card, styles.summaryRow]}>
+                <Text style={styles.summaryLabel}>제출한 완료일</Text>
+                <Text style={styles.summaryValue}>{formatKoreanDate(submittedDate)}</Text>
+              </View>
+            ) : null}
 
+            {hasAttachedPdf ? (
             <View style={styles.card}>
               <View style={styles.compactHero}>
                 <View style={[styles.heroIconWrap, styles.heroIconWrapSolid]}>
@@ -575,13 +512,7 @@ function HanwhaCommissionScreenContent() {
                 </View>
                 <View style={styles.heroTextWrap}>
                   <Text style={styles.sectionTitle}>{pdfCardTitle}</Text>
-                  <Text style={styles.sectionDesc}>
-                    {hasApprovedPdf
-                      ? '열람 · 다운로드 가능'
-                      : hasAttachedPdf
-                        ? '첨부된 PDF를 확인할 수 있습니다.'
-                        : '총무가 PDF를 첨부하면 여기서 바로 확인할 수 있습니다.'}
-                  </Text>
+                  <Text style={styles.sectionDesc}>{pdfName}</Text>
                 </View>
               </View>
 
@@ -635,6 +566,7 @@ function HanwhaCommissionScreenContent() {
 
               </View>
             </View>
+            ) : null}
           </>
         )}
       </ScrollView>
@@ -686,12 +618,11 @@ function HanwhaCommissionScreenContent() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.white },
+  safe: { flex: 1, backgroundColor: '#f3f4f6' },
   container: {
-    paddingHorizontal: SPACING.lg,
-    paddingTop: 0,
+    paddingHorizontal: SPACING.base,
+    paddingTop: SPACING.base,
     paddingBottom: SPACING.xl,
-    gap: SPACING.lg,
   },
   centeredContainer: {
     alignItems: 'center',
@@ -699,14 +630,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   card: {
+    marginBottom: 12,
     backgroundColor: COLORS.white,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    padding: SPACING.lg,
+    borderRadius: 24,
+    padding: 20,
     gap: SPACING.base,
-    ...SHADOWS.base,
   },
+  summaryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  summaryLabel: { fontSize: 14, color: COLORS.gray[500] },
+  summaryValue: { fontSize: 16, fontWeight: '700', color: COLORS.gray[900] },
   compactHero: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -720,17 +652,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   heroIconWrapSolid: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: COLORS.primaryButton,
   },
   heroTextWrap: {
     flex: 1,
     gap: 4,
-  },
-  summaryHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: SPACING.sm,
   },
   sectionTitle: {
     flex: 1,
@@ -742,55 +668,6 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.sm + 1,
     color: COLORS.text.muted,
     lineHeight: 20,
-  },
-  statusBadge: {
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.xs + 2,
-    borderRadius: RADIUS.base,
-  },
-  statusBadgeText: {
-    fontSize: TYPOGRAPHY.fontSize.xs + 1,
-    fontWeight: TYPOGRAPHY.fontWeight.bold,
-  },
-  statusHintRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: SPACING.xs,
-  },
-  statusHintText: {
-    flex: 1,
-    fontSize: TYPOGRAPHY.fontSize.sm,
-    color: COLORS.text.muted,
-    lineHeight: 18,
-  },
-  detailList: {
-    gap: SPACING.sm,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: SPACING.base,
-  },
-  detailLabelWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.xs,
-  },
-  detailLabel: {
-    fontSize: TYPOGRAPHY.fontSize.sm,
-    color: COLORS.text.muted,
-  },
-  detailValue: {
-    flex: 1,
-    textAlign: 'right',
-    fontSize: TYPOGRAPHY.fontSize.sm,
-    fontWeight: TYPOGRAPHY.fontWeight.semibold,
-    color: COLORS.text.primary,
-  },
-  fileCaption: {
-    fontSize: TYPOGRAPHY.fontSize.xs + 1,
-    color: COLORS.text.muted,
   },
   pdfDock: {
     borderRadius: RADIUS.lg,
@@ -846,24 +723,6 @@ const styles = StyleSheet.create({
   pdfActionBtn: {
     flex: 1,
   },
-  rejectBox: {
-    backgroundColor: COLORS.errorLight,
-    borderColor: '#FECACA',
-    borderWidth: 1,
-    padding: SPACING.md,
-    borderRadius: RADIUS.md,
-  },
-  rejectTitle: {
-    fontSize: TYPOGRAPHY.fontSize.md + 1,
-    fontWeight: TYPOGRAPHY.fontWeight.bold,
-    color: '#B91C1C',
-    marginBottom: SPACING.xs + 2,
-  },
-  rejectText: {
-    fontSize: TYPOGRAPHY.fontSize.sm + 1,
-    color: '#7F1D1D',
-    lineHeight: 24,
-  },
   inputGroup: {
     gap: SPACING.sm,
     marginTop: SPACING.xs,
@@ -899,10 +758,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: SPACING.sm,
-  },
-  disabledInput: {
-    backgroundColor: COLORS.gray[100],
-    opacity: 0.7,
   },
   dateText: {
     flex: 1,

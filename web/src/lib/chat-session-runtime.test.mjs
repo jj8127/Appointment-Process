@@ -10,6 +10,7 @@ import * as queryContract from './supabase-query-contract.ts';
 import * as messengerMessageContract from './messenger-message-contract.ts';
 import * as presenceReadResponse from '../../../lib/presence-read-response.ts';
 import * as presenceQueryContract from '../../../supabase/functions/_shared/presence-query-contract.ts';
+import * as brandColors from './brand-colors.ts';
 
 const require = createRequire(new URL('../../../package.json', import.meta.url));
 const webRequire = createRequire(import.meta.url);
@@ -88,6 +89,7 @@ function harness(route = 'dashboard/chat', role = 'admin') {
       if (id === 'react' || id === 'react/jsx-runtime') return require(id);
       if (id === '@mantine/core' || id === '@tabler/icons-react') return ui;
       if (id === '@/lib/admin-chat-targets') return {};
+      if (id === '@/lib/brand-colors') return brandColors;
       throw new Error(`Missing mock: ${id}`);
     },
     fetch: (url, options) => url === '/api/admin/chat-list'

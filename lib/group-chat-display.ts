@@ -1,3 +1,4 @@
+import { formatMessengerTime } from '@/lib/messenger-time';
 import { safeDecodeFileName } from '@/lib/validation';
 
 export type GroupChatDisplayRole = 'fc' | 'manager' | 'admin' | string;
@@ -45,9 +46,22 @@ export function normalizeGroupChatMemberSearch(value?: string | null) {
   return String(value ?? '').replace(/\s+/g, '').trim().toLowerCase();
 }
 
+/** Rooms at least this large show how many read a message instead of how many have not. */
+export const GROUP_CHAT_LARGE_ROOM_MEMBERS = 50;
+
+/**
+ * "412명 읽음" for a large room, or null for a small room (which keeps the
+ * KakaoTalk-style unread count). The sender does not count as a reader.
+ */
+export function formatGroupChatSeenLabel(memberCount: number, unreadCount: number): string | null {
+  if (!Number.isFinite(memberCount) || memberCount < GROUP_CHAT_LARGE_ROOM_MEMBERS) return null;
+  const readers = Math.max(0, Math.floor(memberCount) - 1 - Math.max(0, Math.floor(unreadCount || 0)));
+  return `${readers.toLocaleString('ko-KR')}명 읽음`;
+}
+
+/** Bubble time in Korea time, the same format as 1:1 rooms ("오후 3:05"). */
 export function formatGroupChatTime(iso: string) {
-  const date = new Date(iso);
-  return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  return formatMessengerTime(iso);
 }
 
 export function getGroupChatMemberStatusTone(member: GroupChatMemberLike): GroupChatMemberStatusTone {

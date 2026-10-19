@@ -8,6 +8,7 @@ import { classifyFcNotifyDeliveryResult } from '../../../lib/fc-notify-delivery-
 import { requireExamTransitionReceipt } from '../../../supabase/functions/_shared/ux-mutation-contract.ts';
 import { isBoardSuccess } from './upstream-response-policy.ts';
 import { createCreationRequestTracker } from './creation-request.ts';
+import { searchFcRows } from './fc-global-search.ts';
 import {
   isNonEmptyResponseString,
   isHttpsResponseUrl,
@@ -63,6 +64,97 @@ function execute(code, values) {
   return vm.runInNewContext(output, { exports: {}, ...values, require: () => ({ jsx: () => null }) });
 }
 const noNotifications = { show() {} };
+
+test('sidebar keeps the most specific menu active on detail pages and maps chat to messenger', () => {
+  const find = execute(extract('app/dashboard/layout.tsx', 'findActiveNavHref'), { NAV_ALIASES: {
+    '/dashboard/chat': '/dashboard/messenger', '/dashboard/group-chat': '/dashboard/messenger',
+  } });
+  const hrefs = ['/dashboard', '/dashboard/referrals', '/dashboard/referrals/graph', '/dashboard/notifications', '/dashboard/messenger', '/dashboard/exam/applicants'];
+  assert.equal(find('/dashboard', hrefs), '/dashboard');
+  assert.equal(find('/dashboard/referrals/graph', hrefs), '/dashboard/referrals/graph');
+  assert.equal(find('/dashboard/notifications/abc/edit', hrefs), '/dashboard/notifications');
+  assert.equal(find('/dashboard/exam/applicants/r1', hrefs), '/dashboard/exam/applicants');
+  assert.equal(find('/dashboard/group-chat', hrefs), '/dashboard/messenger');
+  assert.equal(find('/dashboard/settings', hrefs), null);
+});
+
+test('global FC search matches name, affiliation and phone digits, with a result limit', () => {
+  const rows = [
+    { id: '1', name: '가상 김', phone: '010-1111-2222', affiliation: '1본부' },
+    { id: '2', name: '가상 이', phone: '01033334444', affiliation: '2본부' },
+  ];
+  assert.deepEqual(searchFcRows(rows, '김').map((row) => row.id), ['1']);
+  assert.deepEqual(searchFcRows(rows, '2본부').map((row) => row.id), ['2']);
+  assert.deepEqual(searchFcRows(rows, '3333').map((row) => row.id), ['2']);
+  assert.deepEqual(searchFcRows(rows, '01').map((row) => row.id), [], 'short digit queries do not scan phones');
+  assert.deepEqual(searchFcRows(rows, '  '), []);
+  assert.equal(searchFcRows(rows, '가상', 1).length, 1);
+});
+
+const jsonResponse = (body, init = {}) => ({ body, status: init.status ?? 200, ok: (init.status ?? 200) < 400 });
+
+test('admin FC route records history only for committed changes', async () => {
+  const recorded = [];
+  let actionResponse = { ok: true, status: 200 };
+  const POST = execute(extract('app/api/admin/fc/route.ts', 'POST'), {
+    badRequest: (message) => ({ ok: false, status: 400, message }),
+    logger: { error() {} },
+    getAdminSession: async () => ({ ok: true, session: { role: 'admin', staffType: 'admin', residentDigits: '01000000001' } }),
+    getReadSession: async () => ({ ok: true, session: { role: 'manager', staffType: 'manager', residentDigits: '01000000002' } }),
+    runAdminFcAction: async () => actionResponse,
+    AUDITED_FC_ACTIONS: new Set(['updateStatus']),
+    recordAdminAuditEvent: async (actor, event) => { recorded.push({ actor, event }); return true; },
+    toAuditAction: (action) => `snake:${action}`,
+    summarizeFcActionPayload: (payload) => ({ status: payload.status }),
+    NextResponse: { json: jsonResponse },
+  });
+  const request = (action) => ({ json: async () => ({ action, payload: { fcId: 'fc-1', status: 'docs-approved' } }) });
+  await POST(request('updateStatus'));
+  assert.deepEqual(recorded.map(({ event }) => [event.action, event.targetFcId, event.detail.status]), [['snake:updateStatus', 'fc-1', 'docs-approved']]);
+  await POST(request('getProfile'));
+  actionResponse = { ok: false, status: 500 };
+  await POST(request('updateStatus'));
+  assert.equal(recorded.length, 1, 'reads and failed changes are not history');
+});
+
+test('export logging validates the request and refuses the download when it cannot be stored', async () => {
+  let stored = true; const events = [];
+  const POST = execute(extract('app/api/admin/audit/export/route.ts', 'POST'), {
+    getVerifiedServerSession: async () => ({ ok: true, session: { role: 'manager', staffType: null, residentDigits: '01000000002' } }),
+    recordAdminAuditEvent: async (actor, event) => { events.push({ actor, event }); return stored; },
+    EXPORT_REASONS: ['협회 시험 접수'], EXPORT_KINDS: new Set(['exam_applicants_xlsx']), RESPONSE_HEADERS: {},
+    NextResponse: { json: jsonResponse },
+  });
+  const request = (body) => ({ json: async () => body });
+  const valid = { kind: 'exam_applicants_xlsx', rowCount: 12, reason: '협회 시험 접수' };
+  assert.equal((await POST(request({ ...valid, reason: '임의' }))).status, 400);
+  assert.equal((await POST(request({ ...valid, rowCount: 0 }))).status, 400);
+  assert.equal((await POST(request(valid))).status, 200);
+  assert.deepEqual([events[0].actor.role, events[0].event.category, events[0].event.targetCount, events[0].event.reason], ['manager', 'export', 12, '협회 시험 접수']);
+  stored = false;
+  assert.equal((await POST(request(valid))).status, 503);
+});
+
+test('exam applicant list with resident numbers is withheld when the view cannot be recorded', async () => {
+  let stored = true; const events = [];
+  const GET = execute(extract('app/api/admin/exam-applicants/route.ts', 'GET'), {
+    requireAdminOrManagerReadRoute: async () => ({ ok: true, session: { role: 'admin', staffType: 'admin', residentId: '010-0000-0001', residentDigits: '01000000001' } }),
+    checkRateLimit: () => ({ allowed: true }), SECURITY_HEADERS: {}, UUID_PATTERN: /^[0-9a-f-]{36}$/,
+    listApplicants: async () => ({ applicants: [{ id: 'r1' }], viewedFcIds: ['fc-1', 'fc-2'] }),
+    readApplicantNavigation: async () => undefined,
+    recordAdminAuditEvent: async (actor, event) => { events.push(event); return stored; },
+    serverError: () => ({ status: 500 }), URL,
+    NextResponse: { json: jsonResponse },
+  });
+  const request = { url: 'http://localhost/api/admin/exam-applicants' };
+  const ok = await GET(request);
+  assert.equal(ok.status, 200);
+  assert.deepEqual([events[0].category, events[0].action, events[0].targetCount, events[0].detail.source], ['personal_info_view', 'resident_number_view', 2, 'exam_applicants']);
+  stored = false;
+  const withheld = await GET(request);
+  assert.equal(withheld.status, 503);
+  assert.equal(withheld.body.applicants, undefined);
+});
 
 test('appointment years include current and returned data years without hiding current-year FCs', () => {
   const dayjs = require('dayjs');
@@ -1319,7 +1411,7 @@ test('D01: actual notice action retries an atomic receipt and rejects changed pa
     readErrorCode: (error) => (typeof error?.code === 'string' && error.code.trim() ? error.code : 'invalid_result'),
     logger: { error() {}, warn() {}, debug() {}, info() {} },
     getVerifiedAdminSession: async () => ({ ok: true, session: { role: 'admin', residentId: 'synthetic-actor' } }),
-    emptyExpoDelivery: () => ({ attempted: 0, accepted: 0, rejected: 0 }), revalidatePath() {},
+    emptyExpoDelivery: () => ({ attempted: 0, accepted: 0, rejected: 0 }), revalidatePath() {}, recordAdminAuditEvent: async () => true,
     adminSupabase: {
       async rpc(name, input) {
         assert.equal(name, 'create_notice_idempotent_v1'); assert.equal(input.p_actor_role, 'admin');

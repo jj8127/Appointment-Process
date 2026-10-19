@@ -29,6 +29,7 @@ import {
   type RbMessengerRoomPreference,
 } from '@/lib/request-board-api';
 import { getMessengerHubCapabilities } from '@/lib/messenger-role-capabilities';
+import { resetTo } from '@/lib/back-navigation';
 
 const ACCENT = '#F36F21';
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
@@ -192,7 +193,7 @@ export default function MutedConversationsScreen() {
   useEffect(() => {
     if (!hydrated) return;
     if (!role) {
-      router.replace('/login');
+      resetTo(router, '/login');
       return;
     }
     void load();

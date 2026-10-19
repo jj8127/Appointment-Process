@@ -23,8 +23,9 @@ describe('notification receipt authorization boundary', () => {
 
   it('scopes list and unread queries by immutable actor id plus true broadcasts', () => {
     expect(source).toContain(
-      '`recipient_actor_id.eq.${viewer.actorId},and(recipient_actor_id.is.null,resident_id.is.null)`',
+      'query.or(`recipient_actor_id.eq.${viewer.actorId},${broadcastScope}`)',
     );
+    expect(source).toContain("'and(recipient_actor_id.is.null,resident_id.is.null)'");
     expect(source).toContain(".eq('recipient_actor_id', viewer.actorId)");
   });
 

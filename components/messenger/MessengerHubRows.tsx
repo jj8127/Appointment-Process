@@ -5,6 +5,8 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import {
   getMessengerPersonRowLabels,
+  MESSENGER_CONVERSATION_FILTERS,
+  type MessengerConversationFilter,
   type MessengerHubConversation,
   type MessengerHubPerson,
   type MessengerPersonRole,
@@ -180,6 +182,38 @@ export function MessengerRoleFilterPanel({
   );
 }
 
+export function MessengerConversationFilterPanel({
+  value,
+  counts,
+  onChange,
+}: {
+  value: MessengerConversationFilter;
+  counts: Record<MessengerConversationFilter, number>;
+  onChange: (value: MessengerConversationFilter) => void;
+}) {
+  return (
+    <View style={styles.filterPanel} accessibilityLabel="대화 필터">
+      {MESSENGER_CONVERSATION_FILTERS.map((filter) => {
+        const active = value === filter.key;
+        return (
+          <Pressable
+            key={filter.key}
+            accessibilityRole="button"
+            accessibilityLabel={`${filter.label} ${counts[filter.key]}개`}
+            accessibilityState={{ selected: active }}
+            aria-pressed={active}
+            onPress={() => onChange(filter.key)}
+            style={({ pressed }) => [styles.filterChip, styles.filterChipRow, active && styles.filterChipActive, pressed && styles.filterChipPressed]}
+          >
+            <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{filter.label}</Text>
+            <Text style={[styles.filterChipCount, active && styles.filterChipTextActive]}>{counts[filter.key]}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export const MessengerHubConversationRow = memo(function MessengerHubConversationRow({
   item,
   onPress,
@@ -214,13 +248,20 @@ export const MessengerHubConversationRow = memo(function MessengerHubConversatio
       }}
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
     >
-      <View style={styles.avatar}><Text style={styles.avatarText}>{avatarText(item.name)}</Text></View>
+      {item.route.kind === 'group' ? (
+        // Group rooms read as a group at a glance, not as one person's initial.
+        <View style={[styles.avatar, styles.avatarGroup]}>
+          <Feather aria-hidden accessible={false} name="users" size={20} color="#FFFFFF" />
+        </View>
+      ) : (
+        <View style={styles.avatar}><Text style={styles.avatarText}>{avatarText(item.name)}</Text></View>
+      )}
       <View style={styles.body}>
         <View style={styles.nameLine}>
           <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
           <Text style={styles.source}>{item.sourceLabel}</Text>
         </View>
-        <Text style={styles.preview} numberOfLines={1}>{item.preview}</Text>
+        <Text style={[styles.preview, item.unreadCount > 0 && styles.previewUnread]} numberOfLines={1}>{item.preview}</Text>
       </View>
       <View style={styles.meta}>
         <View style={styles.timeLine}>
@@ -343,6 +384,7 @@ const styles = StyleSheet.create({
   personRoleLine: { position: 'absolute', left: 0, top: 12, bottom: 12, width: 4, borderTopRightRadius: 2, borderBottomRightRadius: 2 },
   avatar: { width: 46, height: 46, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF0E6' },
   avatarText: { color: '#B84D0B', fontSize: 17, fontWeight: '800' },
+  avatarGroup: { backgroundColor: '#f36f21' },
   body: { flex: 1, minWidth: 0, gap: 3 },
   nameLine: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   name: { flexShrink: 1, color: '#111827', fontSize: 16, lineHeight: 22, fontWeight: '700' },
@@ -351,6 +393,8 @@ const styles = StyleSheet.create({
   roleBadgeText: { fontSize: 10, lineHeight: 14, fontWeight: '800' },
   source: { color: '#9CA3AF', fontSize: 11, fontWeight: '600' },
   preview: { color: '#6B7280', fontSize: 13, lineHeight: 18 },
+  // An unread room's last message reads in full ink so it stands out in the list.
+  previewUnread: { color: '#111827', fontWeight: '600' },
   meta: { minWidth: 42, alignSelf: 'stretch', alignItems: 'flex-end', justifyContent: 'space-between', paddingVertical: 2 },
   timeLine: { minHeight: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
   muteButton: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 16 },
@@ -396,6 +440,8 @@ const styles = StyleSheet.create({
   filterChipPressed: { opacity: 0.72 },
   filterChipText: { color: '#6B7280', fontSize: 12, fontWeight: '700' },
   filterChipTextActive: { color: '#B84D0B' },
+  filterChipRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  filterChipCount: { color: '#9CA3AF', fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'] },
   empty: { paddingHorizontal: 24, paddingTop: 72, alignItems: 'center', gap: 7 },
   emptyTitle: { color: '#374151', fontSize: 15, fontWeight: '700' },
   emptyDetail: { color: '#9CA3AF', fontSize: 13 },

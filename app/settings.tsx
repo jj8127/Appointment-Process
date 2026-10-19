@@ -18,6 +18,7 @@ import { getAccountRoleLabel } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 import { copyTextWithFeedback } from '@/lib/messenger-copy-actions';
+import { resetTo } from '@/lib/back-navigation';
 
 const APP_STORE_URL = (process.env.EXPO_PUBLIC_APP_STORE_URL ?? '').trim();
 const INVITE_BASE_URL = process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? '';
@@ -80,7 +81,7 @@ export default function SettingsScreen() {
     await loginPlatformMember({ id: receipt.memberSession.memberId, name: receipt.memberSession.displayName }, receipt.memberSession.appSessionToken);
     Alert.alert(receipt.status === 'completed' ? '가람in 탈퇴 완료' : '가람in 탈퇴 처리 중',
       receipt.status === 'completed' ? '모두온 계정은 그대로 이용할 수 있어요.' : '가람링크 정리가 끝나면 자동으로 완료돼요.');
-    router.replace('/');
+    resetTo(router, '/');
   };
 
   const confirmDelete = async () => {
@@ -153,35 +154,25 @@ export default function SettingsScreen() {
         onScroll={scrollHandler}
         scrollEventThrottle={16}
       >
-        <View style={styles.card}>
-          <Text style={styles.title}>계정</Text>
-          <View style={styles.row}>
-            <Text style={styles.label}>이름</Text>
-            <Text style={styles.value}>{displayName || 'FC'}</Text>
+        <View style={styles.profile}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{(displayName || 'FC').slice(0, 1)}</Text>
           </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>역할</Text>
-            <Text style={styles.value}>
+          <View style={styles.profileCopy}>
+            <Text style={styles.profileName} numberOfLines={1}>{displayName || 'FC'}</Text>
+            <Text style={styles.profileRole}>
               {getAccountRoleLabel({ role, readOnly, isRequestBoardDesigner, staffType })}
             </Text>
           </View>
-          <Pressable
-            style={styles.secondaryButton}
-            onPress={() => router.push('/reset-password')}
-            accessibilityLabel="비밀번호 변경하기"
-          >
-            <Feather name="key" size={16} color={COLORS.primary} />
-            <Text style={styles.secondaryButtonText}>비밀번호 변경하기</Text>
-          </Pressable>
         </View>
 
         {canViewMyReferralCode && (
           <View style={styles.card}>
-            <Text style={styles.title}>내 추천 코드</Text>
+            <Text style={styles.cardLabel}>내 추천 코드</Text>
             {!appSessionToken ? (
               <Text style={styles.sectionText}>추천 코드를 확인하려면 다시 로그인해주세요.</Text>
             ) : codeLoading ? (
-              <Text style={styles.value}>불러오는 중...</Text>
+              <Text style={styles.sectionText}>불러오는 중...</Text>
             ) : referralCodeError ? (
               <Text style={styles.sectionText}>
                 {referralCodeError instanceof Error
@@ -190,24 +181,22 @@ export default function SettingsScreen() {
               </Text>
             ) : myReferralCode ? (
               <>
-                <Text style={[styles.value, { letterSpacing: 3, fontSize: TYPOGRAPHY.fontSize.xl, textAlign: 'center', paddingVertical: SPACING.sm }]}>
-                  {myReferralCode}
-                </Text>
-                <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
+                <Text style={styles.referralCode} selectable>{myReferralCode}</Text>
+                <View style={styles.referralActions}>
                   <Pressable
-                    style={[styles.secondaryButton, { flex: 1 }]}
+                    style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
                     onPress={handleShareReferralCode}
                     accessibilityLabel="추천 코드 공유하기"
                   >
-                    <Feather name="share-2" size={16} color={COLORS.primary} />
-                    <Text style={styles.secondaryButtonText}>공유하기</Text>
+                    <Feather name="share-2" size={16} color={COLORS.white} />
+                    <Text style={styles.primaryButtonText}>공유하기</Text>
                   </Pressable>
                   <Pressable
-                    style={[styles.secondaryButton, { flex: 1 }]}
+                    style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
                     onPress={handleCopyReferralCode}
                     accessibilityLabel="추천 코드 복사하기"
                   >
-                    <Feather name="copy" size={16} color={COLORS.primary} />
+                    <Feather name="copy" size={16} color={COLORS.primaryButton} />
                     <Text style={styles.secondaryButtonText}>복사하기</Text>
                   </Pressable>
                 </View>
@@ -218,50 +207,64 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>{deleteTitle}</Text>
-          <Text style={styles.sectionText}>{deleteMessage}</Text>
-          <Pressable
-            style={[
-              styles.deleteButton,
-              (deleting || !canDeleteAccount) && styles.deleteButtonDisabled,
-            ]}
-            onPress={handleDelete}
-            disabled={
-              deleting
-              || !canDeleteAccount
-            }
-            testID="settings-delete-account"
-            accessibilityLabel={deleteTitle}
-          >
-            <Feather name="trash-2" size={16} color={COLORS.white} />
-            <Text style={styles.deleteText}>{deleting ? '처리 중...' : deleteTitle}</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>알림</Text>
+        <View style={styles.list}>
           <Pressable
             accessibilityHint="앱 푸시와 대화방별 알림을 설정합니다."
             accessibilityLabel="알림 설정 열기"
             accessibilityRole="button"
             onPress={() => router.push('/notification-settings' as never)}
-            style={({ pressed }) => [styles.settingsNavigationRow, pressed && styles.settingsNavigationRowPressed]}
+            style={({ pressed }) => [styles.listRow, pressed && styles.listRowPressed]}
           >
-            <View style={styles.settingsNavigationIcon}>
-              <Feather name="bell" size={18} color={COLORS.primary} />
+            <View style={styles.listIcon}>
+              <Feather name="bell" size={18} color={COLORS.primaryButton} />
             </View>
-            <View style={styles.settingsNavigationCopy}>
-              <Text style={styles.settingsNavigationTitle}>알림 설정</Text>
-              <Text style={styles.sectionText}>전체 알림, 종류별 알림과 알림을 끈 대화를 관리합니다.</Text>
-            </View>
-            <Feather name="chevron-right" size={20} color={COLORS.text.muted} />
+            <Text style={styles.listTitle}>알림 설정</Text>
+            <Feather name="chevron-right" size={20} color={COLORS.gray[400]} />
           </Pressable>
         </View>
 
-        <Pressable style={styles.logoutButton} onPress={appLogout}>
-          <Text style={styles.logoutText}>로그아웃</Text>
-        </Pressable>
+        <Text style={styles.groupLabel}>계정</Text>
+        <View style={styles.list}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="비밀번호 변경하기"
+            onPress={() => router.push('/reset-password')}
+            style={({ pressed }) => [styles.listRow, pressed && styles.listRowPressed]}
+          >
+            <View style={styles.listIcon}>
+              <Feather name="key" size={18} color={COLORS.primaryButton} />
+            </View>
+            <Text style={styles.listTitle}>비밀번호 변경</Text>
+            <Feather name="chevron-right" size={20} color={COLORS.gray[400]} />
+          </Pressable>
+          <View style={styles.listDivider} />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="로그아웃"
+            onPress={appLogout}
+            style={({ pressed }) => [styles.listRow, pressed && styles.listRowPressed]}
+          >
+            <View style={styles.listIcon}>
+              <Feather name="log-out" size={18} color={COLORS.primaryButton} />
+            </View>
+            <Text style={styles.listTitle}>로그아웃</Text>
+          </Pressable>
+        </View>
+
+        {/* Rarely used and irreversible: kept findable at the very end, away from everyday rows. */}
+        {canDeleteAccount ? (
+          <Pressable
+            style={styles.deleteLink}
+            onPress={handleDelete}
+            disabled={deleting}
+            hitSlop={8}
+            testID="settings-delete-account"
+            accessibilityRole="button"
+            accessibilityLabel={deleteTitle}
+          >
+            <Text style={styles.deleteLinkText}>{deleting ? '처리 중...' : deleteTitle}</Text>
+          </Pressable>
+        ) : null}
       </Animated.ScrollView>
 
       <BottomNavigation
@@ -300,82 +303,51 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.white },
-  container: { padding: SPACING.lg, gap: SPACING.base },
-  card: {
-    backgroundColor: COLORS.white,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    padding: SPACING.base,
-    gap: SPACING.sm,
-  },
-  title: { fontSize: TYPOGRAPHY.fontSize.lg, fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  label: { fontSize: TYPOGRAPHY.fontSize.sm, color: COLORS.text.secondary },
-  value: { fontSize: TYPOGRAPHY.fontSize.sm, fontWeight: TYPOGRAPHY.fontWeight.bold, color: COLORS.text.primary },
-  sectionTitle: { fontSize: TYPOGRAPHY.fontSize.md, fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary },
-  sectionText: { fontSize: TYPOGRAPHY.fontSize.xs, color: COLORS.text.secondary },
-  deleteButton: {
-    marginTop: 6,
-    backgroundColor: COLORS.error,
-    paddingVertical: SPACING.sm,
-    borderRadius: RADIUS.base,
+  safe: { flex: 1, backgroundColor: '#f3f4f6' },
+  container: { padding: SPACING.base, gap: 12 },
+  profile: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 4, paddingVertical: SPACING.sm },
+  avatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: COLORS.primaryPale, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 20, fontWeight: '800', color: COLORS.primaryButton },
+  profileCopy: { flex: 1, minWidth: 0 },
+  profileName: { fontSize: 20, fontWeight: '800', color: COLORS.gray[900] },
+  profileRole: { marginTop: 2, fontSize: 14, color: COLORS.gray[500] },
+  card: { backgroundColor: COLORS.white, borderRadius: 24, padding: 20, gap: SPACING.sm },
+  cardLabel: { fontSize: 14, fontWeight: '700', color: COLORS.gray[600] },
+  referralCode: { fontSize: 26, fontWeight: '800', letterSpacing: 3, color: COLORS.gray[900], paddingVertical: 4 },
+  referralActions: { flexDirection: 'row', gap: SPACING.sm, marginTop: 4 },
+  primaryButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 14,
+    backgroundColor: COLORS.primaryButton,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: SPACING.sm,
+    gap: 6,
   },
-  deleteButtonDisabled: { opacity: 0.7 },
-  deleteText: { color: COLORS.white, fontWeight: TYPOGRAPHY.fontWeight.bold },
+  primaryButtonText: { color: COLORS.white, fontSize: 15, fontWeight: '800' },
   secondaryButton: {
-    marginTop: SPACING.sm,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    paddingVertical: SPACING.sm,
-    borderRadius: RADIUS.base,
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 14,
+    backgroundColor: COLORS.primaryPale,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: SPACING.sm,
-    backgroundColor: COLORS.primaryPale,
+    gap: 6,
   },
-  secondaryButtonText: {
-    color: COLORS.primary,
-    fontWeight: TYPOGRAPHY.fontWeight.bold,
-  },
-  settingsNavigationRow: {
-    minHeight: 64,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-    borderRadius: RADIUS.base,
-    paddingVertical: SPACING.xs,
-  },
-  settingsNavigationRowPressed: { opacity: 0.68 },
-  settingsNavigationIcon: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: RADIUS.base,
-    backgroundColor: COLORS.primaryPale,
-  },
-  settingsNavigationCopy: { flex: 1, minWidth: 0 },
-  settingsNavigationTitle: {
-    color: COLORS.text.primary,
-    fontSize: TYPOGRAPHY.fontSize.sm,
-    fontWeight: TYPOGRAPHY.fontWeight.bold,
-  },
-  logoutButton: {
-    marginTop: SPACING.sm,
-    paddingVertical: SPACING.sm,
-    borderRadius: RADIUS.base,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    alignItems: 'center',
-  },
-  logoutText: { fontWeight: TYPOGRAPHY.fontWeight.bold, color: COLORS.text.secondary },
+  secondaryButtonText: { color: COLORS.primaryButton, fontSize: 15, fontWeight: '800' },
+  pressed: { opacity: 0.85 },
+  sectionText: { fontSize: TYPOGRAPHY.fontSize.sm, color: COLORS.text.secondary },
+  groupLabel: { marginTop: SPACING.sm, marginLeft: 8, fontSize: 13, fontWeight: '700', color: COLORS.gray[500] },
+  list: { backgroundColor: COLORS.white, borderRadius: 24, paddingHorizontal: 8, paddingVertical: 4 },
+  listRow: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, borderRadius: 16 },
+  listRowPressed: { backgroundColor: COLORS.gray[50] },
+  listIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#fdf3ea', alignItems: 'center', justifyContent: 'center' },
+  listTitle: { flex: 1, fontSize: 16, fontWeight: '600', color: COLORS.gray[900] },
+  listDivider: { height: StyleSheet.hairlineWidth, marginLeft: 60, marginRight: 12, backgroundColor: COLORS.gray[200] },
+  deleteLink: { alignSelf: 'center', marginTop: SPACING.xl, paddingVertical: SPACING.sm, paddingHorizontal: SPACING.base },
+  deleteLinkText: { fontSize: 13, color: COLORS.gray[400], textDecorationLine: 'underline' },
   modalOverlay: {
     flex: 1,
     backgroundColor: COLORS.background.overlay,

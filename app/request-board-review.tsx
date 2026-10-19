@@ -5,7 +5,6 @@ import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,9 +14,12 @@ import {
 } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { REQUEST_PROGRESS_TONE, RequestProgressSteps } from '@/components/RequestProgressSteps';
+import { getAssignmentProgress, summarizeRequestProgress } from '@/lib/request-board-progress';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
+import { SystemBarsModal } from '@/components/SystemBarsModal';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
@@ -108,18 +110,11 @@ const formatFileSize = (bytes: number): string => {
 };
 
 const ASSIGNMENT_STATUS_LABEL: Record<string, { label: string; color: string; bg: string }> = {
-  pending: { label: '수락 대기', color: '#F59E0B', bg: '#FEF3C7' },
-  accepted: { label: '진행중', color: '#3B82F6', bg: '#EFF6FF' },
-  completed: { label: '설계 완료', color: '#8B5CF6', bg: '#EDE9FE' },
+  pending: { label: '수락 대기', color: '#9a3412', bg: COLORS.primaryPale },
+  accepted: { label: '진행중', color: '#9a3412', bg: COLORS.primaryPale },
+  completed: { label: '설계 완료', color: '#9a3412', bg: COLORS.primaryPale },
   rejected: { label: '설계 거절', color: '#EF4444', bg: '#FEE2E2' },
   cancelled: { label: '요청 취소', color: COLORS.gray[500], bg: COLORS.gray[100] },
-};
-
-const REQUEST_STATUS_LABEL: Record<string, { label: string; color: string; bg: string }> = {
-  pending: { label: '수락 대기', color: '#F59E0B', bg: '#FEF3C7' },
-  in_progress: { label: '진행중', color: '#3B82F6', bg: '#EFF6FF' },
-  completed: { label: '완료', color: '#10B981', bg: '#ECFDF5' },
-  cancelled: { label: '취소', color: COLORS.gray[500], bg: COLORS.gray[100] },
 };
 
 const getProductNames = (detail: RbRequestDetail): string => {
@@ -163,11 +158,17 @@ function StatusBadge({ status, label, color, bg }: { status: string; label: stri
 }
 
 function InfoField({ label, value, fullWidth = false }: { label: string; value: string; fullWidth?: boolean }) {
-  const valueLineLimit = fullWidth ? undefined : 3;
+  const stacked = fullWidth || label.length > 8;
+  const empty = value === '-';
   return (
-    <View style={[styles.infoField, fullWidth && styles.infoFieldFull]}>
-      <Text style={styles.infoFieldLabel}>{label}</Text>
-      <Text style={styles.infoFieldValue} numberOfLines={valueLineLimit}>{value}</Text>
+    <View style={[styles.infoField, stacked && styles.infoFieldStacked]}>
+      <Text style={[styles.infoFieldLabel, !stacked && styles.infoFieldLabelInline]}>{label}</Text>
+      <Text
+        style={[styles.infoFieldValue, !stacked && styles.infoFieldValueInline, empty && styles.infoFieldValueEmpty]}
+        numberOfLines={stacked ? undefined : 3}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -176,7 +177,7 @@ function InfoSection({ title, children }: { title: string; children: ReactNode }
   return (
     <View style={styles.infoSection}>
       <Text style={styles.infoSectionTitle}>{title}</Text>
-      <View style={styles.infoGrid}>{children}</View>
+      <View>{children}</View>
     </View>
   );
 }
@@ -635,6 +636,7 @@ export default function RequestBoardReviewScreen() {
     const fcDecided = assignment.fc_decision === 'accepted' || assignment.fc_decision === 'rejected';
     const attachments = assignment.request_attachments ?? [];
     const assignmentCode = formatDesignCodeDisplay(assignment.fc_code_value, assignment.fc_code_name);
+    const assignmentProgress = getAssignmentProgress(assignment, isRequestBoardDesigner ? 'designer' : 'fc');
 
     return (
       <View
@@ -656,9 +658,15 @@ export default function RequestBoardReviewScreen() {
               <Text style={styles.designerName}>{designerName}</Text>
               {companyName && <Text style={styles.designerCompany}>{companyName}</Text>}
             </View>
-            <StatusBadge {...statusInfo} status={assignment.status} />
           </View>
         )}
+
+        <View style={styles.assignmentProgress}>
+          <RequestProgressSteps step={assignmentProgress.step} tone={assignmentProgress.tone} showLabels />
+          <Text style={[styles.assignmentTurn, assignmentProgress.isMyTurn && styles.assignmentTurnMine]}>
+            {assignmentProgress.turnLabel}
+          </Text>
+        </View>
 
         {/* Timeline */}
         <View style={styles.timelineRow}>
@@ -671,8 +679,8 @@ export default function RequestBoardReviewScreen() {
           )}
           {assignment.completed_at && (
             <View style={styles.timelineItem}>
-              <Feather name="check" size={14} color="#8B5CF6" />
-              <Text style={[styles.timelineLabel, { color: '#8B5CF6' }]}>완료</Text>
+              <Feather name="check" size={14} color={COLORS.primaryButton} />
+              <Text style={[styles.timelineLabel, { color: COLORS.primaryButton }]}>완료</Text>
               <Text style={styles.timelineDate}>{formatDate(assignment.completed_at)}</Text>
             </View>
           )}
@@ -979,6 +987,45 @@ export default function RequestBoardReviewScreen() {
           onScroll={scrollHandler}
           scrollEventThrottle={16}
         >
+          {/* Where the request stands and whose turn it is, before the customer details. */}
+          {(() => {
+            const progress = summarizeRequestProgress(detail.request_designers, isRequestBoardDesigner ? 'designer' : 'fc');
+            if (!progress) return null;
+            const tone = REQUEST_PROGRESS_TONE[progress.tone];
+            return (
+              <View style={[styles.progressSummary, progress.isMyTurn && styles.progressSummaryMine]}>
+                <View style={styles.progressSummaryTop}>
+                  <View style={[styles.badge, { backgroundColor: tone.background }]}>
+                    <Text style={[styles.badgeText, { color: tone.color }]}>{progress.label}</Text>
+                  </View>
+                  <Text style={[styles.progressSummaryTurn, progress.isMyTurn && styles.assignmentTurnMine]}>
+                    {progress.turnLabel}
+                  </Text>
+                </View>
+                <RequestProgressSteps step={progress.step} tone={progress.tone} showLabels />
+                {progress.manager ? (
+                  <Text style={styles.progressSummaryManager}>
+                    담당 {progress.manager}{progress.others > 0 ? ` 외 ${progress.others}명` : ''}
+                  </Text>
+                ) : null}
+              </View>
+            );
+          })()}
+
+          {/* Designer Assignments */}
+          <Text style={styles.sectionTitle}>
+            설계 진행 ({(detail.request_designers ?? []).length}건)
+          </Text>
+
+          {(detail.request_designers ?? []).length === 0 ? (
+            <View style={styles.emptyWrap}>
+              <Feather name="users" size={36} color={COLORS.gray[200]} />
+              <Text style={styles.emptyText}>배정된 설계 매니저가 없습니다</Text>
+            </View>
+          ) : (
+            (detail.request_designers ?? []).map(renderAssignment)
+          )}
+
           {(() => {
             const hasSeparatePolicyholder = Boolean(detail.has_separate_policyholder);
             const customerDisplayName = formatRequestBoardCustomerDisplayName({
@@ -1056,16 +1103,6 @@ export default function RequestBoardReviewScreen() {
             <View style={styles.infoCardHeader}>
               <View style={styles.infoCardTitleRow}>
                 <Text style={styles.infoCustomerName}>{detail.customer_name}</Text>
-                {(() => {
-                  const s = REQUEST_STATUS_LABEL[detail.status] ?? {
-                    label: detail.status, color: COLORS.gray[500], bg: COLORS.gray[100],
-                  };
-                  return (
-                    <View style={[styles.badge, { backgroundColor: s.bg }]}>
-                      <Text style={[styles.badgeText, { color: s.color }]}>{s.label}</Text>
-                    </View>
-                  );
-                })()}
               </View>
               <Text style={styles.infoProducts}>{getProductNames(detail)}</Text>
               {hasSeparatePolicyholder ? (
@@ -1134,7 +1171,7 @@ export default function RequestBoardReviewScreen() {
             <>
               <Text style={styles.sectionTitle}>계약자 정보</Text>
               <View style={styles.infoCard}>
-                <View style={styles.infoGrid}>
+                <View>
                   {policyholderFields.map((field) => (
                     <InfoField
                       key={field.label}
@@ -1151,19 +1188,6 @@ export default function RequestBoardReviewScreen() {
             );
           })()}
 
-          {/* Designer Assignments */}
-          <Text style={styles.sectionTitle}>
-            설계 진행 ({(detail.request_designers ?? []).length}건)
-          </Text>
-
-          {(detail.request_designers ?? []).length === 0 ? (
-            <View style={styles.emptyWrap}>
-              <Feather name="users" size={36} color={COLORS.gray[200]} />
-              <Text style={styles.emptyText}>배정된 설계 매니저가 없습니다</Text>
-            </View>
-          ) : (
-            (detail.request_designers ?? []).map(renderAssignment)
-          )}
         </Animated.ScrollView>
       ) : null}
 
@@ -1175,13 +1199,13 @@ export default function RequestBoardReviewScreen() {
       />
 
       {/* Attachment Metadata Modal */}
-      <Modal
+      <SystemBarsModal
         visible={attachmentUploadDraft != null}
         transparent
         animationType="slide"
         onRequestClose={resetAttachmentUploadDraft}
       >
-        <KeyboardAvoidingView
+        {(modalInsets) => <KeyboardAvoidingView
           style={styles.modalKeyboardAvoidingView}
           behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
         >
@@ -1193,7 +1217,7 @@ export default function RequestBoardReviewScreen() {
             style={[
               styles.modalSheet,
               styles.attachmentModalSheet,
-              { paddingBottom: Math.max(insets.bottom, 16) + 8 },
+              { paddingBottom: modalInsets.bottom + 16 },
             ]}
           >
             <View style={styles.modalHandle} />
@@ -1253,17 +1277,17 @@ export default function RequestBoardReviewScreen() {
               </Pressable>
             </View>
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        </KeyboardAvoidingView>}
+      </SystemBarsModal>
 
       {/* Designer Reject Modal */}
-      <Modal
+      <SystemBarsModal
         visible={designerRejectModalVisible}
         transparent
         animationType="slide"
         onRequestClose={resetDesignerRejectModal}
       >
-        <KeyboardAvoidingView
+        {(modalInsets) => <KeyboardAvoidingView
           style={styles.modalKeyboardAvoidingView}
           behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
         >
@@ -1271,7 +1295,7 @@ export default function RequestBoardReviewScreen() {
             style={styles.modalOverlay}
             onPress={resetDesignerRejectModal}
           />
-          <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+          <View style={[styles.modalSheet, { paddingBottom: modalInsets.bottom + 16 }]}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>의뢰 거절 사유</Text>
             <Text style={styles.modalDesc}>설계 요청을 거절하는 이유를 입력해주세요.</Text>
@@ -1312,17 +1336,17 @@ export default function RequestBoardReviewScreen() {
               </Pressable>
             </View>
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        </KeyboardAvoidingView>}
+      </SystemBarsModal>
 
       {/* FC Reject Modal */}
-      <Modal
+      <SystemBarsModal
         visible={rejectModalVisible}
         transparent
         animationType="slide"
         onRequestClose={() => setRejectModalVisible(false)}
       >
-        <KeyboardAvoidingView
+        {(modalInsets) => <KeyboardAvoidingView
           style={styles.modalKeyboardAvoidingView}
           behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
         >
@@ -1330,7 +1354,7 @@ export default function RequestBoardReviewScreen() {
             style={styles.modalOverlay}
             onPress={() => setRejectModalVisible(false)}
           />
-          <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+          <View style={[styles.modalSheet, { paddingBottom: modalInsets.bottom + 16 }]}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>설계 거절</Text>
             <Text style={styles.modalDesc}>거절 사유를 입력해주세요. (필수)</Text>
@@ -1371,15 +1395,31 @@ export default function RequestBoardReviewScreen() {
               </Pressable>
             </View>
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        </KeyboardAvoidingView>}
+      </SystemBarsModal>
     </View>
   );
 }
 
 /* ─── Styles ─── */
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.gray[50] },
+  progressSummary: {
+    gap: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderRadius: 16,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+  },
+  progressSummaryMine: { borderColor: '#fed7aa', backgroundColor: COLORS.primaryPale },
+  progressSummaryTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  progressSummaryTurn: { fontSize: 14, fontWeight: '800', color: COLORS.gray[600] },
+  progressSummaryManager: { fontSize: 13, color: COLORS.gray[600] },
+  assignmentProgress: { gap: 8, marginTop: 12 },
+  assignmentTurn: { fontSize: 13, fontWeight: '700', color: COLORS.gray[600] },
+  assignmentTurnMine: { color: COLORS.primaryButton },
+  container: { flex: 1, backgroundColor: '#f3f4f6' },
 
   /* Header */
   header: {
@@ -1422,7 +1462,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: SPACING.sm,
   },
-  loadingText: { fontSize: TYPOGRAPHY.fontSize.sm, color: COLORS.text.muted },
   errorWrap: {
     flex: 1,
     alignItems: 'center',
@@ -1455,12 +1494,10 @@ const styles = StyleSheet.create({
   /* Info Card */
   infoCard: {
     backgroundColor: '#fff',
-    borderRadius: RADIUS.lg,
-    padding: SPACING.base,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingVertical: SPACING.lg,
     marginBottom: SPACING.lg,
-    ...SHADOWS.sm,
   },
   infoCardHeader: {
     marginBottom: SPACING.sm,
@@ -1533,44 +1570,35 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     lineHeight: 18,
   },
-  infoSection: {
-    marginTop: SPACING.md,
-  },
+  infoSection: { marginTop: SPACING.lg },
   infoSectionTitle: {
-    fontSize: TYPOGRAPHY.fontSize.sm,
-    fontWeight: '700' as const,
-    color: COLORS.gray[800],
-    marginBottom: SPACING.sm,
-  },
-  infoGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: SPACING.sm,
-  },
-  infoField: {
-    width: '100%',
-    minWidth: 0,
-    borderWidth: 1,
-    borderColor: COLORS.gray[100],
-    borderRadius: RADIUS.md,
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.sm,
-    backgroundColor: COLORS.gray[50],
-  },
-  infoFieldFull: {
-    width: '100%',
-  },
-  infoFieldLabel: {
-    fontSize: TYPOGRAPHY.fontSize.xs,
-    color: COLORS.gray[500],
+    fontSize: TYPOGRAPHY.fontSize.base,
+    fontWeight: '800' as const,
+    color: COLORS.gray[900],
     marginBottom: 4,
   },
-  infoFieldValue: {
+  infoField: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: SPACING.md,
+    paddingVertical: 11,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.gray[100],
+  },
+  infoFieldStacked: { flexDirection: 'column', gap: 4 },
+  infoFieldLabel: {
     fontSize: TYPOGRAPHY.fontSize.sm,
+    color: COLORS.gray[500],
+  },
+  infoFieldLabelInline: { width: 76 },
+  infoFieldValue: {
+    fontSize: TYPOGRAPHY.fontSize.base,
     color: COLORS.gray[900],
     fontWeight: '600' as const,
-    lineHeight: 20,
+    lineHeight: 21,
   },
+  infoFieldValueInline: { flex: 1, textAlign: 'right' },
+  infoFieldValueEmpty: { color: COLORS.gray[300], fontWeight: '400' as const },
 
   /* Section */
   sectionTitle: {
@@ -1606,12 +1634,12 @@ const styles = StyleSheet.create({
   /* Assignment Card */
   assignmentCard: {
     backgroundColor: '#fff',
-    borderRadius: RADIUS.lg,
-    padding: SPACING.base,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingVertical: SPACING.base,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
     marginBottom: SPACING.md,
-    ...SHADOWS.sm,
   },
   assignmentCardHighlight: {
     borderColor: COLORS.primary,
@@ -1948,8 +1976,7 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingVertical: 10,
     borderRadius: RADIUS.md,
-    backgroundColor: '#059669',
-    ...SHADOWS.sm,
+    backgroundColor: COLORS.primaryButton,
   },
   approveBtnText: {
     fontSize: TYPOGRAPHY.fontSize.sm,

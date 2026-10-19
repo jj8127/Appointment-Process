@@ -507,6 +507,10 @@ function buildDirectMessagePayload(
       payload: {
         type: body.type,
         conversation_id: conversationId,
+        // The list handler validates the cursor itself; anything else is dropped.
+        ...(body.type === 'direct_message_list' && typeof body.since === 'string' && body.since.length <= 64
+          ? { since: body.since }
+          : {}),
         ...viewer,
       },
     };

@@ -37,6 +37,8 @@ function executeComponent(path: string, dependencies: Record<string, unknown> = 
     if (name === '@/lib/logger') return { logger: { debug: jest.fn(), warn: jest.fn() } };
     if (name === '@/lib/open-external-url') return { openExternalUrl: jest.fn(async () => undefined) };
     if (name === '@/hooks/use-keyboard-padding') return { useKeyboardPadding: () => 0 };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    if (name === '@/lib/back-navigation') return require('@/lib/back-navigation');
     throw new Error(`Unexpected component dependency ${name}`);
   }, exported);
   return (exported[exportName] ?? exported.DaumPostcode) as (props: Record<string, unknown>) => ReactElement;

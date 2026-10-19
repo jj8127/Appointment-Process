@@ -23,7 +23,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useKeyboardVisible } from '@/hooks/use-keyboard-padding';
-import { goBackOrReplace } from '@/lib/back-navigation';
+import { goBackOrReplace, resetTo } from '@/lib/back-navigation';
 import { getChatComposerBottomPadding } from '@/lib/chat-keyboard-layout';
 import { getMessengerHubCapabilities } from '@/lib/messenger-role-capabilities';
 
@@ -2075,7 +2075,7 @@ export default function RequestBoardMessengerScreen() {
               { marginTop: SPACING.sm },
               pressed && { opacity: 0.7 },
             ]}
-            onPress={() => router.replace('/login?skipAuto=1')}
+            onPress={() => resetTo(router, '/login?skipAuto=1')}
           >
             <Text style={styles.retryBtnText}>앱 로그인 화면으로 이동</Text>
           </Pressable>
@@ -2197,7 +2197,7 @@ export default function RequestBoardMessengerScreen() {
             <Pressable accessibilityRole="button" disabled={msgLoading} onPress={() => void loadMessages(activeConv)}>
               <Text style={styles.anchorContextRetryText}>다시 시도</Text>
             </Pressable>
-            {isRequestBoardSessionReauthError(msgError) ? <Pressable accessibilityRole="button" onPress={() => router.replace('/login?skipAuto=1')}><Text style={styles.anchorContextRetryText}>다시 로그인</Text></Pressable> : null}
+            {isRequestBoardSessionReauthError(msgError) ? <Pressable accessibilityRole="button" onPress={() => resetTo(router, '/login?skipAuto=1')}><Text style={styles.anchorContextRetryText}>다시 로그인</Text></Pressable> : null}
           </View>
         ) : null}
 
@@ -2550,7 +2550,6 @@ export default function RequestBoardMessengerScreen() {
           visible={Boolean(selectCopyMessage)}
           text={getUnifiedMessageCopyText(selectCopyMessage)}
           onClose={() => setSelectCopyMessage(null)}
-          bottomInset={insets.bottom}
         />
 
         {requestBoardSheetRoom ? (
@@ -2673,7 +2672,7 @@ export default function RequestBoardMessengerScreen() {
           <Pressable accessibilityRole="button" disabled={convLoading} onPress={() => { setConvLoading(true); void loadConversations(); }}>
             <Text style={styles.anchorContextRetryText}>다시 시도</Text>
           </Pressable>
-          {isRequestBoardSessionReauthError(convError) ? <Pressable accessibilityRole="button" onPress={() => router.replace('/login?skipAuto=1')}><Text style={styles.anchorContextRetryText}>다시 로그인</Text></Pressable> : null}
+          {isRequestBoardSessionReauthError(convError) ? <Pressable accessibilityRole="button" onPress={() => resetTo(router, '/login?skipAuto=1')}><Text style={styles.anchorContextRetryText}>다시 로그인</Text></Pressable> : null}
         </View>
       ) : null}
 

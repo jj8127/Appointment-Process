@@ -7,6 +7,7 @@ import {
   type DeleteAccountRequestBody,
 } from '../_shared/delete-account-auth.ts';
 import { parseAppSessionTokenDetailed } from '../_shared/request-board-auth.ts';
+import { fcRetirementBlockedResponse, retireFcBeforeAccountDeletion } from '../_shared/request-board-fc-retirement.ts';
 import { requireAccountDeletionReceipt } from '../_shared/ux-mutation-contract.ts';
 
 function getEnv(name: string): string | undefined {
@@ -96,20 +97,26 @@ serve(async (req: Request) => {
     return err(authorization.code, authorization.status);
   }
 
-  if (authorization.mode === 'fc_self') {
-    const { data: selfProfile, error: selfProfileError } = await supabase
+  if (authorization.targetRole === 'fc') {
+    const { data: fcProfile, error: fcProfileError } = await supabase
       .from('fc_profiles')
       .select('id,phone,is_manager_referral_shadow')
       .eq('id', authorization.targetId)
       .eq('is_manager_referral_shadow', false)
       .maybeSingle();
-    if (selfProfileError) return err('Account lookup failed', 500);
-    if (
-      !selfProfile?.id
-      || normalizeDeleteAccountPhone(selfProfile.phone)
+    if (fcProfileError) return err('Account lookup failed', 500);
+    if (authorization.mode === 'fc_self' && (
+      !fcProfile?.id
+      || normalizeDeleteAccountPhone(fcProfile.phone)
         !== normalizeDeleteAccountPhone(session?.phone)
-    ) {
+    )) {
       return err('self_delete_target_mismatch', 403);
+    }
+    if (!fcProfile?.id) return err('삭제할 계정을 찾을 수 없습니다.', 404);
+    const retired = await retireFcBeforeAccountDeletion(fcProfile.id, fcProfile.phone);
+    if (retired.ok === false) {
+      const blocked = fcRetirementBlockedResponse(retired.reason);
+      return err(blocked.message, blocked.status);
     }
   }
 

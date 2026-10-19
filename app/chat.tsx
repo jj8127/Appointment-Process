@@ -41,7 +41,10 @@ import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { ConversationSettingsSheet } from '@/components/messenger/ConversationSettingsSheet';
 import { JumpToLatestButton } from '@/components/messenger/JumpToLatestButton';
 import { MessengerDayDivider } from '@/components/messenger/MessengerDayDivider';
-import { goBackOrReplace } from '@/lib/back-navigation';
+import { MessengerReadLine } from '@/components/messenger/MessengerReadLine';
+import { MessengerRoomSkeleton } from '@/components/messenger/MessengerRoomSkeleton';
+import { findMessengerReadLineId } from '@/lib/messenger-read-line';
+import { goBackOrReplace, resetTo } from '@/lib/back-navigation';
 import {
   deleteGaraminDirectMessage,
   fetchGaraminDirectMessageContext,
@@ -97,7 +100,7 @@ import {
   sortConversationsByLastMessageTime,
 } from '@/lib/messenger-room-ordering';
 import { formatOperationsMessengerName } from '@/lib/messenger-hub-model';
-import { formatMessengerTime, startsMessengerDay } from '@/lib/messenger-time';
+import { formatMessengerTime, messengerRunPosition, startsMessengerDay } from '@/lib/messenger-time';
 import { pickMessengerFiles, pickMessengerPhotos } from '@/lib/messenger-attachment-picker';
 import {
   aggregatePresence,
@@ -107,6 +110,7 @@ import {
 } from '@/lib/presence';
 import { fetchUserPresence, type AppPresenceSnapshot } from '@/lib/user-presence-api';
 import { supabase } from '@/lib/supabase';
+import { subscribeDirectMessageSignal } from '@/lib/direct-message-realtime';
 import { isValidMobilePhone, safeDecodeFileName } from '@/lib/validation';
 import {
   createPeerDeliveryTracker,
@@ -192,6 +196,8 @@ type Message = {
   attachments: MessengerAttachmentMetadata[];
   sender_label?: string | null;
   is_context_preview?: boolean;
+  /** Set on a local bubble the server refused; it stays with retry and delete. */
+  local_status?: 'failed';
 };
 
 type AnchorScrollFailureInfo = {
@@ -286,6 +292,8 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
 };
 
 const DIRECT_MESSAGE_REFRESH_MS = 5000;
+// While the "changed" signal is live the timer is only a safety net.
+const DIRECT_MESSAGE_REALTIME_FALLBACK_MS = 30_000;
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -415,6 +423,9 @@ export default function ChatScreen() {
   const [roomPreferenceFailure, setRoomPreferenceFailure] =
     useState<MessengerNotificationPreferenceFailure | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState('');
+  // Fixed once per room visit, before the opening fetch marks messages read.
+  const [readLineMessageId, setReadLineMessageId] = useState<string | null>(null);
+  const readLineConversationRef = useRef<string | null>(null);
   const [actionMessage, setActionMessage] = useState<Message | null>(null);
   const [selectCopyMessage, setSelectCopyMessage] = useState<Message | null>(null);
   const [text, setText] = useState('');
@@ -422,6 +433,8 @@ export default function ChatScreen() {
     SelectedMessengerAttachment[]
   >([]);
   const [sendingAttachments, setSendingAttachments] = useState(false);
+  // What a refused bubble needs to be sent again, keyed by its local id.
+  const failedPayloadsRef = useRef(new Map<string, { content: string; attachments: readonly SelectedMessengerAttachment[] }>());
   const sendingTextRef = useRef(false);
   const sendOwnerScope = useRef(createReadScope());
   const sendOwnerKey = `${role ?? ''}:${residentId ?? ''}:${appSessionToken ?? ''}:${conversationIdValue}:${normalizedTargetId}`;
@@ -461,6 +474,9 @@ export default function ChatScreen() {
   const anchorScrollRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const anchorHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const roomPreferenceSequenceRef = useRef(0);
+  const directMessageCursorRef = useRef<{ conversationId: string; cursor: string } | null>(null);
+  const [directMessageRealtimeTopic, setDirectMessageRealtimeTopic] = useState<string | null>(null);
+  const directMessageRealtimeLiveRef = useRef(false);
   const directMessagePrefetchRef = useRef<{
     conversationId: string;
     request: Promise<
@@ -779,9 +795,17 @@ export default function ChatScreen() {
       setMessageLoadError('');
     }
     try {
+      // A quiet refresh asks only for what changed after the newest change this
+      // screen holds; opening the room (or a server without cursors) loads it all.
+      const cursorEntry = directMessageCursorRef.current;
+      const since = silent && cursorEntry?.conversationId === resolvedConversation.id
+        ? cursorEntry.cursor
+        : null;
       const prefetched = directMessagePrefetchRef.current;
       let result: Awaited<ReturnType<typeof fetchGaraminDirectMessages>>;
-      if (prefetched?.conversationId === resolvedConversation.id) {
+      if (since) {
+        result = await fetchGaraminDirectMessages(resolvedConversation.id, { since });
+      } else if (prefetched?.conversationId === resolvedConversation.id) {
         const response = await prefetched.request;
         if ('error' in response) throw response.error;
         result = response.result;
@@ -794,15 +818,40 @@ export default function ChatScreen() {
       if (result.conversation.counterpartyId !== otherId) {
         throw new Error('대화 상대가 일치하지 않습니다.');
       }
-      // Keep messages still being sent; a background refresh must not drop them.
-      const pendingLocal = silent
-        ? messagesRef.current.filter((message) => message.id.startsWith('local-'))
-        : [];
-      const filtered = [
-        ...pendingLocal,
-        ...result.messages.filter((message) => !deletedIdsRef.current.has(message.id)),
-      ];
-      applyMessages([...filtered, ...contextMessagesRef.current]);
+      directMessageCursorRef.current = result.cursor
+        ? { conversationId: resolvedConversation.id, cursor: result.cursor }
+        : null;
+      if (result.mode === 'full') setDirectMessageRealtimeTopic(result.realtimeTopic);
+      let filtered: Message[];
+      if (result.mode === 'changes') {
+        const removedIds = new Set(result.deletedIds);
+        const changedIds = new Set(result.messages.map((message) => message.id));
+        filtered = [
+          ...messagesRef.current.filter(
+            (message) => !removedIds.has(message.id) && !changedIds.has(message.id),
+          ),
+          ...result.messages.filter((message) => !deletedIdsRef.current.has(message.id)),
+        ];
+        applyMessages(filtered);
+      } else {
+        // Keep messages still being sent; a background refresh must not drop them.
+        const pendingLocal = silent
+          ? messagesRef.current.filter((message) => message.id.startsWith('local-'))
+          : [];
+        filtered = [
+          ...pendingLocal,
+          ...result.messages.filter((message) => !deletedIdsRef.current.has(message.id)),
+        ];
+        applyMessages([...filtered, ...contextMessagesRef.current]);
+      }
+
+      if (!silent && readLineConversationRef.current !== resolvedConversation.id) {
+        readLineConversationRef.current = resolvedConversation.id;
+        setReadLineMessageId(findMessengerReadLineId(
+          sortMessagesDesc(filtered),
+          (message) => message.sender_id === otherId && message.receiver_id === myId && !message.is_read,
+        ));
+      }
 
       const hasUnreadIncoming = filtered.some(
         (message) =>
@@ -1110,6 +1159,50 @@ export default function ChatScreen() {
     pendingAnchorMessageId,
   ]);
 
+  // A "changed" broadcast makes the open room fetch the changes after its
+  // cursor at once instead of waiting for the timer. Signals that arrive while a
+  // fetch runs fold into one more fetch after it.
+  const fetchMessagesRef = useRef(fetchMessages);
+  fetchMessagesRef.current = fetchMessages;
+  useEffect(() => {
+    if (!directMessageRealtimeTopic) return undefined;
+    let active = true;
+    let inFlight = false;
+    let again = false;
+    const pull = async () => {
+      if (inFlight) {
+        again = true;
+        return;
+      }
+      inFlight = true;
+      try {
+        do {
+          again = false;
+          await fetchMessagesRef.current({ silent: true });
+        } while (again && active);
+      } finally {
+        inFlight = false;
+      }
+    };
+    const unsubscribe = subscribeDirectMessageSignal(
+      directMessageRealtimeTopic,
+      () => {
+        if (active) void pull();
+      },
+      (status) => {
+        const live = status === 'live';
+        directMessageRealtimeLiveRef.current = live;
+        // Catch up on anything missed while the channel was down.
+        if (live && active) void pull();
+      },
+    );
+    return () => {
+      active = false;
+      directMessageRealtimeLiveRef.current = false;
+      unsubscribe();
+    };
+  }, [directMessageRealtimeTopic]);
+
   useFocusEffect(useCallback(() => {
     if (!myId || !otherId || !resolvedConversation?.id) return undefined;
 
@@ -1123,7 +1216,9 @@ export default function ChatScreen() {
           if (AppState.currentState === 'active') await fetchMessages({ silent: true });
           if (active) scheduleRefresh();
         })();
-      }, DIRECT_MESSAGE_REFRESH_MS);
+      }, directMessageRealtimeLiveRef.current
+        ? DIRECT_MESSAGE_REALTIME_FALLBACK_MS
+        : DIRECT_MESSAGE_REFRESH_MS);
     };
 
     void fetchMessages();
@@ -1313,6 +1408,7 @@ export default function ChatScreen() {
 
     const clientMessageId = randomUUID();
     let uploadedIntentIds: string[] | null = null;
+    let definiteFailureMessage: string | null = null;
     const sendCommittedMessage = async (
       attachmentIntentIds: readonly string[] | null,
     ) => {
@@ -1371,8 +1467,9 @@ export default function ChatScreen() {
           clientMessageId,
         });
         if (!failure.uncertain) {
-          // A definite refusal: re-sending the same request would be refused again.
-          Alert.alert(attachmentBatch ? '파일 전송 실패' : '전송 실패', failure.message);
+          // A definite refusal: re-sending the same request would be refused
+          // again. The bubble stays as failed with retry and delete.
+          definiteFailureMessage = failure.message;
           return null;
         }
         return new Promise((resolve) => {
@@ -1395,6 +1492,20 @@ export default function ChatScreen() {
     };
     const commitResult = await commitMessageWithRetry();
     if (!isCurrentSend()) return false;
+    if (!commitResult && definiteFailureMessage && optimisticMessage) {
+      failedPayloadsRef.current.set(optimisticMessage.id, { content, attachments: [...attachments] });
+      applyMessages(messagesRef.current.map((message) => (
+        message.id === optimisticMessage.id
+          ? {
+              ...message,
+              local_status: 'failed' as const,
+              content: content || `파일 ${attachments.length}개`,
+            }
+          : message
+      )));
+      // The bubble now holds the draft, so the composer is cleared.
+      return true;
+    }
     if (!commitResult) {
       if (optimisticMessage) {
         applyMessages(
@@ -1790,17 +1901,65 @@ export default function ChatScreen() {
     );
   };
 
+  const removeFailedMessage = (messageId: string) => {
+    failedPayloadsRef.current.delete(messageId);
+    applyMessages(messagesRef.current.filter((message) => message.id !== messageId));
+  };
+
+  const resendFailedMessage = (messageId: string) => {
+    const payload = failedPayloadsRef.current.get(messageId);
+    if (!payload || sendingTextRef.current) return;
+    removeFailedMessage(messageId);
+    const isMountedSend = beginSend();
+    const ownsSend = sendOwnerScope.current.captureOwner(sendOwnerKey);
+    const isCurrentSend = () => isMountedSend() && ownsSend();
+    if (!isCurrentSend()) return;
+    sendingTextRef.current = true;
+    setSendingAttachments(true);
+    void sendPayload(payload.content, payload.attachments, isCurrentSend)
+      .catch(() => {
+        if (isCurrentSend()) Alert.alert('전송 확인 필요', '메시지 전송 결과를 확인하지 못했습니다. 대화 내용을 확인한 뒤 다시 시도해 주세요.');
+      })
+      .finally(() => {
+        if (isCurrentSend()) { sendingTextRef.current = false; setSendingAttachments(false); }
+      });
+  };
+
+  const handleFailedMessagePress = (message: Message) => {
+    if (message.local_status !== 'failed') return;
+    Alert.alert('전송 실패', '메시지를 보내지 못했습니다.', [
+      { text: '취소', style: 'cancel' },
+      { text: '삭제', style: 'destructive', onPress: () => removeFailedMessage(message.id) },
+      { text: '다시 보내기', onPress: () => resendFailedMessage(message.id) },
+    ]);
+  };
+
   const renderItem = ({ item, index }: { item: Message; index: number }) => {
     const isMe = item.sender_id === myId;
     const isHighlighted = highlightedMessageId === item.id;
-    const unreadReceiptCount = getDirectMessageUnreadCount({
+    const isFailed = item.local_status === 'failed';
+    const unreadReceiptCount = isFailed ? 0 : getDirectMessageUnreadCount({
       isOwn: isMe,
       isRead: item.is_read,
     });
+    // One sender's messages in the same minute form a run: name and avatar on
+    // the first bubble, time on the last (KakaoTalk style).
+    const run = messengerRunPosition(messages, index, (message) => message.sender_id, (message) => message.created_at);
     const messageMeta = (
       <View style={[styles.messageSideMeta, isMe ? styles.messageSideMetaMe : styles.messageSideMetaOther]}>
         <MessageUnreadReceiptBadge count={unreadReceiptCount} />
-        <Text style={styles.timeText}>{formatMessengerTime(item.created_at)}</Text>
+        {isFailed ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="전송 실패, 다시 보내기 또는 삭제"
+            hitSlop={8}
+            onPress={() => handleFailedMessagePress(item)}
+            style={styles.messageSendFailedButton}
+          >
+            <Feather name="rotate-cw" size={11} color="#DC2626" />
+            <Text style={styles.messageSendFailedText}>실패</Text>
+          </Pressable>
+        ) : run.last ? <Text style={styles.timeText}>{formatMessengerTime(item.created_at)}</Text> : null}
       </View>
     );
 
@@ -1809,21 +1968,25 @@ export default function ChatScreen() {
       {startsMessengerDay(messages, index, (message) => message.created_at) ? (
         <MessengerDayDivider createdAt={item.created_at} />
       ) : null}
+      {item.id === readLineMessageId ? <MessengerReadLine /> : null}
       <View
         style={[
           styles.msgRow,
+          !run.last && styles.msgRowInRun,
           isMe ? styles.msgRowMe : styles.msgRowOther,
           isHighlighted && styles.msgRowHighlighted,
         ]}
       >
-        {!isMe && (
+        {!isMe && (run.first ? (
           <View style={styles.avatar}>
             <Feather name="user" size={20} color={MUTED} />
           </View>
-        )}
+        ) : (
+          <View style={styles.avatarSpacer} />
+        ))}
 
         <View style={[styles.msgContainer, { alignItems: isMe ? 'flex-end' : 'flex-start' }]}>
-          {!isMe && (
+          {!isMe && run.first && (
             <Text style={styles.senderName}>
               {item.sender_label || headerTitle}
             </Text>
@@ -1843,6 +2006,7 @@ export default function ChatScreen() {
                 style={[
                   styles.bubble,
                   isMe ? styles.bubbleMe : styles.bubbleOther,
+                  !run.first && styles.bubbleInRun,
                   item.message_type === 'image' && {
                     paddingHorizontal: 4,
                     paddingVertical: 4,
@@ -2105,7 +2269,7 @@ export default function ChatScreen() {
               onPress={() => {
                 if (targetsError === LEGACY_SESSION_ERROR) {
                   logout();
-                  router.replace('/login?skipAuto=1');
+                  resetTo(router, '/login?skipAuto=1');
                   return;
                 }
                 void loadFcTargets();
@@ -2260,6 +2424,11 @@ export default function ChatScreen() {
 
       <View style={{ flex: 1 }}>
         <View style={styles.list}>
+          {messages.length === 0 && messageLoadState === 'loading' ? (
+            <View style={StyleSheet.absoluteFill} pointerEvents="none">
+              <MessengerRoomSkeleton />
+            </View>
+          ) : null}
           <FlatList
             ref={flatListRef}
             data={messages}
@@ -2412,7 +2581,6 @@ export default function ChatScreen() {
         visible={Boolean(selectCopyMessage)}
         text={getMessageCopyText(selectCopyMessage)}
         onClose={() => setSelectCopyMessage(null)}
-        bottomInset={insets.bottom}
       />
 
       {directSheetRoom ? (
@@ -2577,6 +2745,8 @@ const styles = StyleSheet.create({
   anchorLatestButtonPressed: { backgroundColor: '#FFEDD5' },
   anchorLatestButtonText: { color: HANWHA_ORANGE, fontSize: 12, fontWeight: '700' },
   msgRow: { flexDirection: 'row', marginBottom: 12, width: '100%' },
+  // Bubbles inside one sender's run sit close together.
+  msgRowInRun: { marginBottom: 3 },
   msgRowHighlighted: {
     backgroundColor: '#FFF1E8',
     borderRadius: 16,
@@ -2603,6 +2773,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
+  avatarSpacer: { width: 36, marginRight: 8 },
   senderName: { fontSize: 12, color: MUTED, marginLeft: 2, marginBottom: 4 },
   msgContainer: { flex: 1, minWidth: 0 },
   // Size against the remaining row width and leave room for the timestamp.
@@ -2624,6 +2795,8 @@ const styles = StyleSheet.create({
   },
   bubbleMe: { backgroundColor: HANWHA_ORANGE, borderTopRightRadius: 2 },
   bubbleOther: { backgroundColor: '#ffffff', borderTopLeftRadius: 2, borderWidth: 1, borderColor: '#F3F4F6' },
+  // Only the first bubble of a run points at its sender.
+  bubbleInRun: { borderTopLeftRadius: 16, borderTopRightRadius: 16 },
   // No width: '100%' here: inside the shrink-to-fit bubble Android measured short text as two lines.
   msgText: { fontSize: 15, lineHeight: 22 },
   msgTextMe: { color: '#ffffff', fontWeight: '500' },
@@ -2636,6 +2809,8 @@ const styles = StyleSheet.create({
   messageSideMetaMe: { alignItems: 'flex-end' },
   messageSideMetaOther: { alignItems: 'flex-start' },
   timeText: { fontSize: 11, color: '#9CA3AF', marginBottom: 2, minWidth: 30 },
+  messageSendFailedButton: { flexDirection: 'row', alignItems: 'center', gap: 2, marginBottom: 2 },
+  messageSendFailedText: { fontSize: 10, lineHeight: 13, color: '#DC2626', fontWeight: '800' },
   inputWrapper: {
     backgroundColor: '#fff',
     borderTopWidth: 1,

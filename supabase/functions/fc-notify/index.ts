@@ -1,4 +1,5 @@
 import { serveWithConfiguredCors as serve } from '../_shared/serve-with-cors.ts';
+import { startServerTiming, withServerTiming, type ServerTiming } from '../_shared/server-timing.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
   attachChatSummariesToContacts,
@@ -6,6 +7,7 @@ import {
   buildInternalChatList,
   shouldIncludeInternalChatParticipant,
 } from '../_shared/internal-chat.ts';
+import { runAfterResponse } from '../_shared/run-after-response.ts';
 import { filterManagerTokensForNotification } from '../_shared/notification-delivery-policy.ts';
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 import {
@@ -169,6 +171,8 @@ type Payload =
   | {
       type: 'direct_message_list' | 'direct_message_mark_read';
       conversation_id: string;
+      // direct_message_list only: the cursor from an earlier list; asks for changes after it.
+      since?: string | null;
       viewer_actor_id?: string;
       viewer_actor_role?: 'fc' | 'manager' | 'admin' | 'developer';
     }
@@ -1132,12 +1136,45 @@ function buildNotificationReceiptViewer(input: {
   };
 }
 
-function applyNotificationAudienceScope(query: any, viewer: NotificationReceiptViewer) {
+// broadcastSince: broadcasts sent before this time (the FC joined) are left out.
+function applyNotificationAudienceScope(
+  query: any,
+  viewer: NotificationReceiptViewer,
+  broadcastSince: string | null = null,
+) {
+  const broadcastScope = broadcastSince
+    ? `and(recipient_actor_id.is.null,resident_id.is.null,created_at.gt."${broadcastSince}")`
+    : 'and(recipient_actor_id.is.null,resident_id.is.null)';
   return viewer.allowBroadcast
-    ? query.or(
-      `recipient_actor_id.eq.${viewer.actorId},and(recipient_actor_id.is.null,resident_id.is.null)`,
-    )
+    ? query.or(`recipient_actor_id.eq.${viewer.actorId},${broadcastScope}`)
     : query.eq('recipient_actor_id', viewer.actorId);
+}
+
+// When an FC's inbox history starts: notifications sent to all FCs and notices
+// posted before this moment are neither counted nor listed for them. Staff
+// inboxes have no start. A failed lookup keeps the full history.
+async function loadInboxHistoryStart(
+  role: 'admin' | 'fc',
+  actor: FcNotifyAppActor | null,
+): Promise<string | null> {
+  if (role !== 'fc' || !actor?.fcId) return null;
+  try {
+    const { data, error } = await supabase
+      .from('fc_profiles')
+      .select('created_at')
+      .eq('id', actor.fcId)
+      .maybeSingle<{ created_at: string | null }>();
+    if (error || typeof data?.created_at !== 'string') return null;
+    const time = Date.parse(data.created_at);
+    return Number.isFinite(time) ? new Date(time).toISOString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function laterIso(left: string, right: string | null): string {
+  if (!right) return left;
+  return Date.parse(right) > Date.parse(left) ? right : left;
 }
 
 function toNotificationOwnershipRow(row: Record<string, unknown>): NotificationOwnershipRow {
@@ -1154,6 +1191,7 @@ type NotificationOwnershipQueryOptions = {
   role: 'admin' | 'fc';
   receiptViewer: NotificationReceiptViewer;
   sinceIso?: string;
+  broadcastSince?: string | null;
   excludeRequestBoardCategories?: boolean;
   onlyRequestBoardCategories?: boolean;
 };
@@ -1188,6 +1226,7 @@ async function fetchVisibleNotificationOwnershipRows({
   role,
   receiptViewer,
   sinceIso,
+  broadcastSince = null,
   excludeRequestBoardCategories = false,
   onlyRequestBoardCategories = false,
 }: NotificationOwnershipQueryOptions): Promise<Array<Record<string, unknown>>> {
@@ -1206,6 +1245,7 @@ async function fetchVisibleNotificationOwnershipRows({
       applyNotificationAudienceScope(
         supabase.from('notifications').select(selectColumns).eq('recipient_role', role),
         receiptViewer,
+        broadcastSince,
       ),
     ),
   );
@@ -1242,6 +1282,7 @@ type AdminWebPushResult = {
 };
 type DirectMessageRow = {
   id: string;
+  changed_at?: string;
   conversation_id: string | null;
   thread_id: string | null;
   sender_id: string;
@@ -1360,6 +1401,46 @@ function isTokenQueryRow(value: unknown): value is TokenRow {
     isNullableString(value.display_name) &&
     isNullableString(value.role)
   );
+}
+
+// Rows stamped just before another transaction commits can become visible a
+// moment later, so a changes request re-reads this much before its cursor.
+const DIRECT_MESSAGE_CURSOR_OVERLAP_MS = 10_000;
+// A cursor older than this is treated as missing: the client reloads in full.
+const DIRECT_MESSAGE_CURSOR_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function parseDirectMessageCursor(value: unknown): Date | null {
+  if (typeof value !== 'string' || value.length > 64) return null;
+  const parsed = new Date(value);
+  const time = parsed.getTime();
+  if (!Number.isFinite(time)) return null;
+  const now = Date.now();
+  if (time > now + 60_000 || time < now - DIRECT_MESSAGE_CURSOR_MAX_AGE_MS) return null;
+  return parsed;
+}
+
+// The public broadcast channel that says "this conversation changed". Its name
+// is an HMAC of the thread id kept in the database, so only participants learn
+// it. A failure only costs the realtime hint: the room keeps its timer refresh.
+async function loadDirectMessageRealtimeTopic(threadId: string): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.rpc('messenger_direct_realtime_topic_v1', {
+      p_thread_id: threadId,
+    });
+    if (error) return null;
+    return typeof data === 'string' && /^dm-[0-9a-f]{64}$/.test(data) ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+function latestDirectMessageChange(rows: DirectMessageRow[]): string | null {
+  let latest: number | null = null;
+  for (const row of rows) {
+    const time = typeof row.changed_at === 'string' ? Date.parse(row.changed_at) : NaN;
+    if (Number.isFinite(time) && (latest === null || time > latest)) latest = time;
+  }
+  return latest === null ? null : new Date(latest).toISOString();
 }
 
 function isDirectMessageRow(value: unknown): value is DirectMessageRow {
@@ -2166,6 +2247,9 @@ async function fetchBoardNoticesWithAttachments(
 async function fetchUnifiedNoticePage(
   limit = 20,
   cursor: FcNotifyInboxCursor | null = null,
+  // Notices at or before this time are left out. Rows come newest first, so
+  // trimming the old tail keeps the cursor paging correct.
+  postedAfter: string | null = null,
 ): Promise<InboxCursorPage<NoticeRow>> {
   const safeLimit = Math.max(1, Math.min(limit, 200));
   const sourceLimit = safeLimit + 1;
@@ -2185,7 +2269,11 @@ async function fetchUnifiedNoticePage(
     throw new Error('unified_notice_query_contract_invalid');
   }
   merged.sort(compareInboxRowsDescending);
-  return toInboxCursorPage(merged, safeLimit);
+  const floor = postedAfter ? Date.parse(postedAfter) : NaN;
+  const visible = Number.isFinite(floor)
+    ? merged.filter((row) => Date.parse(String(row.created_at)) > floor)
+    : merged;
+  return toInboxCursorPage(visible, safeLimit);
 }
 
 async function fetchUnifiedNotices(limit = 20): Promise<NoticeRow[]> {
@@ -2828,17 +2916,22 @@ type DirectConversationThreadRow = {
   counterparty_actor_id: string | null;
 };
 
-async function resolveActiveDirectCounterparty(input: {
-  role: 'admin' | 'manager' | 'developer';
-  actorId: string | null;
-}): Promise<
+type ActiveDirectCounterpartyResult =
   | {
       ok: true;
       counterparty: DirectConversationCounterparty;
       name: string | null;
     }
-  | { ok: false; status: 400 | 403 | 404 | 500; message: string }
-> {
+  | { ok: false; status: 400 | 403 | 404 | 500; message: string };
+
+type DirectCounterpartyAccountRows = { rows: unknown[] | null; failed: boolean };
+
+// Reads the account rows a counterparty check needs. `rows` is null when the
+// response was not a list; `failed` marks a database error.
+async function fetchDirectCounterpartyAccountRows(input: {
+  role: 'admin' | 'manager' | 'developer';
+  actorId: string | null;
+}): Promise<DirectCounterpartyAccountRows> {
   if (input.role === 'admin') {
     let query = supabase
       .from('admin_accounts')
@@ -2847,47 +2940,65 @@ async function resolveActiveDirectCounterparty(input: {
       .or('staff_type.neq.developer,staff_type.is.null');
     query = input.actorId === null ? query.limit(1) : query.eq('id', input.actorId).limit(1);
     const { data, error } = await query;
-    if (error) {
-      return {
-        ok: false,
-        status: 500,
-        message: 'Direct conversation target lookup failed',
-      };
-    }
-    const accounts = parseQueryRows(data, isActiveStaffIdentityQueryRow);
-    if (!accounts || accounts.length > 1) {
-      return {
-        ok: false,
-        status: 500,
-        message: 'Direct conversation target lookup failed',
-      };
-    }
-    if (accounts.length === 0) {
-      return {
-        ok: false,
-        status: 404,
-        message: 'Direct conversation target not found',
-      };
-    }
+    return { rows: Array.isArray(data) ? data : null, failed: Boolean(error) };
+  }
+  if (!input.actorId) return { rows: [], failed: false };
+  const { data, error } = input.role === 'developer'
+    ? await supabase
+      .from('admin_accounts')
+      .select('id,name,phone,staff_type,active')
+      .eq('id', input.actorId)
+      .eq('active', true)
+      .eq('staff_type', 'developer')
+      .maybeSingle()
+    : await supabase
+      .from('manager_accounts')
+      .select('id,name,phone,active')
+      .eq('id', input.actorId)
+      .eq('active', true)
+      .maybeSingle();
+  return { rows: data === null ? [] : [data], failed: Boolean(error) };
+}
+
+// Decides whether the counterparty is an active account it may talk to, from
+// rows read either by fetchDirectCounterpartyAccountRows or by the one-call
+// thread snapshot; both read the same columns with the same filters.
+function judgeActiveDirectCounterparty(
+  input: { role: 'admin' | 'manager' | 'developer'; actorId: string | null },
+  fetched: DirectCounterpartyAccountRows,
+): ActiveDirectCounterpartyResult {
+  const lookupFailed = {
+    ok: false as const,
+    status: 500 as const,
+    message: 'Direct conversation target lookup failed',
+  };
+  const notFound = {
+    ok: false as const,
+    status: 404 as const,
+    message: 'Direct conversation target not found',
+  };
+  if (input.role !== 'admin' && !input.actorId) {
+    return {
+      ok: false,
+      status: 400,
+      message: 'Direct conversation target is invalid',
+    };
+  }
+  if (fetched.failed) return lookupFailed;
+
+  if (input.role === 'admin') {
+    const accounts = parseQueryRows(fetched.rows, isActiveStaffIdentityQueryRow);
+    if (!accounts || accounts.length > 1) return lookupFailed;
+    if (accounts.length === 0) return notFound;
     const account = accounts[0];
     if (
       account.staff_type === 'developer' ||
       (input.actorId !== null && account.id !== input.actorId)
     ) {
-      return {
-        ok: false,
-        status: 500,
-        message: 'Direct conversation target lookup failed',
-      };
+      return lookupFailed;
     }
     const phone = input.actorId === null ? null : sanitize(account.phone);
-    if (input.actorId !== null && phone?.length !== 11) {
-      return {
-        ok: false,
-        status: 404,
-        message: 'Direct conversation target not found',
-      };
-    }
+    if (input.actorId !== null && phone?.length !== 11) return notFound;
     return {
       ok: true,
       counterparty: { role: 'admin', actorId: input.actorId, phone },
@@ -2895,87 +3006,41 @@ async function resolveActiveDirectCounterparty(input: {
     };
   }
 
-  if (!input.actorId) {
-    return {
-      ok: false,
-      status: 400,
-      message: 'Direct conversation target is invalid',
-    };
-  }
+  if (!fetched.rows || fetched.rows.length > 1) return lookupFailed;
+  if (fetched.rows.length === 0) return notFound;
+  const data = fetched.rows[0];
   if (input.role === 'developer') {
-    const { data, error } = await supabase
-      .from('admin_accounts')
-      .select('id,name,phone,staff_type,active')
-      .eq('id', input.actorId)
-      .eq('active', true)
-      .eq('staff_type', 'developer')
-      .maybeSingle();
-    if (error) {
-      return {
-        ok: false,
-        status: 500,
-        message: 'Direct conversation target lookup failed',
-      };
-    }
-    if (data === null) {
-      return {
-        ok: false,
-        status: 404,
-        message: 'Direct conversation target not found',
-      };
-    }
     if (
       !isActiveStaffIdentityQueryRow(data) ||
       data.id !== input.actorId ||
       data.staff_type !== 'developer'
     ) {
-      return {
-        ok: false,
-        status: 500,
-        message: 'Direct conversation target lookup failed',
-      };
+      return lookupFailed;
     }
-    const phone = sanitize(data.phone);
     return {
       ok: true,
-      counterparty: { role: 'developer', actorId: data.id, phone },
+      counterparty: { role: 'developer', actorId: data.id, phone: sanitize(data.phone) },
       name: '개발자',
     };
   }
-
-  const { data, error } = await supabase
-    .from('manager_accounts')
-    .select('id,name,phone,active')
-    .eq('id', input.actorId)
-    .eq('active', true)
-    .maybeSingle();
-  if (error) {
-    return {
-      ok: false,
-      status: 500,
-      message: 'Direct conversation target lookup failed',
-    };
-  }
-  if (data === null) {
-    return {
-      ok: false,
-      status: 404,
-      message: 'Direct conversation target not found',
-    };
-  }
   if (!isActiveManagerIdentityQueryRow(data) || data.id !== input.actorId) {
-    return {
-      ok: false,
-      status: 500,
-      message: 'Direct conversation target lookup failed',
-    };
+    return lookupFailed;
   }
-  const phone = sanitize(data.phone);
   return {
     ok: true,
-    counterparty: { role: 'manager', actorId: data.id, phone },
+    counterparty: { role: 'manager', actorId: data.id, phone: sanitize(data.phone) },
     name: typeof data.name === 'string' ? data.name.trim() || null : null,
   };
+}
+
+async function resolveActiveDirectCounterparty(input: {
+  role: 'admin' | 'manager' | 'developer';
+  actorId: string | null;
+}): Promise<ActiveDirectCounterpartyResult> {
+  if (input.role !== 'admin' && !input.actorId) {
+    return judgeActiveDirectCounterparty(input, { rows: [], failed: false });
+  }
+  return judgeActiveDirectCounterparty(input, await fetchDirectCounterpartyAccountRows(input));
 }
 
 async function resolveDirectCounterpartyFromTarget(targetId?: string | null): Promise<
@@ -3072,6 +3137,84 @@ async function resolveDirectCounterpartyFromTarget(targetId?: string | null): Pr
 
 type DirectCounterpartyResolution = Awaited<ReturnType<typeof resolveActiveDirectCounterparty>>;
 
+type DirectConversationProfileRow = {
+  id: string;
+  phone: string | null;
+  name: string | null;
+  affiliation: string | null;
+  signup_completed: boolean | null;
+  is_manager_referral_shadow: boolean | null;
+};
+
+type DirectConversationProfileRead = {
+  data: DirectConversationProfileRow | null;
+  error: unknown;
+};
+
+async function fetchDirectConversationProfile(fcId: string): Promise<DirectConversationProfileRead> {
+  const { data, error } = await supabase
+    .from('fc_profiles')
+    .select('id,phone,name,affiliation,signup_completed,is_manager_referral_shadow')
+    .eq('id', fcId)
+    .eq('signup_completed', true)
+    .eq('is_manager_referral_shadow', false)
+    .maybeSingle<DirectConversationProfileRow>();
+  return { data, error };
+}
+
+type DirectThreadSnapshot = {
+  thread: DirectConversationThreadRow;
+  fcId: string | null;
+  counterpartyRows: unknown[] | null;
+  profile: DirectConversationProfileRow | null;
+};
+
+// One round trip for an existing thread (messenger_direct_thread_snapshot_v1
+// reads the same rows as the separate queries). Any failure or unknown thread
+// returns null and the caller takes the query-by-query path.
+async function loadDirectThreadSnapshot(threadId: string): Promise<DirectThreadSnapshot | null> {
+  try {
+    const { data, error } = await supabase.rpc('messenger_direct_thread_snapshot_v1', {
+      p_thread_id: threadId,
+    });
+    if (error || !isRecord(data) || !isRecord(data.thread)) return null;
+    const thread = data.thread;
+    const role = thread.counterparty_role;
+    if (
+      thread.id !== threadId ||
+      typeof thread.legacy_conversation_id !== 'string' ||
+      (role !== 'admin' && role !== 'manager' && role !== 'developer') ||
+      !isNullableUuid(thread.counterparty_actor_id)
+    ) {
+      return null;
+    }
+    const conversation = data.conversation;
+    const fcId =
+      isRecord(conversation) &&
+      conversation.id === thread.legacy_conversation_id &&
+      typeof conversation.fc_id === 'string'
+        ? conversation.fc_id
+        : null;
+    const profile =
+      isRecord(data.profile) && typeof data.profile.id === 'string' && data.profile.id === fcId
+        ? (data.profile as DirectConversationProfileRow)
+        : null;
+    return {
+      thread: {
+        id: thread.id,
+        legacy_conversation_id: thread.legacy_conversation_id,
+        counterparty_role: role,
+        counterparty_actor_id: (thread.counterparty_actor_id as string | null) ?? null,
+      },
+      fcId,
+      counterpartyRows: Array.isArray(data.counterparty_rows) ? data.counterparty_rows : null,
+      profile,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function resolveGaraminDirectConversation(input: {
   actor: FcNotifyAppActor;
   conversationId?: string | null;
@@ -3081,12 +3224,52 @@ async function resolveGaraminDirectConversation(input: {
   let fcId: string | null = null;
   let thread: DirectConversationThreadRow | null = null;
   let counterpartyResult: DirectCounterpartyResolution | null = null;
-  if (input.conversationId) {
+  // Each query is a round trip to the database region, so independent lookups
+  // run together: the thread comes with its conversation, and the FC profile is
+  // read while the counterparty is checked.
+  let profileRequest: Promise<DirectConversationProfileRead> | null = null;
+  const snapshot = input.conversationId
+    ? await loadDirectThreadSnapshot(input.conversationId)
+    : null;
+  if (snapshot) {
+    if (!snapshot.fcId) {
+      return {
+        ok: false,
+        status: 404,
+        message: 'Direct conversation not found',
+      };
+    }
+    const snapshotCounterparty = judgeActiveDirectCounterparty(
+      {
+        role: snapshot.thread.counterparty_role,
+        actorId: snapshot.thread.counterparty_actor_id,
+      },
+      { rows: snapshot.counterpartyRows, failed: false },
+    );
+    if (snapshotCounterparty.ok === false) return snapshotCounterparty;
+    if (
+      !canAccessDirectConversation(input.actor, {
+        fcActorId: snapshot.fcId,
+        counterparty: snapshotCounterparty.counterparty,
+      })
+    ) {
+      return {
+        ok: false,
+        status: 404,
+        message: 'Direct conversation not found',
+      };
+    }
+    thread = snapshot.thread;
+    fcId = snapshot.fcId;
+    counterpartyResult = snapshotCounterparty;
+    profileRequest = Promise.resolve({ data: snapshot.profile, error: null });
+  } else if (input.conversationId) {
+    let embeddedFcId: string | null = null;
     const { data: directThread, error: threadError } = await supabase
       .from('garamin_direct_threads')
-      .select('id,legacy_conversation_id,counterparty_role,counterparty_actor_id')
+      .select('id,legacy_conversation_id,counterparty_role,counterparty_actor_id,conversation:garamin_direct_conversations(id,fc_id)')
       .eq('id', input.conversationId)
-      .maybeSingle();
+      .maybeSingle<DirectConversationThreadRow & { conversation?: unknown }>();
     if (threadError) {
       return {
         ok: false,
@@ -3095,7 +3278,20 @@ async function resolveGaraminDirectConversation(input: {
       };
     }
     if (directThread?.id) {
-      thread = directThread as DirectConversationThreadRow;
+      const embedded = directThread.conversation;
+      if (
+        isRecord(embedded) &&
+        embedded.id === directThread.legacy_conversation_id &&
+        typeof embedded.fc_id === 'string'
+      ) {
+        embeddedFcId = embedded.fc_id;
+      }
+      thread = {
+        id: directThread.id,
+        legacy_conversation_id: directThread.legacy_conversation_id,
+        counterparty_role: directThread.counterparty_role,
+        counterparty_actor_id: directThread.counterparty_actor_id,
+      } as DirectConversationThreadRow;
     } else {
       if (input.existingCanonicalOnly) {
         return {
@@ -3159,26 +3355,32 @@ async function resolveGaraminDirectConversation(input: {
       }
       thread = matchingThread as DirectConversationThreadRow;
     }
-    const { data: legacyConversation, error: legacyError } = await supabase
-      .from('garamin_direct_conversations')
-      .select('id,fc_id')
-      .eq('id', thread.legacy_conversation_id)
-      .maybeSingle();
-    if (legacyError) {
-      return {
-        ok: false,
-        status: 500,
-        message: 'Direct conversation lookup failed',
-      };
+    let threadFcId = embeddedFcId;
+    if (!threadFcId) {
+      const { data: legacyConversation, error: legacyError } = await supabase
+        .from('garamin_direct_conversations')
+        .select('id,fc_id')
+        .eq('id', thread.legacy_conversation_id)
+        .maybeSingle();
+      if (legacyError) {
+        return {
+          ok: false,
+          status: 500,
+          message: 'Direct conversation lookup failed',
+        };
+      }
+      threadFcId = typeof legacyConversation?.fc_id === 'string' ? legacyConversation.fc_id : null;
     }
-    if (!legacyConversation?.fc_id) {
+    if (!threadFcId) {
       return {
         ok: false,
         status: 404,
         message: 'Direct conversation not found',
       };
     }
-    fcId = legacyConversation.fc_id;
+    fcId = threadFcId;
+    // Read only; used below only after the access check passes.
+    profileRequest = fetchDirectConversationProfile(threadFcId);
     counterpartyResult = await resolveActiveDirectCounterparty({
       role: thread.counterparty_role,
       actorId: thread.counterparty_actor_id,
@@ -3186,7 +3388,7 @@ async function resolveGaraminDirectConversation(input: {
     if (counterpartyResult.ok === false) return counterpartyResult;
     if (
       !canAccessDirectConversation(input.actor, {
-      fcActorId: legacyConversation.fc_id,
+      fcActorId: threadFcId,
       counterparty: counterpartyResult.counterparty,
       })
     ) {
@@ -3256,13 +3458,8 @@ async function resolveGaraminDirectConversation(input: {
     };
   }
 
-  const { data: profile, error: profileError } = await supabase
-    .from('fc_profiles')
-    .select('id,phone,name,affiliation,signup_completed,is_manager_referral_shadow')
-    .eq('id', fcId)
-    .eq('signup_completed', true)
-    .eq('is_manager_referral_shadow', false)
-    .maybeSingle();
+  const { data: profile, error: profileError } = await (profileRequest ??
+    fetchDirectConversationProfile(fcId));
   if (profileError) {
     return {
       ok: false,
@@ -3901,6 +4098,12 @@ async function fetchDirectMessageContextSide(input: {
 }
 
 serve(async (req: Request) => {
+  const timing = startServerTiming();
+  const response = await handleFcNotifyRequest(req, timing);
+  return withServerTiming(response, timing);
+});
+
+async function handleFcNotifyRequest(req: Request, timing: ServerTiming): Promise<Response> {
   // Preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -3919,6 +4122,7 @@ serve(async (req: Request) => {
   } catch {
     return err('Invalid JSON', 400);
   }
+  timing.mark('parse');
 
   let body: Payload;
   let authMode: 'public' | 'service' | 'app';
@@ -3948,14 +4152,27 @@ serve(async (req: Request) => {
       body = rawBody as unknown as Payload;
     }
   } else {
-    const sessionResult = await requireAppSessionFromRequest(req);
+    // The account lookup runs alongside the session revocation check; its result
+    // is used only if the session is accepted.
+    let actorRequest: Promise<FcNotifyActorResolution> | null = null;
+    const sessionResult = await requireAppSessionFromRequest(req, (payload) => {
+      actorRequest = resolveFcNotifyAppActor(payload).catch(
+        (error: unknown): FcNotifyActorResolution => ({
+          ok: false,
+          status: 500,
+          message: error instanceof Error ? error.message : 'Actor lookup failed',
+        }),
+      );
+    });
     if (sessionResult.ok === false) {
       return err(sessionResult.message, sessionResult.status);
     }
-    const actorResult = await resolveFcNotifyAppActor(sessionResult.session);
+    timing.mark('session');
+    const actorResult = await (actorRequest ?? resolveFcNotifyAppActor(sessionResult.session));
     if (actorResult.ok === false) {
       return err(actorResult.message, actorResult.status);
     }
+    timing.mark('actor');
     const policyResult = buildAppFcNotifyPayload(rawBody, actorResult.actor);
     if (policyResult.ok === false) {
       return err(policyResult.error, policyResult.status);
@@ -4404,6 +4621,7 @@ serve(async (req: Request) => {
     if (resolution.ok === false) {
       return err(resolution.message, resolution.status);
     }
+    timing.mark('conversation');
 
     const identity = buildDirectMessageIdentity({
       actor: appActor,
@@ -4425,8 +4643,12 @@ serve(async (req: Request) => {
         : sanitize(appActor.phone);
     const legacyCounterpartId =
       appActor.sessionRole === 'fc' ? resolution.counterpartyId : resolution.fcPhone;
-    const buildCurrentMessageQuery = () => {
-      let query = supabase.from('messages').select(messageColumns);
+    type MessageRowsOptions = { withChangedAt?: boolean; changedSince?: string | null };
+    const columnsFor = (options?: MessageRowsOptions) =>
+      options?.withChangedAt ? `${messageColumns},changed_at` : messageColumns;
+    const buildCurrentMessageQuery = (options?: MessageRowsOptions) => {
+      let query = supabase.from('messages').select(columnsFor(options));
+      if (options?.changedSince) query = query.gte('changed_at', options.changedSince);
       query =
         resolution.counterparty.role === 'admin' && resolution.counterparty.actorId === null
         ? query.or(
@@ -4436,34 +4658,37 @@ serve(async (req: Request) => {
         : query.eq('thread_id', resolution.threadId);
       return query;
     };
-    const collectCurrentMessageRows = () =>
+    const collectCurrentMessageRows = (options?: MessageRowsOptions) =>
       collectSupabaseRows<DirectMessageRow>({
         queryName: 'direct_messages_current',
         isRow: isDirectMessageRow,
         rowKey: (row) => row.id,
         fetchPage: (from, to) =>
-          buildCurrentMessageQuery()
+          buildCurrentMessageQuery(options)
             .order('created_at', { ascending: true })
             .order('id', { ascending: true })
             .range(from, to),
       });
-    const collectLegacyMessageRows = () =>
+    const collectLegacyMessageRows = (options?: MessageRowsOptions) =>
       collectSupabaseRows<DirectMessageRow>({
         queryName: 'direct_messages_legacy',
         isRow: isDirectMessageRow,
         rowKey: (row) => row.id,
-        fetchPage: (from, to) =>
-          supabase
+        fetchPage: (from, to) => {
+          let query = supabase
             .from('messages')
-            .select(messageColumns)
-            .is('conversation_id', null)
+            .select(columnsFor(options))
+            .is('conversation_id', null);
+          if (options?.changedSince) query = query.gte('changed_at', options.changedSince);
+          return query
             .or(
               `and(sender_id.eq.${legacyActorId},receiver_id.eq.${legacyCounterpartId}),` +
                 `and(sender_id.eq.${legacyCounterpartId},receiver_id.eq.${legacyActorId})`,
             )
             .order('created_at', { ascending: true })
             .order('id', { ascending: true })
-            .range(from, to),
+            .range(from, to);
+        },
       });
     const normalizeMessage = (
       row: DirectMessageRow,
@@ -4484,16 +4709,58 @@ serve(async (req: Request) => {
     });
 
     if (body.type === 'direct_message_list') {
+      // With a cursor only rows changed since it come back, deleted ones as ids,
+      // and the client merges them into what it holds. Without one (or with a
+      // cursor that cannot be read) the whole conversation comes back as before.
+      const since = parseDirectMessageCursor(body.since);
+      const changedSince = since
+        ? new Date(since.getTime() - DIRECT_MESSAGE_CURSOR_OVERLAP_MS).toISOString()
+        : null;
       let currentQueryRows: DirectMessageRow[];
       let legacyQueryRows: DirectMessageRow[];
+      let realtimeTopic: string | null;
       try {
-        [currentQueryRows, legacyQueryRows] = await Promise.all([
-          collectCurrentMessageRows(),
-          collectLegacyMessageRows(),
+        [currentQueryRows, legacyQueryRows, realtimeTopic] = await Promise.all([
+          collectCurrentMessageRows({ withChangedAt: true, changedSince }),
+          collectLegacyMessageRows({ withChangedAt: true, changedSince }),
+          // Only a full load (opening the room) hands out the signal channel.
+          since ? Promise.resolve(null) : loadDirectMessageRealtimeTopic(resolution.threadId),
       ]);
       } catch {
         return err('Direct message lookup failed', 500);
       }
+      timing.mark('rows');
+
+      const cursor = latestDirectMessageChange([...currentQueryRows, ...legacyQueryRows]) ??
+        (since ? since.toISOString() : null);
+      const isVisibleCurrentRow = (row: DirectMessageRow) =>
+        isCurrentDirectMessageVisible({
+          fcActorId: resolution.fcId,
+          fcPhone: resolution.fcPhone,
+          counterparty: resolution.counterparty,
+          row,
+        }) ||
+        (!row.sender_actor_id &&
+          !row.receiver_actor_id &&
+          isLegacyDirectMessageVisible({
+            actor: appActor,
+            fcPhone: resolution.fcPhone,
+            counterpartyId: resolution.counterpartyId,
+            row,
+          }));
+      const isVisibleLegacyRow = (row: DirectMessageRow) =>
+        isLegacyDirectMessageVisible({
+          actor: appActor,
+          fcPhone: resolution.fcPhone,
+          counterpartyId: resolution.counterpartyId,
+          row,
+        });
+      const deletedIds = since
+        ? Array.from(new Set([
+            ...currentQueryRows.filter((row) => row.deleted_at !== null && isVisibleCurrentRow(row)),
+            ...legacyQueryRows.filter((row) => row.deleted_at !== null && isVisibleLegacyRow(row)),
+          ].map((row) => row.id)))
+        : [];
 
       const currentRows = currentQueryRows.filter(
         (row) =>
@@ -4538,6 +4805,7 @@ serve(async (req: Request) => {
       } catch (error) {
         return messengerAttachmentErrorResponse(error);
       }
+      timing.mark('attachments');
 
       return ok({
         ok: true,
@@ -4555,6 +4823,10 @@ serve(async (req: Request) => {
             row.attachment_batch_id ? (attachmentsByBatch.get(row.attachment_batch_id) ?? []) : [],
           ),
         ),
+        mode: since ? 'changes' : 'full',
+        deleted_ids: deletedIds,
+        cursor,
+        realtime_topic: realtimeTopic,
       });
     }
 
@@ -4772,97 +5044,95 @@ serve(async (req: Request) => {
         });
       }
 
-      const recipientPhones = Array.from(
-        new Set(
-          retainedNotifications
-            .filter((row) => expoEligibleNotificationIds.has(row.notificationId))
-            .map((row) => row.residentId),
-        ),
-      );
-      const { data: tokenRows, error: tokenError } = await supabase
-        .from('device_tokens')
-        .select('expo_push_token,resident_id,display_name,role')
-        .in('resident_id', recipientPhones);
-      const notificationByResident = new Map(
+      const recipientCount = new Set(
         retainedNotifications
           .filter((row) => expoEligibleNotificationIds.has(row.notificationId))
-          .map((row) => [row.residentId, row]),
-      );
-      const parsedTokenRows = parseQueryRows(tokenRows, isTokenQueryRow);
-      const tokenLookupFailed =
-        Boolean(tokenError) ||
-        !parsedTokenRows ||
-        parsedTokenRows.some((token) => !recipientPhones.includes(String(token.resident_id ?? '')));
-      const eligibleTokens = tokenLookupFailed
-        ? []
-        : dedupeTokens(
-            parsedTokenRows.filter((token) => {
-          const notification = notificationByResident.get(String(token.resident_id ?? ''));
-          return Boolean(
-                notification &&
-                  (notification.recipientRole === 'manager'
-                ? ['manager']
-                    : getAllowedNotificationTokenRoles(notification.recipientRole, 'message')
-                  ).includes(String(token.role ?? '') as 'admin' | 'manager' | 'fc'),
+          .map((row) => row.residentId),
+      ).size;
+      // The message and its notification rows are committed and the muted
+      // recipients' rows are gone, so the sender gets the answer now. Token
+      // lookup and the Expo send run after the response; the client treats
+      // 'not_attempted' as stored with push unconfirmed and shows no alert.
+      const deliverPush = async () => {
+        const recipientPhones = Array.from(
+          new Set(
+            retainedNotifications
+              .filter((row) => expoEligibleNotificationIds.has(row.notificationId))
+              .map((row) => row.residentId),
+          ),
+        );
+        const { data: tokenRows, error: tokenError } = await supabase
+          .from('device_tokens')
+          .select('expo_push_token,resident_id,display_name,role')
+          .in('resident_id', recipientPhones);
+        const notificationByResident = new Map(
+          retainedNotifications
+            .filter((row) => expoEligibleNotificationIds.has(row.notificationId))
+            .map((row) => [row.residentId, row]),
+        );
+        const parsedTokenRows = parseQueryRows(tokenRows, isTokenQueryRow);
+        const tokenLookupFailed =
+          Boolean(tokenError) ||
+          !parsedTokenRows ||
+          parsedTokenRows.some((token) => !recipientPhones.includes(String(token.resident_id ?? '')));
+        const eligibleTokens = tokenLookupFailed
+          ? []
+          : dedupeTokens(
+              parsedTokenRows.filter((token) => {
+            const notification = notificationByResident.get(String(token.resident_id ?? ''));
+            return Boolean(
+                  notification &&
+                    (notification.recipientRole === 'manager'
+                  ? ['manager']
+                      : getAllowedNotificationTokenRoles(notification.recipientRole, 'message')
+                    ).includes(String(token.role ?? '') as 'admin' | 'manager' | 'fc'),
+                );
+              }),
+            );
+        const pushPayload = eligibleTokens.map((token) => {
+          const notification = notificationByResident.get(String(token.resident_id ?? ''))!;
+          const preview = body.content || '첨부파일을 보냈습니다.';
+          return {
+            to: token.expo_push_token,
+            title: '새 메시지',
+            body: preview.slice(0, 160),
+            data: {
+              url: '/chat',
+              type: 'message',
+              notificationId: notification.notificationId,
+              target: directTarget,
+              conversationId: resolution.id,
+              sentAt: new Date().toISOString(),
+            },
+            sound: 'default',
+            priority: 'high',
+            channelId: 'alerts',
+          };
+        });
+        const adminWebResults = await Promise.all(
+          retainedNotifications
+            .filter(
+              (notification) =>
+                notification.recipientRole === 'admin' &&
+                expoEligibleNotificationIds.has(notification.notificationId),
+            )
+            .map((notification) => {
+              const preview = body.content || '첨부파일을 보냈습니다.';
+              return notifyAdminWebPush(
+                '새 메시지',
+                preview.slice(0, 160),
+                '/chat',
+                notification.residentId,
+                notification.notificationId,
+                directTarget,
               );
             }),
-          );
-      const pushPayload = eligibleTokens.map((token) => {
-        const notification = notificationByResident.get(String(token.resident_id ?? ''))!;
-        const preview = body.content || '첨부파일을 보냈습니다.';
-        return {
-          to: token.expo_push_token,
-          title: '새 메시지',
-          body: preview.slice(0, 160),
-          data: {
-            url: '/chat',
-            type: 'message',
-            notificationId: notification.notificationId,
-            target: directTarget,
-            conversationId: resolution.id,
-            sentAt: new Date().toISOString(),
-          },
-          sound: 'default',
-          priority: 'high',
-          channelId: 'alerts',
-        };
-      });
-      const adminWebResults = await Promise.all(
-        retainedNotifications
-          .filter(
-            (notification) =>
-              notification.recipientRole === 'admin' &&
-              expoEligibleNotificationIds.has(notification.notificationId),
-          )
-          .map((notification) => {
-            const preview = body.content || '첨부파일을 보냈습니다.';
-            return notifyAdminWebPush(
-              '새 메시지',
-              preview.slice(0, 160),
-              '/chat',
-              notification.residentId,
-              notification.notificationId,
-              directTarget,
-            );
-          }),
-      );
-      const expoDelivery = tokenLookupFailed
-        ? { attempted: 0, accepted: 0, rejected: 0 }
-        : await sendExpoPushPayloads(pushPayload);
-      const webAccepted = adminWebResults.reduce(
-        (sum, result) => sum + (result.ok ? result.sent : 0),
-        0,
-      );
-      const providerRejected =
-        tokenLookupFailed ||
-        expoDelivery.rejected > 0 ||
-        adminWebResults.some((result) => !result.ok && !result.noTarget);
-      const providerAccepted = expoDelivery.accepted > 0 || webAccepted > 0;
-      const pushStatus = providerRejected
-        ? ('provider_rejected' as const)
-        : providerAccepted
-          ? ('accepted' as const)
-          : ('no_registered_device' as const);
+        );
+        const expoDelivery = tokenLookupFailed
+          ? { attempted: 0, accepted: 0, rejected: 0 }
+          : await sendExpoPushPayloads(pushPayload);
+      };
+      if (recipientCount > 0) runAfterResponse(deliverPush);
       const notificationIds = retainedNotifications.map((row) => row.notificationId);
       return ok({
         ok: true,
@@ -4877,14 +5147,11 @@ serve(async (req: Request) => {
           : {}),
         delivery: buildDeliveryMetadata({
           notificationStored: true,
-          pushStatus,
-          retryable: providerRejected,
+          pushStatus: recipientCount > 0 ? 'not_attempted' : 'no_registered_device',
+          retryable: false,
           ...(notificationIds.length === 1
             ? { notificationId: notificationIds[0] }
             : { notificationIds }),
-          attempted: expoDelivery.attempted,
-          accepted: expoDelivery.accepted + webAccepted,
-          rejected: expoDelivery.rejected,
         }),
       });
     }
@@ -5457,6 +5724,7 @@ serve(async (req: Request) => {
       includeRequestBoardFc,
     });
 
+    const historyStart = await loadInboxHistoryStart(role, appActor);
     const buildPrimaryNotifQuery = (selectColumns: string) => {
       let query = applyNotificationAudienceScope(
         supabase
@@ -5466,6 +5734,7 @@ serve(async (req: Request) => {
           .order('created_at', { ascending: false })
           .order('id', { ascending: false }),
         receiptViewer,
+        historyStart,
       );
 
       if (onlyRequestBoardCategories) {
@@ -5557,7 +5826,7 @@ serve(async (req: Request) => {
       const notificationPage = toInboxCursorPage(dedupedNotifications, limit);
       const noticePage: InboxCursorPage<NoticeRow> = onlyRequestBoardCategories
         ? { rows: [], hasMore: false, nextCursor: null }
-        : await fetchUnifiedNoticePage(limit, noticeCursor);
+        : await fetchUnifiedNoticePage(limit, noticeCursor, historyStart);
 
       return ok({
         ok: true,
@@ -5644,15 +5913,18 @@ serve(async (req: Request) => {
       ? new Date(0).toISOString()
       : sinceDate.toISOString();
     const noticeSinceDate = body.notice_since ? new Date(body.notice_since) : sinceDate;
-    const noticeSinceIso = Number.isNaN(noticeSinceDate.getTime())
-      ? sinceIso
-      : noticeSinceDate.toISOString();
+    const historyStart = await loadInboxHistoryStart(role, appActor);
+    const noticeSinceIso = laterIso(
+      Number.isNaN(noticeSinceDate.getTime()) ? sinceIso : noticeSinceDate.toISOString(),
+      historyStart,
+    );
 
     try {
       const visibleRows = await fetchVisibleNotificationOwnershipRows({
         role,
             receiptViewer,
         sinceIso,
+        broadcastSince: historyStart,
         excludeRequestBoardCategories,
         onlyRequestBoardCategories,
       });
@@ -6604,4 +6876,4 @@ serve(async (req: Request) => {
       rejected: delivery.rejected,
     }),
   });
-});
+}

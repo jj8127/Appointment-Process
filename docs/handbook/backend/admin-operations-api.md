@@ -145,3 +145,9 @@ admin-action·fc-consent·fc-submit-appointment·fc-submit-hanwha-commission은 
 - `fc-consent`, `fc-submit-appointment`, and `fc-submit-hanwha-commission` are signed FC self-service endpoints, not anonymous phone-based admin operations.
 - Each endpoint resolves a current FC session, verifies the submitted selector against that actor, and scopes the mutation by both profile id and phone where the table contract supports both.
 - Foreign selectors, inactive sessions, malformed dates, and future consent dates are rejected before mutation. Service-role access inside the function does not relax this actor check.
+
+## 2026-10-16 Admin audit records (local)
+
+- `POST /api/admin/fc` records committed changing actions (`updateProfile`, `updateStatus`, document, appointment, Dawichok and reminder actions) in `admin_audit_events` after a successful response. Reads, signed URLs and upload-URL issuance are not recorded. A failed history write is logged and does not undo the committed change. Document and appointment server actions record their decisions the same way.
+- `POST /api/admin/resident-numbers` records the FCs whose numbers are returned and returns 503 without numbers when the record cannot be stored.
+- `GET /api/admin/audit?month=YYYY-MM` (admin only) lists these records with admin exam-reception decisions for `/dashboard/audit`. Direct `admin-action` Edge calls are not covered. See `admin-audit-log.md`.

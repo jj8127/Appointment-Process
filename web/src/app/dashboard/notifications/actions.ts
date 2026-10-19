@@ -15,6 +15,7 @@ import {
     mergeExpoPushDeliverySummaries,
     type ExpoPushDeliverySummary,
 } from '@/lib/expo-push-delivery';
+import { recordAdminAuditEvent } from '@/lib/admin-audit-server';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const EXPO_PUSH_CHUNK_SIZE = 100;
 const EXTERNAL_PUSH_TIMEOUT_MS = 8_000;
@@ -151,6 +152,10 @@ export async function createNoticeAction(
     if (typeof insertedNotice?.id !== 'string' || !insertedNotice.id.trim()) {
         return { success: false, message: '공지 대상을 확인할 수 없습니다.' };
     }
+    await recordAdminAuditEvent(
+        { role: 'admin', staffType: sessionCheck.session.staffType, residentDigits: sessionCheck.session.residentDigits },
+        { category: 'fc_action', action: 'notice_create', detail: { noticeId: insertedNotice.id, category } },
+    );
     const targetUrl = `/notice-detail?id=${insertedNotice.id}`;
     const target = { version: 1, kind: 'notice', noticeId: insertedNotice.id } as const;
 
@@ -443,6 +448,10 @@ export async function updateNoticeAction(
         return { success: false, message: '공지 수정 결과를 확인하지 못했습니다.' };
     }
 
+    await recordAdminAuditEvent(
+        { role: 'admin', staffType: sessionCheck.session.staffType, residentDigits: sessionCheck.session.residentDigits },
+        { category: 'fc_action', action: 'notice_update', detail: { noticeId: id } },
+    );
     revalidatePath('/dashboard/notifications');
     revalidatePath(`/dashboard/notifications/${id}`);
     return { success: true, message: '공지사항이 수정되었습니다.' };

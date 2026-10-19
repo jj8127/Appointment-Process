@@ -52,6 +52,8 @@ const load = (file: string): Record<string, unknown> => {
   if (name === '@/lib/bottom-navigation') return { resolveBottomNavActiveKey, resolveBottomNavPreset };
   if (name === '@/lib/open-external-url') return { openExternalUrl };
   if (name === '@/lib/service-home') return { FAMILY_CARE_PROMOTION_URL, resolveInsuranceServiceRoute };
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  if (name === '@/lib/back-navigation') return require('@/lib/back-navigation');
   throw new Error(`Unexpected dependency: ${name}`);
 }, exported);
   return exported;

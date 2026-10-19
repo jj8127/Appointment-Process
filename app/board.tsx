@@ -40,12 +40,14 @@ import { BottomNavigation } from '@/components/BottomNavigation';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { KeyboardSafeBottomBar } from '@/components/KeyboardSafeBottomBar';
 import { ImagePreviewModal } from '@/components/ImagePreviewModal';
+import { PdfViewerModal } from '@/components/PdfViewerModal';
+import { showToast } from '@/components/Toast';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
-import { CardSkeleton } from '@/components/LoadingSkeleton';
+import { ListSkeleton } from '@/components/LoadingSkeleton';
 import { DEFAULT_REACTIONS, ReactionPicker } from '@/components/ReactionPicker';
 import { useAppLogout } from '@/hooks/use-app-logout';
 import { useBoardList } from '@/hooks/use-board-list';
-import { openBoardAttachment } from '@/lib/board-attachment-actions';
+import { getFreshBoardAttachments, openBoardAttachment } from '@/lib/board-attachment-actions';
 import { showBoardFeedbackAlert } from '@/lib/board-feedback-alerts';
 import {
   applyBoardReactionUpdate,
@@ -53,6 +55,7 @@ import {
   type BoardReactionKey,
 } from '@/lib/board-reaction-state';
 import { showBoardCommentActions } from '@/lib/board-comment-actions';
+import { getBoardFileKind, splitBoardPostLead } from '@/lib/board-detail-layout';
 import { buildBoardPostShareContent } from '@/lib/board-share-link';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { useReadSessionScope } from '@/hooks/use-read-session-scope';
@@ -81,7 +84,13 @@ import {
   BOARD_LIST_SORT_LABELS,
   BoardListSortOption,
 } from '@/lib/board-list-query';
-import { patchBoardListViewCount, type BoardListPages } from '@/lib/board-list-pages';
+import {
+  patchBoardListPageViewedPost,
+  patchBoardListViewedPost,
+  type BoardListPage,
+  type BoardListPages,
+} from '@/lib/board-list-pages';
+import { downloadRemoteFileToUserStorage, loadFileSharing, shareRemoteFile } from '@/lib/native-file-actions';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { getBoardAuthorRoleLabel, getBoardRoleBadgeStyle } from '@/lib/staff-identity';
 import { ANIMATION } from '@/lib/theme';
@@ -92,6 +101,8 @@ const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const TEXT_MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
+// Older store builds lack the native share module; their share buttons stay hidden.
+const CAN_SHARE_FILES = loadFileSharing() !== null;
 const BOARD_SHARE_BASE_URL = process.env.EXPO_PUBLIC_GARAMIN_SHARE_BASE_URL
   ?? process.env.EXPO_PUBLIC_INVITE_BASE_URL;
 const CARD_SHADOW = {
@@ -127,10 +138,22 @@ type CommentLikeMutationContext = {
   detailKey: (string | number)[];
   previousDetail?: BoardDetail;
 };
+const toAttachmentPreviewImages = (attachments: BoardDetail['attachments']) =>
+  attachments
+    .filter((item) => item.fileType === 'image' && !!item.signedUrl)
+    .map((item) => ({
+      id: item.id,
+      url: item.signedUrl as string,
+      title: safeDecodeFileName(item.fileName),
+      fileSize: item.fileSize,
+    }));
+
 type PreviewModalState = {
-  images: { url: string; title?: string }[];
+  images: { id: string; url: string; title?: string }[];
   initialIndex: number;
 };
+
+type PdfViewerState = { attachmentId: string; url: string; title: string };
 
 const safeText = (value?: string | null) => (typeof value === 'string' ? value : '');
 const getInitial = (value?: string | null) => {
@@ -178,6 +201,78 @@ type CommentLikeButtonProps = {
 type AttachmentPreviewThumbProps = {
   uri?: string;
 };
+
+const MUST_READ_VISIBLE_COUNT = 3;
+
+const formatBoardListDate = (iso: string) => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) {
+    return date.toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' });
+  }
+  const monthDay = `${date.getMonth() + 1}.${date.getDate()}`;
+  return date.getFullYear() === now.getFullYear()
+    ? monthDay
+    : `${String(date.getFullYear()).slice(2)}.${monthDay}`;
+};
+
+type BoardPostRowProps = {
+  post: BoardListItem;
+  categoryName: string;
+  isLast: boolean;
+  onPress: () => void;
+};
+
+function BoardPostRow({ post, categoryName, isLast, onPress }: BoardPostRowProps) {
+  // Missing read state (older list function) reads as "already seen" so nothing looks falsely new.
+  const unread = post.isRead === false;
+  const categoryTheme = getCategoryTheme(categoryName);
+  const firstImage = post.attachments?.find((item) => item.fileType === 'image');
+  const fileCount = post.attachments?.filter((item) => item.fileType === 'file').length ?? 0;
+  const title = safeText(post.title);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${unread ? '안 읽음, ' : ''}${categoryName}, ${title}`}
+      style={({ pressed }) => [styles.row, !isLast && styles.rowDivider, pressed && styles.rowPressed]}
+      onPress={onPress}
+    >
+      <View style={styles.rowMain}>
+        <View style={styles.rowTopMeta}>
+          {unread && <View style={styles.unreadDot} />}
+          <Text style={[styles.rowCategory, { color: categoryTheme.textColor }]} numberOfLines={1}>
+            {categoryName}
+          </Text>
+          <Text style={styles.rowDate}>{formatBoardListDate(post.createdAt)}</Text>
+        </View>
+        <Text style={[styles.rowTitle, !unread && styles.rowTitleRead]} numberOfLines={2}>
+          {title}
+        </Text>
+        <View style={styles.rowBottomMeta}>
+          <Text style={styles.rowMetaText} numberOfLines={1}>{safeText(post.authorName)}</Text>
+          {fileCount > 0 && (
+            <View style={styles.rowMetaItem}>
+              <Feather name="paperclip" size={12} color={TEXT_MUTED} />
+              <Text style={styles.rowMetaText}>{fileCount}</Text>
+            </View>
+          )}
+          {post.stats.commentCount > 0 && (
+            <View style={styles.rowMetaItem}>
+              <Feather name="message-circle" size={12} color={TEXT_MUTED} />
+              <Text style={styles.rowMetaText}>{post.stats.commentCount}</Text>
+            </View>
+          )}
+          <View style={styles.rowMetaItem} accessibilityLabel={`조회 ${post.stats.viewCount ?? 0}`}>
+            <Feather name="eye" size={12} color={TEXT_MUTED} />
+            <Text style={styles.rowMetaText}>{post.stats.viewCount ?? 0}</Text>
+          </View>
+        </View>
+      </View>
+      {firstImage && <AttachmentPreviewThumb uri={firstImage.signedUrl} />}
+    </Pressable>
+  );
+}
 
 function CommentLikeButton({ liked, count, onPress }: CommentLikeButtonProps) {
   const scale = useSharedValue(1);
@@ -236,6 +331,7 @@ function AttachmentPreviewThumb({ uri }: AttachmentPreviewThumbProps) {
         <Image
           source={{ uri }}
           style={styles.attachmentThumbImage}
+          resizeMethod="resize"
           onError={() => setFailed(true)}
         />
       ) : (
@@ -244,6 +340,58 @@ function AttachmentPreviewThumb({ uri }: AttachmentPreviewThumbProps) {
         </View>
       )}
     </View>
+  );
+}
+
+type BoardMustReadSectionProps = {
+  posts: BoardListItem[];
+  resolveCategoryName: (categoryId?: string | null) => string;
+  onSelect: (post: BoardListItem) => void;
+};
+
+function BoardMustReadSection({ posts, resolveCategoryName, onSelect }: BoardMustReadSectionProps) {
+  const [expanded, setExpanded] = useState(false);
+  const unreadCount = posts.filter((post) => post.isRead === false).length;
+  const visiblePosts = expanded ? posts : posts.slice(0, MUST_READ_VISIBLE_COUNT);
+  const hiddenCount = posts.length - MUST_READ_VISIBLE_COUNT;
+  return (
+    <MotiView
+      from={{ opacity: 0, translateY: 8 }}
+      animate={{ opacity: 1, translateY: 0 }}
+      transition={{ type: 'timing', duration: 420 }}
+      style={styles.mustReadSection}
+    >
+      <View style={styles.mustReadHeader}>
+        <Feather name="bookmark" size={15} color={HANWHA_ORANGE} />
+        <Text style={styles.mustReadTitle}>필독</Text>
+        {unreadCount > 0 && (
+          <View style={styles.mustReadCount} accessibilityLabel={`안 읽은 필독 ${unreadCount}건`}>
+            <Text style={styles.mustReadCountText}>{unreadCount}</Text>
+          </View>
+        )}
+      </View>
+      {visiblePosts.map((post, index) => (
+        <BoardPostRow
+          key={post.id}
+          post={post}
+          categoryName={resolveCategoryName(post.categoryId)}
+          isLast={index === visiblePosts.length - 1}
+          onPress={() => onSelect(post)}
+        />
+      ))}
+      {hiddenCount > 0 && (
+        <Pressable
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.mustReadToggle, pressed && { opacity: 0.6 }]}
+          onPress={() => setExpanded((current) => !current)}
+        >
+          <Text style={styles.mustReadToggleText}>
+            {expanded ? '접기' : `필독 ${hiddenCount}건 더 보기`}
+          </Text>
+          <Feather name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={TEXT_MUTED} />
+        </Pressable>
+      )}
+    </MotiView>
   );
 }
 
@@ -292,6 +440,8 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedPost, setSelectedPost] = useState<BoardPost | null>(null);
   const [previewImage, setPreviewImage] = useState<PreviewModalState | null>(null);
+  const [pdfViewer, setPdfViewer] = useState<PdfViewerState | null>(null);
+  const [savingAttachmentId, setSavingAttachmentId] = useState<string | null>(null);
   const [commentText, setCommentText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -459,7 +609,14 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
         queryKey: ['board-posts', actor.role, actor.residentId],
         predicate: (query) => query.queryKey[6] === 'infinite' && query.queryKey[7] === sessionScope,
       },
-      (current) => patchBoardListViewCount(current, targetPostId, nextViewCount),
+      (current) => patchBoardListViewedPost(current, targetPostId, nextViewCount),
+    );
+    // The FC home preview keeps its own single-page list; clear its unread mark too.
+    queryClient.setQueriesData<BoardListPage>(
+      {
+        queryKey: ['board-posts', actor.role, actor.residentId, 'home'],
+      },
+      (current) => patchBoardListPageViewedPost(current, targetPostId, nextViewCount),
     );
   }, [actor, detailData?.post?.id, detailData?.post?.viewCount, queryClient, sessionScope]);
 
@@ -487,18 +644,87 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
     ...fallbackReactions,
     myReaction: null,
   };
-  const modalAttachmentImages = useMemo(
-    () =>
-      modalAttachments
-        .filter((item) => item.fileType === 'image' && !!item.signedUrl)
-        .map((item) => ({
-          id: item.id,
-          url: item.signedUrl as string,
-          title: safeDecodeFileName(item.fileName),
-          fileSize: item.fileSize,
-        })),
-    [modalAttachments],
+  const modalAttachmentImages = useMemo(() => toAttachmentPreviewImages(modalAttachments), [modalAttachments]);
+  const modalFileAttachments = useMemo(() => modalAttachments.filter((item) => item.fileType === 'file'), [modalAttachments]);
+  // The first paragraph leads the first screen, right above the attachments; the rest follows as body.
+  const modalLead = useMemo(() => splitBoardPostLead(modalPost?.content), [modalPost?.content]);
+  const loadFreshAttachments = useCallback(
+    () => getFreshBoardAttachments(modalAttachments, detailData?.attachmentsSignedAt ?? 0, async () => {
+      const result = await refetchDetail();
+      return result.isError ? null : result.data?.attachments;
+    }),
+    [detailData?.attachmentsSignedAt, modalAttachments, refetchDetail],
   );
+  const openAttachmentImagePreview = useCallback(async (attachmentId: string) => {
+    const images = toAttachmentPreviewImages((await loadFreshAttachments()) ?? []);
+    if (images.length === 0) {
+      Alert.alert('오류', '첨부파일을 열 수 없습니다.');
+      return;
+    }
+    setPreviewImage({
+      images: images.map((image) => ({ id: image.id, url: image.url, title: image.title })),
+      initialIndex: Math.max(images.findIndex((image) => image.id === attachmentId), 0),
+    });
+  }, [loadFreshAttachments]);
+  const openExternalAttachment = useCallback(async (attachmentId: string) => {
+    const attachments = await loadFreshAttachments();
+    await openBoardAttachment({
+      signedUrl: attachments?.find((item) => item.id === attachmentId)?.signedUrl,
+      openExternalUrl,
+      alert: Alert.alert,
+      logError: logBoardError,
+    });
+  }, [loadFreshAttachments]);
+  // PDFs open in the in-app viewer; other documents (HWP, Office) still need another app.
+  const openFileAttachment = useCallback(async (attachmentId: string) => {
+    const attachment = (await loadFreshAttachments())?.find((item) => item.id === attachmentId);
+    if (attachment?.signedUrl && getBoardFileKind(attachment.fileName, attachment.mimeType) === 'PDF') {
+      setPdfViewer({ attachmentId, url: attachment.signedUrl, title: safeDecodeFileName(attachment.fileName) });
+      return;
+    }
+    await openExternalAttachment(attachmentId);
+  }, [loadFreshAttachments, openExternalAttachment]);
+  const saveAttachment = useCallback(async (attachmentId: string) => {
+    if (savingAttachmentId) return;
+    setSavingAttachmentId(attachmentId);
+    try {
+      const attachment = (await loadFreshAttachments())?.find((item) => item.id === attachmentId);
+      if (!attachment?.signedUrl) throw new Error('첨부파일 주소를 불러오지 못했습니다.');
+      await downloadRemoteFileToUserStorage({
+        url: attachment.signedUrl,
+        fileName: safeDecodeFileName(attachment.fileName),
+        mimeType: attachment.mimeType,
+        tempPrefix: 'board-attachment',
+        fallbackFileName: `board-attachment-${attachmentId}`,
+      });
+      showToast({ message: '다운로드 폴더에 저장했어요.', variant: 'success' });
+    } catch (error) {
+      logBoardError('attachment-save', error);
+      Alert.alert('저장 실패', error instanceof Error && error.message ? error.message : '첨부파일을 저장하지 못했어요. 다시 시도해 주세요.');
+    } finally {
+      setSavingAttachmentId(null);
+    }
+  }, [loadFreshAttachments, savingAttachmentId]);
+  // Saving and sharing both download the file, so they share the busy state.
+  const shareAttachment = useCallback(async (attachmentId: string) => {
+    if (savingAttachmentId) return;
+    setSavingAttachmentId(attachmentId);
+    try {
+      const attachment = (await loadFreshAttachments())?.find((item) => item.id === attachmentId);
+      if (!attachment?.signedUrl) throw new Error('첨부파일 주소를 불러오지 못했습니다.');
+      await shareRemoteFile({
+        url: attachment.signedUrl,
+        fileName: safeDecodeFileName(attachment.fileName),
+        mimeType: attachment.mimeType,
+        fallbackFileName: `board-attachment-${attachmentId}`,
+      });
+    } catch (error) {
+      logBoardError('attachment-share', error);
+      Alert.alert('공유 실패', error instanceof Error && error.message ? error.message : '첨부파일을 공유하지 못했어요. 다시 시도해 주세요.');
+    } finally {
+      setSavingAttachmentId(null);
+    }
+  }, [loadFreshAttachments, savingAttachmentId]);
   const modalReactionCounts = {
     like: modalReactions.like,
     heart: modalReactions.heart,
@@ -941,6 +1167,7 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
       setCollapsedThreadIds([]);
       setIsThreadInitialized(false);
       setPreviewImage(null);
+      setPdfViewer(null);
     }
   }, [selectedPost]);
 
@@ -961,21 +1188,11 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
     }
   }, [isThreadInitialized, modalComments.length, selectedPost, threadedComments]);
 
-  // 서버에서 필터링/정렬된 게시글 사용
-  const filteredPosts = posts;
-
-  const getAttachmentSummary = (attachments: BoardPost['attachments']) => {
-    if (!attachments || attachments.length === 0) return null;
-    const imageCount = attachments.filter((item) => item.fileType === 'image').length;
-    const fileCount = attachments.filter((item) => item.fileType === 'file').length;
-    const parts = [];
-    if (imageCount) parts.push(`이미지 ${imageCount}`);
-    if (fileCount) parts.push(`파일 ${fileCount}`);
-    return parts.join(' · ');
-  };
+  // 서버가 고정 글을 페이지마다 앞에 붙이므로 필독과 일반 글을 나눠 보여준다.
+  const mustReadPosts = useMemo(() => posts.filter((post) => post.isPinned), [posts]);
+  const regularPosts = useMemo(() => posts.filter((post) => !post.isPinned), [posts]);
 
   const contentBottomPadding = (role === 'admin' ? 160 : 96) + (insets.bottom || 0);
-  const modalHeaderPaddingTop = Math.max(insets.top - 12, 8);
   const modalTopGap = Math.max(insets.top + 12, 24);
   const commentBarInset = 96;
   const handleLogout = () => {
@@ -1039,7 +1256,6 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
       />
       <View style={styles.pageTitleWrap}>
         <Text style={styles.title}>게시판</Text>
-        <Text style={styles.pageSubtitle}>공지와 게시글을 확인하세요.</Text>
       </View>
 
       <Animated.ScrollView
@@ -1053,7 +1269,7 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
           <Feather name="search" size={16} color={TEXT_MUTED} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder="게시글 검색..."
+            placeholder="제목, 내용 검색"
             placeholderTextColor={TEXT_MUTED}
             value={searchInput}
             onChangeText={setSearchInput}
@@ -1126,155 +1342,46 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
         )}
 
         <View style={styles.container}>
-          {isLoading && !refreshing && (
-            <>
-              <CardSkeleton showHeader lines={3} />
-              <CardSkeleton showHeader lines={4} />
-              <CardSkeleton showHeader lines={3} />
-            </>
-          )}
+          {isLoading && !refreshing && <ListSkeleton count={5} itemHeight={88} />}
 
           {isError && !isFetchNextPageError && (
             <QueryReadState error={listError} message="게시글을 불러오지 못했습니다." onRetry={() => void refetch()} />
           )}
 
-          {!isLoading && !isError && filteredPosts.length === 0 && (
+          {!isLoading && !isError && posts.length === 0 && (
             <View style={styles.emptyBox}>
               <Feather name="inbox" size={40} color={BORDER} />
-              <Text style={styles.emptyText}>등록된 게시글이 없습니다.</Text>
+              <Text style={styles.emptyText}>{searchQuery ? '검색 결과가 없습니다.' : '등록된 게시글이 없습니다.'}</Text>
             </View>
           )}
 
-          {filteredPosts.map((post, index) => (
-            <MotiView
-              key={post.id}
-              from={{ opacity: 0, translateY: 10 }}
-              animate={{ opacity: 1, translateY: 0 }}
-              transition={{ delay: Math.min(index, 10) * 50 }}
-            >
-              <Pressable
-                style={({ pressed }) => [styles.card, pressed && { opacity: 0.7 }]}
-                onPress={() => setSelectedPost(post)}
-              >
-                {/* 고정 게시글 배지 */}
-                {post.isPinned && (
-                  <View style={styles.pinnedBadge}>
-                    <Feather name="bookmark" size={12} color="#fff" />
-                    <Text style={styles.pinnedBadgeText}>고정</Text>
-                  </View>
-                )}
+          {mustReadPosts.length > 0 && (
+            <BoardMustReadSection
+              posts={mustReadPosts}
+              resolveCategoryName={resolveCategoryName}
+              onSelect={setSelectedPost}
+            />
+          )}
 
-                {/* 게시글 헤더 */}
-                <View style={styles.cardHeader}>
-                  <View style={styles.authorBadge}>
-                    <View style={styles.avatar}>
-                      <Text style={styles.avatarText}>{getInitial(post.authorName)}</Text>
-                    </View>
-                    <View>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={styles.authorName}>{safeText(post.authorName)}</Text>
-                        <View style={[styles.roleBadge, { backgroundColor: getBoardRoleBadgeStyle(post.authorRole).backgroundColor }]}>
-                          <Text style={[styles.roleText, { color: getBoardRoleBadgeStyle(post.authorRole).color }]}>
-                            {getBoardAuthorRoleLabel(post.authorRole)}
-                          </Text>
-                        </View>
-                      </View>
-                      <Text style={styles.date}>{new Date(post.createdAt).toLocaleDateString('ko-KR')}</Text>
-                    </View>
-                  </View>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="게시글 공유"
-                    style={({ pressed }) => [styles.iconActionButton, pressed && { opacity: 0.65 }]}
-                    onPress={(event) => {
-                      event.stopPropagation();
-                      handleSharePost(post);
-                    }}
-                  >
-                    <Feather name="share-2" size={17} color={TEXT_MUTED} />
-                  </Pressable>
-                </View>
-
-                {/* 게시글 내용 */}
-                {(() => {
-                  const categoryName = resolveCategoryName(post.categoryId);
-                  const categoryTheme = getCategoryTheme(categoryName);
-                  return (
-                    <View style={styles.titleRow}>
-                      <View
-                        style={[
-                          styles.categoryBadge,
-                          styles.categoryBadgeInline,
-                          {
-                            backgroundColor: categoryTheme.backgroundColor,
-                            borderColor: categoryTheme.borderColor,
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}
-                          numberOfLines={1}
-                          ellipsizeMode="tail"
-                        >
-                          {categoryName}
-                        </Text>
-                      </View>
-                      <Text style={styles.postTitleInline}>
-                        {post.isPinned && <Feather name="bookmark" size={14} color={HANWHA_ORANGE} />}{' '}
-                        {safeText(post.title)}
-                      </Text>
-                    </View>
-                  );
-                })()}
-                <LinkifiedSelectableText text={post.contentPreview} style={styles.postContent} numberOfLines={2} />
-
-                {post.attachments && post.attachments.length > 0 && (
-                  <View style={styles.attachmentPreview}>
-                    <View style={styles.attachmentPreviewImages}>
-                      {post.attachments
-                        .filter((item) => item.fileType === 'image')
-                        .slice(0, 4)
-                        .map((item) => (
-                          <AttachmentPreviewThumb key={item.id} uri={item.signedUrl} />
-                        ))}
-                    </View>
-                    <View style={styles.attachmentMeta}>
-                      <Feather name="paperclip" size={14} color={TEXT_MUTED} />
-                      <Text style={styles.attachmentMetaText}>
-                        {getAttachmentSummary(post.attachments)}
-                      </Text>
-                    </View>
-                  </View>
-                )}
-
-                <View style={styles.divider} />
-
-                {/* 반응 및 댓글 요약 */}
-                <View style={styles.footer}>
-                  <View style={styles.reactionRow}>
-                    {DEFAULT_REACTIONS.map((reaction) => (
-                      <View key={reaction.id} style={styles.reactionItem}>
-                        <Feather name={reaction.icon as any} size={14} color={reaction.color} />
-                        <Text style={[styles.reactionCount, { color: reaction.color }]}>
-                          {post.reactions?.[reaction.id as keyof typeof post.reactions] ?? 0}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                  <View style={styles.footerMeta}>
-                    <View style={styles.commentInfo}>
-                      <Feather name="eye" size={14} color={TEXT_MUTED} />
-                      <Text style={styles.commentCount}>{post.stats.viewCount ?? 0}</Text>
-                    </View>
-                    <View style={styles.commentInfo}>
-                      <Feather name="message-circle" size={14} color={TEXT_MUTED} />
-                      <Text style={styles.commentCount}>{post.stats.commentCount}</Text>
-                    </View>
-                  </View>
-                </View>
-              </Pressable>
-            </MotiView>
-          ))}
+          {regularPosts.length > 0 && (
+            <View style={styles.listGroup}>
+              {regularPosts.map((post, index) => (
+                <MotiView
+                  key={post.id}
+                  from={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ type: 'timing', duration: 360, delay: Math.min(index, 10) * 40 }}
+                >
+                  <BoardPostRow
+                    post={post}
+                    categoryName={resolveCategoryName(post.categoryId)}
+                    isLast={index === regularPosts.length - 1}
+                    onPress={() => setSelectedPost(post)}
+                  />
+                </MotiView>
+              ))}
+            </View>
+          )}
           {isFetchNextPageError && (
             <QueryReadState
               error={listError}
@@ -1314,8 +1421,8 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
           <Animated.View style={[styles.modalContent, modalAnimatedStyle]}>
             <View style={styles.modalContentInner}>
               <GestureDetector gesture={modalPanGesture}>
-                <View style={[styles.modalHeader, { paddingTop: modalHeaderPaddingTop }]}>
-                  <Text style={styles.modalTitle}>게시글 상세</Text>
+                <View style={styles.modalHeader}>
+                  <View style={styles.modalGrabber} />
                   <View style={styles.modalHeaderActions}>
                     <Pressable
                       accessibilityRole="button"
@@ -1351,124 +1458,164 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                     retrying={isDetailFetching}
                   />
                 ) : (<>
-                {/* 작성자 정보 */}
-                <View style={styles.modalAuthor}>
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>{getInitial(modalPost?.authorName)}</Text>
-                  </View>
-                  <View style={styles.detailAuthorInfo}>
-                    <View style={styles.detailAuthorBadgeRow}>
-                      <Text style={[styles.authorName, styles.detailAuthorName]} numberOfLines={1}>
-                        {safeText(modalPost?.authorName)}
-                      </Text>
-                      <View style={[styles.roleBadge, { backgroundColor: getBoardRoleBadgeStyle(modalPost?.authorRole ?? 'manager').backgroundColor }]}>
-                        <Text style={[styles.roleText, { color: getBoardRoleBadgeStyle(modalPost?.authorRole ?? 'manager').color }]}>
-                          {getBoardAuthorRoleLabel(modalPost?.authorRole ?? 'manager')}
+                <View style={styles.detailBadges}>
+                  {modalPost?.isPinned && (
+                    <View style={styles.mustReadBadge}>
+                      <Feather name="bookmark" size={11} color="#fff" />
+                      <Text style={styles.mustReadBadgeText}>필독</Text>
+                    </View>
+                  )}
+                  {(() => {
+                    const categoryName = resolveCategoryName(modalPost?.categoryId);
+                    const categoryTheme = getCategoryTheme(categoryName);
+                    return (
+                      <View
+                        style={[
+                          styles.categoryBadge,
+                          styles.categoryBadgeInline,
+                          {
+                            backgroundColor: categoryTheme.backgroundColor,
+                            borderColor: categoryTheme.borderColor,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
+                          {categoryName}
                         </Text>
                       </View>
-                      {(() => {
-                        const categoryName = resolveCategoryName(modalPost?.categoryId);
-                        const categoryTheme = getCategoryTheme(categoryName);
-                        return (
-                          <View
-                            style={[
-                              styles.categoryBadge,
-                              styles.categoryBadgeInline,
-                              {
-                                backgroundColor: categoryTheme.backgroundColor,
-                                borderColor: categoryTheme.borderColor,
-                              },
-                            ]}
-                          >
-                            <Text
-                              style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}
-                              numberOfLines={1}
-                              ellipsizeMode="tail"
-                            >
-                              {categoryName}
-                            </Text>
-                          </View>
-                        );
-                      })()}
-                    </View>
-                    <Text style={styles.date}>
-                      {modalPost?.createdAt
-                        ? new Date(modalPost.createdAt).toLocaleDateString('ko-KR', {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })
-                        : ''}
-                    </Text>
-                    <View style={styles.viewMeta}>
-                      <Feather name="eye" size={14} color={TEXT_MUTED} />
-                      <Text style={styles.viewMetaText}>조회 {modalPost?.viewCount ?? 0}</Text>
-                    </View>
-                  </View>
+                    );
+                  })()}
                 </View>
 
                 <Text style={styles.modalPostTitle} selectable>{safeText(modalPost?.title)}</Text>
-                <LinkifiedSelectableText text={modalPost?.content} style={styles.modalPostContent} />
+
+                <View style={styles.detailAuthorBadgeRow}>
+                  <Text style={styles.detailMetaAuthor} numberOfLines={1}>
+                    {safeText(modalPost?.authorName)}
+                  </Text>
+                  <View style={[styles.roleBadge, styles.detailRoleBadge, { backgroundColor: getBoardRoleBadgeStyle(modalPost?.authorRole ?? 'manager').backgroundColor }]}>
+                    <Text style={[styles.roleText, { color: getBoardRoleBadgeStyle(modalPost?.authorRole ?? 'manager').color }]}>
+                      {getBoardAuthorRoleLabel(modalPost?.authorRole ?? 'manager')}
+                    </Text>
+                  </View>
+                  <Text style={styles.detailMetaText}>
+                    {modalPost?.createdAt
+                      ? new Date(modalPost.createdAt).toLocaleDateString('ko-KR', {
+                        month: 'long',
+                        day: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })
+                      : ''}
+                    {` · 조회 ${modalPost?.viewCount ?? 0}`}
+                  </Text>
+                </View>
+
+                {modalLead.lead ? (
+                  <View style={styles.leadBox}>
+                    <LinkifiedSelectableText text={modalLead.lead} style={styles.leadText} />
+                  </View>
+                ) : null}
 
                 {modalAttachments.length > 0 && (
                   <View style={styles.attachmentSection}>
-                    <Text style={styles.sectionTitle}>첨부파일</Text>
+                    <Text style={styles.attachmentHeading}>첨부 {modalAttachments.length}</Text>
 
-                    <View style={styles.attachmentGrid}>
-                      {modalAttachmentImages.map((item, index) => (
+                    {modalFileAttachments.map((item) => {
+                      const kind = getBoardFileKind(item.fileName, item.mimeType);
+                      const fileName = safeDecodeFileName(item.fileName);
+                      const size = formatFileSize(item.fileSize);
+                      return (
                         <Pressable
                           key={item.id}
-                          style={({ pressed }) => [
-                            styles.attachmentGridItem,
-                            pressed && { opacity: 0.75 },
-                          ]}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${fileName}, ${kind}${size ? `, ${size}` : ''} 열기`}
+                          style={({ pressed }) => [styles.fileCard, pressed && styles.fileCardPressed]}
                           onPress={() => {
-                            setPreviewImage({
-                              images: modalAttachmentImages.map((image) => ({ url: image.url, title: image.title })),
-                              initialIndex: index,
-                            });
+                            void openFileAttachment(item.id);
                           }}
                         >
-                          <Image source={{ uri: item.url }} style={styles.attachmentGridImage} />
-                          <Text style={styles.attachmentName} numberOfLines={1}>
-                            {item.title}
-                          </Text>
-                          <Text style={styles.attachmentSize}>{formatFileSize(item.fileSize)}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
-
-                    <View style={styles.attachmentList}>
-                      {modalAttachments
-                        .filter((item) => item.fileType === 'file')
-                        .map((item) => (
+                          <View style={[styles.fileKind, kind === 'PDF' && styles.fileKindPdf]}>
+                            <Text style={[styles.fileKindText, kind === 'PDF' && styles.fileKindTextPdf]}>{kind}</Text>
+                          </View>
+                          <View style={styles.fileCardBody}>
+                            <Text style={styles.fileCardName} numberOfLines={2}>{fileName}</Text>
+                            <Text style={styles.fileCardMeta}>{size ? `${kind} · ${size}` : kind}</Text>
+                          </View>
+                          {CAN_SHARE_FILES ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={`${fileName} 공유`}
+                              disabled={!!savingAttachmentId}
+                              hitSlop={6}
+                              style={({ pressed }) => [styles.fileSaveButton, pressed && { opacity: 0.6 }]}
+                              onPress={() => {
+                                void shareAttachment(item.id);
+                              }}
+                            >
+                              <Feather name="share-2" size={18} color={TEXT_MUTED} />
+                            </Pressable>
+                          ) : null}
                           <Pressable
-                            key={item.id}
-                            style={styles.attachmentItem}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${fileName} 저장`}
+                            accessibilityState={{ busy: savingAttachmentId === item.id, disabled: !!savingAttachmentId }}
+                            disabled={!!savingAttachmentId}
+                            hitSlop={6}
+                            style={({ pressed }) => [styles.fileSaveButton, pressed && { opacity: 0.6 }]}
                             onPress={() => {
-                              void openBoardAttachment({
-                                signedUrl: item.signedUrl,
-                                openExternalUrl,
-                                alert: Alert.alert,
-                                logError: logBoardError,
-                              });
+                              void saveAttachment(item.id);
                             }}
                           >
-                            <View style={styles.attachmentIcon}>
-                              <Feather name="file-text" size={16} color={HANWHA_ORANGE} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                              <Text style={styles.attachmentName}>{safeDecodeFileName(item.fileName)}</Text>
-                              <Text style={styles.attachmentSize}>{formatFileSize(item.fileSize)}</Text>
-                            </View>
-                            <Feather name="download" size={16} color={TEXT_MUTED} />
+                            {savingAttachmentId === item.id
+                              ? <ActivityIndicator size="small" color={TEXT_MUTED} />
+                              : <Feather name="download" size={18} color={TEXT_MUTED} />}
+                          </Pressable>
+                        </Pressable>
+                      );
+                    })}
+
+                    {modalAttachmentImages.length > 0 && (
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        keyboardShouldPersistTaps="always"
+                        contentContainerStyle={styles.imageStrip}
+                      >
+                        {modalAttachmentImages.map((item, index) => (
+                          <Pressable
+                            key={item.id}
+                            accessibilityRole="imagebutton"
+                            accessibilityLabel={`이미지 ${index + 1}/${modalAttachmentImages.length} 크게 보기`}
+                            style={({ pressed }) => [
+                              styles.imageThumb,
+                              modalAttachmentImages.length === 1 && styles.imageSingle,
+                              pressed && { opacity: 0.75 },
+                            ]}
+                            onPress={() => {
+                              void openAttachmentImagePreview(item.id);
+                            }}
+                          >
+                            <Image
+                              source={{ uri: item.url }}
+                              style={styles.imageThumbImage}
+                              resizeMethod="resize"
+                              resizeMode={modalAttachmentImages.length === 1 ? 'contain' : 'cover'}
+                            />
                           </Pressable>
                         ))}
-                    </View>
+                      </ScrollView>
+                    )}
                   </View>
                 )}
+
+                {modalLead.rest ? (
+                  <LinkifiedSelectableText text={modalLead.rest} style={styles.modalPostContent} />
+                ) : null}
 
                 <View style={styles.divider} />
 
@@ -1545,6 +1692,31 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
         images={previewImage?.images ?? []}
         initialIndex={previewImage?.initialIndex ?? 0}
         onClose={closePreviewImage}
+        onSave={(index) => {
+          const imageId = previewImage?.images[index]?.id;
+          if (imageId) void saveAttachment(imageId);
+        }}
+        onShare={CAN_SHARE_FILES ? (index) => {
+          const imageId = previewImage?.images[index]?.id;
+          if (imageId) void shareAttachment(imageId);
+        } : undefined}
+        saving={!!savingAttachmentId}
+      />
+      <PdfViewerModal
+        visible={!!pdfViewer}
+        url={pdfViewer?.url ?? null}
+        title={pdfViewer?.title ?? ''}
+        onClose={() => setPdfViewer(null)}
+        onSave={() => {
+          if (pdfViewer) void saveAttachment(pdfViewer.attachmentId);
+        }}
+        onShare={CAN_SHARE_FILES ? () => {
+          if (pdfViewer) void shareAttachment(pdfViewer.attachmentId);
+        } : undefined}
+        saving={!!savingAttachmentId}
+        onOpenExternal={() => {
+          if (pdfViewer) void openExternalAttachment(pdfViewer.attachmentId);
+        }}
       />
     </SafeAreaView>
   );
@@ -1557,7 +1729,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   title: { fontSize: 24, fontWeight: '800', color: CHARCOAL },
-  pageSubtitle: { marginTop: 4, color: TEXT_MUTED, fontSize: 14 },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1669,23 +1840,85 @@ const styles = StyleSheet.create({
     color: HANWHA_ORANGE,
     fontWeight: '600',
   },
-  container: { padding: 24, gap: 16, paddingTop: 16 },
-  pinnedBadge: {
+  container: { paddingHorizontal: 16, paddingTop: 12, gap: 12 },
+  mustReadSection: {
+    borderRadius: 16,
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    paddingTop: 12,
+    overflow: 'hidden',
+  },
+  mustReadHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+  },
+  mustReadTitle: { fontSize: 15, fontWeight: '800', color: '#C2410C' },
+  mustReadCount: {
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    borderRadius: 10,
     backgroundColor: HANWHA_ORANGE,
-    marginBottom: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  pinnedBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#fff',
+  mustReadCountText: { fontSize: 11, fontWeight: '800', color: '#fff', includeFontPadding: false },
+  mustReadToggle: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    borderTopWidth: 1,
+    borderTopColor: '#FED7AA',
   },
+  mustReadToggleText: { fontSize: 13, fontWeight: '700', color: TEXT_MUTED },
+  listGroup: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    minHeight: 72,
+  },
+  rowDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#E5E7EB' },
+  rowPressed: { backgroundColor: 'rgba(17,24,39,0.04)' },
+  rowMain: { flex: 1, minWidth: 0, gap: 4 },
+  rowTopMeta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  unreadDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: HANWHA_ORANGE },
+  rowCategory: { fontSize: 12, fontWeight: '700', flexShrink: 1 },
+  rowDate: { fontSize: 12, color: TEXT_MUTED },
+  rowTitle: { fontSize: 16, lineHeight: 22, fontWeight: '700', color: CHARCOAL },
+  rowTitleRead: { fontWeight: '500', color: '#4B5563' },
+  rowBottomMeta: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  rowMetaItem: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  rowMetaText: { fontSize: 12, color: TEXT_MUTED, flexShrink: 1 },
+  detailBadges: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
+  mustReadBadge: {
+    minHeight: 26,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: HANWHA_ORANGE,
+  },
+  mustReadBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff', includeFontPadding: false },
+  detailAuthorBadgeRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+  detailMetaAuthor: { fontSize: 13, fontWeight: '700', color: CHARCOAL, flexShrink: 1 },
+  detailRoleBadge: { minHeight: 22, paddingHorizontal: 8, paddingVertical: 2 },
+  detailMetaText: { fontSize: 12, color: TEXT_MUTED },
   categoryBadge: {
     alignSelf: 'flex-start',
     borderWidth: 1,
@@ -1708,52 +1941,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     includeFontPadding: false,
   },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 16,
-    ...CARD_SHADOW,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  iconActionButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: BORDER,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  authorBadge: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  detailAuthorInfo: { flex: 1, minWidth: 0 },
-  detailAuthorBadgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  detailAuthorName: {
-    flexShrink: 1,
-    maxWidth: '100%',
-  },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: HANWHA_ORANGE,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  authorName: { fontSize: 14, fontWeight: '600', color: CHARCOAL },
   roleBadge: {
     minHeight: 26,
     paddingHorizontal: 10,
@@ -1768,36 +1955,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     includeFontPadding: false,
   },
-  date: { fontSize: 12, color: TEXT_MUTED, marginTop: 2 },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    marginBottom: 6,
-  },
-  postTitleInline: {
-    flex: 1,
-    minWidth: 0,
-    flexShrink: 1,
-    fontSize: 17,
-    lineHeight: 24,
-    fontWeight: '700',
-    color: CHARCOAL,
-  },
-  postContent: { fontSize: 14, color: TEXT_MUTED, lineHeight: 20 },
   divider: { height: 1, backgroundColor: BORDER, marginVertical: 12 },
-  attachmentPreview: {
-    marginTop: 10,
-    gap: 8,
-  },
-  attachmentPreviewImages: {
-    flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
   attachmentThumb: {
-    width: 120,
-    height: 120,
+    width: 56,
+    height: 56,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: BORDER,
@@ -1811,50 +1972,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#F9FAFB',
   },
-  attachmentMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  attachmentMetaText: { fontSize: 12, color: TEXT_MUTED, fontWeight: '600' },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  reactionRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  reactionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  reactionCount: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  commentInfo: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  footerMeta: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  commentCount: { fontSize: 13, color: TEXT_MUTED, fontWeight: '600' },
-  viewMeta: {
-    marginTop: 4,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  viewMetaText: {
-    fontSize: 12,
-    color: TEXT_MUTED,
-    fontWeight: '600',
-  },
   emptyBox: { alignItems: 'center', marginTop: 60, gap: 12 },
   emptyText: { fontSize: 15, color: TEXT_MUTED },
   loadMoreButton: { minHeight: 48, padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, borderWidth: 1, borderColor: BORDER, backgroundColor: '#fff' },
   loadMoreText: { fontSize: 14, fontWeight: '700', color: HANWHA_ORANGE },
-  errorText: { fontSize: 15, color: '#EF4444' },
 
   // Modal
   modal: {
@@ -1889,14 +2010,23 @@ const styles = StyleSheet.create({
   },
   modalHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 8,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: BORDER,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 0,
     backgroundColor: '#fff',
+  },
+  modalGrabber: {
+    position: 'absolute',
+    top: 8,
+    alignSelf: 'center',
+    left: '50%',
+    marginLeft: -20,
+    width: 40,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: BORDER,
   },
   modalHeaderActions: {
     flexDirection: 'row',
@@ -1911,26 +2041,70 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: CHARCOAL },
-  modalBody: { paddingHorizontal: 24, paddingVertical: 14 },
-  modalAuthor: {
+  modalBody: { paddingHorizontal: 24, paddingTop: 0, paddingBottom: 14 },
+  modalPostTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: CHARCOAL,
+    marginBottom: 10,
+    lineHeight: 30,
+  },
+  modalPostContent: {
+    marginTop: 20,
+    fontSize: 17,
+    color: CHARCOAL,
+    lineHeight: 28,
+  },
+  leadBox: {
+    marginTop: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: '#FFF7ED',
+  },
+  leadText: { fontSize: 17, lineHeight: 26, fontWeight: '700', color: CHARCOAL },
+  attachmentHeading: { fontSize: 13, fontWeight: '700', color: TEXT_MUTED },
+  fileCard: {
+    minHeight: 64,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: '#fff',
   },
-  modalPostTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: CHARCOAL,
-    marginBottom: 12,
-    lineHeight: 28,
+  fileCardPressed: { backgroundColor: '#F9FAFB' },
+  fileKind: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  modalPostContent: {
-    fontSize: 15,
-    color: CHARCOAL,
-    lineHeight: 24,
+  fileKindPdf: { backgroundColor: '#FEE2E2' },
+  fileKindText: { fontSize: 12, fontWeight: '800', color: '#4B5563', includeFontPadding: false },
+  fileKindTextPdf: { color: '#B91C1C' },
+  fileCardBody: { flex: 1, minWidth: 0, gap: 2 },
+  fileCardName: { fontSize: 15, lineHeight: 21, fontWeight: '600', color: CHARCOAL },
+  fileCardMeta: { fontSize: 12, color: TEXT_MUTED },
+  fileSaveButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F3F4F6' },
+  imageStrip: { gap: 8 },
+  imageThumb: {
+    width: 112,
+    height: 112,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: '#F9FAFB',
   },
+  imageThumbImage: { width: '100%', height: '100%' },
+  // A lone image (often a schedule table) gets the full width so it reads without opening the viewer.
+  imageSingle: { width: Dimensions.get('window').width - 48, height: Math.round((Dimensions.get('window').width - 48) * 0.75) },
   reactionsSection: { marginBottom: 20 },
   sectionTitle: {
     fontSize: 14,
@@ -1938,71 +2112,7 @@ const styles = StyleSheet.create({
     color: TEXT_MUTED,
     marginBottom: 12,
   },
-  attachmentSection: { marginBottom: 20, gap: 10 },
-  attachmentGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  attachmentGridItem: {
-    width: '48%',
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 12,
-    padding: 10,
-    backgroundColor: '#fff',
-    gap: 6,
-  },
-  attachmentGridImage: {
-    width: '100%',
-    height: 120,
-    borderRadius: 8,
-    backgroundColor: '#F9FAFB',
-  },
-  attachmentGridPlaceholder: {
-    width: '100%',
-    height: 120,
-    borderRadius: 8,
-    backgroundColor: '#F9FAFB',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  attachmentList: { gap: 10 },
-  attachmentItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: '#fff',
-  },
-  attachmentIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: 'rgba(243,111,33,0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  attachmentName: { fontSize: 13, fontWeight: '600', color: CHARCOAL },
-  attachmentSize: { fontSize: 12, color: TEXT_MUTED },
-  reactionButtons: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  reactionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    backgroundColor: '#fff',
-  },
+  attachmentSection: { marginTop: 16, gap: 8 },
   commentsSection: { marginBottom: 20 },
   commentItem: {
     padding: 12,

@@ -1,5 +1,5 @@
 import { Feather } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
+import { SystemBarsModal } from '@/components/SystemBarsModal';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
@@ -38,6 +39,7 @@ import {
 import { createReadScope } from '@/lib/request-board-read-state';
 import { isRequestBoardSessionReauthError, toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { resetTo, returnTo as returnToRoute } from '@/lib/back-navigation';
 
 /* ─── Helpers ─── */
 
@@ -57,6 +59,10 @@ const formatDate = (value: string) => {
 
 export default function RequestBoardFcCodesScreen() {
   const router = useRouter();
+  // The compose screen sends the company whose code blocks a request and expects to get the FC back.
+  const { company: companyParam, returnTo } = useLocalSearchParams<{ company?: string; returnTo?: string }>();
+  const returnToCompose = returnTo === 'request-create';
+  const prefillCompanyHandled = useRef(false);
   const insets = useSafeAreaInsets();
   const { scrollHandler, animatedStyle } = useBottomNavAnimation();
   const {
@@ -164,8 +170,15 @@ export default function RequestBoardFcCodesScreen() {
   }, [fetchData]);
 
   useEffect(() => {
+    const company = typeof companyParam === 'string' ? companyParam.trim() : '';
+    if (!company || !hasLoadedData || prefillCompanyHandled.current) return;
+    prefillCompanyHandled.current = true;
+    openAdd(company);
+  }, [companyParam, hasLoadedData]);
+
+  useEffect(() => {
     if (!hydrated || canManageCodes) return;
-    router.replace('/request-board' as any);
+    returnToRoute(router, '/request-board' as any);
   }, [canManageCodes, hydrated, router]);
 
   const handleRefresh = () => {
@@ -217,9 +230,9 @@ export default function RequestBoardFcCodesScreen() {
   }, [activeCodes, formInsurerName]);
 
   /* ─── Modal actions ─── */
-  const openAdd = () => {
+  const openAdd = (prefillCompany = '') => {
     setEditingCode(null);
-    setFormInsurerName('');
+    setFormInsurerName(prefillCompany);
     setFormCodeValue('');
     setFormError(null);
     setShowSuggestions(false);
@@ -265,6 +278,10 @@ export default function RequestBoardFcCodesScreen() {
         if (!res.success) throw new Error(res.error ?? '등록에 실패했습니다.');
       }
       closeEditModal();
+      if (returnToCompose && !editingCode) {
+        router.back();
+        return;
+      }
       await fetchData();
     } catch (err) {
       setFormError(toRequestBoardSessionErrorMessage(err, '저장에 실패했습니다.'));
@@ -356,7 +373,7 @@ export default function RequestBoardFcCodesScreen() {
               !canManageCodes && { opacity: 0.5 },
               pressed && canManageCodes && { opacity: 0.8 },
             ]}
-            onPress={openAdd}
+            onPress={() => openAdd()}
             disabled={!canManageCodes || loading || Boolean(fetchError) || !hasLoadedData}
           >
             <Feather name="plus" size={16} color="#fff" />
@@ -373,7 +390,7 @@ export default function RequestBoardFcCodesScreen() {
           <Pressable accessibilityRole="button" disabled={loading || refreshing} onPress={handleRefresh}>
             <Text style={styles.errorBannerText}>다시 시도</Text>
           </Pressable>
-          {isRequestBoardSessionReauthError(fetchError) ? <Pressable accessibilityRole="button" onPress={() => router.replace('/login?skipAuto=1')}><Text style={styles.errorBannerText}>다시 로그인</Text></Pressable> : null}
+          {isRequestBoardSessionReauthError(fetchError) ? <Pressable accessibilityRole="button" onPress={() => resetTo(router, '/login?skipAuto=1')}><Text style={styles.errorBannerText}>다시 로그인</Text></Pressable> : null}
         </View>
       )}
 
@@ -498,18 +515,18 @@ export default function RequestBoardFcCodesScreen() {
       )}
 
       {/* Add/Edit Modal */}
-      <Modal
+      <SystemBarsModal
         visible={editModalVisible}
         animationType="slide"
         transparent
         onRequestClose={closeEditModal}
       >
-        <KeyboardAvoidingView
+        {(modalInsets) => <KeyboardAvoidingView
           style={styles.modalOverlay}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <Pressable style={styles.modalBackdrop} onPress={closeEditModal} />
-          <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+          <View style={[styles.modalSheet, { paddingBottom: modalInsets.bottom + 16 }]}>
             {/* Modal Header */}
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
@@ -633,8 +650,8 @@ export default function RequestBoardFcCodesScreen() {
               </Pressable>
             </View>
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        </KeyboardAvoidingView>}
+      </SystemBarsModal>
 
       {/* Delete Confirmation Modal */}
       <Modal

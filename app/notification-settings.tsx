@@ -5,7 +5,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { SystemBarsModal } from '@/components/SystemBarsModal';
 import { useSession } from '@/hooks/use-session';
 import { createReadScope } from '@/lib/request-board-read-state';
 import { useReadAttempt } from '@/lib/use-read-attempt';
@@ -32,6 +32,7 @@ import {
   registerPushToken,
   type PushPermissionStatus,
 } from '@/lib/notifications';
+import { resetTo } from '@/lib/back-navigation';
 
 const ACCENT = '#F36F21';
 
@@ -112,7 +113,7 @@ export default function NotificationSettingsScreen() {
   useEffect(() => {
     if (!hydrated) return;
     if (!role) {
-      router.replace('/login');
+      resetTo(router, '/login');
     }
   }, [hydrated, role, router]);
 
@@ -279,23 +280,34 @@ export default function NotificationSettingsScreen() {
               <View style={styles.section}>
                 <PreferenceSwitch
                   description="끄면 이 계정으로 로그인한 모든 기기에서 모두온 알림을 받지 않습니다."
-                  disabled={pendingKey !== null}
                   pending={pendingKey === 'global'}
                   title="알림 받기"
                   value={preferences.globalPushEnabled}
-                  onChange={(enabled) => enabled ? void commitGlobal(true) : setConfirmGlobalOff(true)}
+                  onChange={(enabled) => {
+                    if (pendingKey) return;
+                    if (enabled) void commitGlobal(true); else setConfirmGlobalOff(true);
+                  }}
                 />
               </View>
 
+              {/* With the master off the per-type switches are hidden, not greyed out; their saved values return when it is back on. */}
+              {!preferences.globalPushEnabled ? (
+                <View style={styles.infoCard}>
+                  <Feather name="info" size={17} color="#9A4C16" />
+                  <Text style={styles.infoText}>알림을 꺼도 앱 안의 메시지와 읽지 않은 개수는 유지됩니다.</Text>
+                </View>
+              ) : null}
+
               <SectionTitle title="메시지" />
               <View style={styles.section}>
-                <PreferenceSwitch
-                  {...CATEGORY_COPY.messages}
-                  disabled={!preferences.globalPushEnabled || pendingKey !== null}
-                  pending={pendingKey === 'messages'}
-                  value={preferences.categories.messages}
-                  onChange={(enabled) => void commitCategory('messages', enabled)}
-                />
+                {preferences.globalPushEnabled ? (
+                  <PreferenceSwitch
+                    {...CATEGORY_COPY.messages}
+                    pending={pendingKey === 'messages'}
+                    value={preferences.categories.messages}
+                    onChange={(enabled) => void commitCategory('messages', enabled)}
+                  />
+                ) : null}
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => router.push('/muted-conversations' as never)}
@@ -312,50 +324,63 @@ export default function NotificationSettingsScreen() {
                 </Pressable>
               </View>
 
-              <SectionTitle title="업무" />
-              <View style={styles.section}>
-                {PUSH_CATEGORIES.filter((category) => category !== 'messages').map((category) => (
-                  <PreferenceSwitch
-                    key={category}
-                    {...CATEGORY_COPY[category]}
-                    disabled={!preferences.globalPushEnabled || pendingKey !== null}
-                    pending={pendingKey === category}
-                    value={preferences.categories[category]}
-                    onChange={(enabled) => void commitCategory(category, enabled)}
-                  />
-                ))}
-              </View>
-
-              {!preferences.globalPushEnabled ? (
-                <View style={styles.infoCard}>
-                  <Feather name="info" size={17} color="#9A4C16" />
-                  <Text style={styles.infoText}>알림을 꺼도 앱 안의 메시지와 읽지 않은 개수는 유지됩니다.</Text>
-                </View>
+              {preferences.globalPushEnabled ? (
+                <>
+                  <SectionTitle title="업무" />
+                  <View style={styles.section}>
+                    {PUSH_CATEGORIES.filter((category) => category !== 'messages').map((category) => (
+                      <PreferenceSwitch
+                        key={category}
+                        {...CATEGORY_COPY[category]}
+                        pending={pendingKey === category}
+                        value={preferences.categories[category]}
+                        onChange={(enabled) => void commitCategory(category, enabled)}
+                      />
+                    ))}
+                  </View>
+                </>
               ) : null}
             </>
           ) : null}
         </ScrollView>
       )}
 
-      <Modal visible={confirmGlobalOff} transparent animationType="slide" onRequestClose={() => setConfirmGlobalOff(false)}>
-        <View style={styles.modalBackdrop}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setConfirmGlobalOff(false)} />
-          <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>전체 알림을 끌까요?</Text>
-            <Text style={styles.sheetDescription}>
-              모든 메시지와 업무 알림 전달이 중단됩니다. 앱 안의 읽지 않은 항목은 그대로 남습니다.
-            </Text>
-            <Pressable accessibilityRole="button" onPress={() => void commitGlobal(false)} style={styles.primaryButton}>
-              <Text style={styles.primaryButtonText}>전체 알림 끄기</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" onPress={() => setConfirmGlobalOff(false)} style={styles.secondaryButton}>
-              <Text style={styles.secondaryButtonText}>취소</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
+      <SystemBarsModal
+        visible={confirmGlobalOff}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setConfirmGlobalOff(false)}
+      >
+        {(modalInsets) => (
+          <GlobalOffSheet
+            bottomInset={modalInsets.bottom}
+            onConfirm={() => void commitGlobal(false)}
+            onCancel={() => setConfirmGlobalOff(false)}
+          />
+        )}
+      </SystemBarsModal>
     </SafeAreaView>
+  );
+}
+
+function GlobalOffSheet({ bottomInset, onConfirm, onCancel }: { bottomInset: number; onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <View style={styles.modalBackdrop}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} />
+      <View style={[styles.sheet, { paddingBottom: bottomInset + 16 }]}>
+        <View style={styles.sheetHandle} />
+        <Text style={styles.sheetTitle}>전체 알림을 끌까요?</Text>
+        <Text style={styles.sheetDescription}>
+          모든 메시지와 업무 알림 전달이 중단됩니다. 앱 안의 읽지 않은 항목은 그대로 남습니다.
+        </Text>
+        <Pressable accessibilityRole="button" onPress={onConfirm} style={styles.primaryButton}>
+          <Text style={styles.primaryButtonText}>전체 알림 끄기</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" onPress={onCancel} style={styles.secondaryButton}>
+          <Text style={styles.secondaryButtonText}>취소</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -367,19 +392,18 @@ function PreferenceSwitch({
   title,
   description,
   value,
-  disabled,
   pending,
   onChange,
 }: {
   title: string;
   description: string;
   value: boolean;
-  disabled: boolean;
   pending: boolean;
   onChange: (value: boolean) => void;
 }) {
   return (
-    <View style={[styles.switchRow, disabled && styles.disabled]}>
+    // Only the row being saved shows progress; other rows keep their look and the commit guards ignore taps meanwhile.
+    <View style={styles.switchRow}>
       <View style={styles.flex}>
         <Text style={styles.rowTitle}>{title}</Text>
         <Text style={styles.description}>{description}</Text>
@@ -390,7 +414,6 @@ function PreferenceSwitch({
         <Switch
           accessibilityLabel={title}
           accessibilityRole="switch"
-          disabled={disabled}
           onValueChange={onChange}
           thumbColor="#FFFFFF"
           trackColor={{ false: '#D1D5DB', true: ACCENT }}
@@ -420,7 +443,6 @@ const styles = StyleSheet.create({
   navigationRow: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 11 },
   rowIcon: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: '#FFF0E6' },
   rowTitle: { color: '#111827', fontSize: 15, lineHeight: 20, fontWeight: '700' },
-  disabled: { opacity: 0.45 },
   pressed: { backgroundColor: '#F3F4F6' },
   errorCard: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: 12, backgroundColor: '#FEF3F2', borderWidth: 1, borderColor: '#FECDCA' },
   errorText: { flex: 1, color: '#912018', fontSize: 12, lineHeight: 17 },

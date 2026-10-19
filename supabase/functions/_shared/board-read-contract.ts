@@ -80,6 +80,10 @@ export type BoardPostReactionQueryRow = {
   reaction_type: BoardReactionType;
 };
 
+export type BoardPostViewQueryRow = {
+  post_id: string;
+};
+
 export type BoardDetailPostQueryRow = {
   id: string;
   category_id: string;
@@ -197,6 +201,12 @@ export function isBoardPostReactionQueryRow(
     isUuid(value.post_id) &&
     (value.resident_id === undefined || isNonEmptyString(value.resident_id)) &&
     isBoardReactionType(value.reaction_type);
+}
+
+export function isBoardPostViewQueryRow(
+  value: unknown,
+): value is BoardPostViewQueryRow {
+  return isRecord(value) && isUuid(value.post_id);
 }
 
 export function isBoardDetailPostQueryRow(

@@ -57,6 +57,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useRouter } from 'next/navigation';
 import { use, useCallback, useEffect, useRef, useState } from 'react';
+import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -99,9 +100,6 @@ const readSignupReferralCode = (payload: unknown) => {
 };
 
 // --- Constants ---
-const HANWHA_ORANGE = '#f36f21';
-const CHARCOAL = '#111827';
-const MUTED = '#6b7280';
 const BACKGROUND = '#f8f9fa';
 
 export default function FcProfilePage({ params }: { params: Promise<{ id: string }> }) {
@@ -831,7 +829,7 @@ function FcProfileContent({ fcId }: { fcId: string }) {
                                                     <Badge size="xs" color={doc.status === 'approved' ? 'green' : doc.status === 'rejected' ? 'red' : 'blue'}>
                                                         {doc.status}
                                                     </Badge>
-                                                    <Text size="xs" c={HANWHA_ORANGE} style={{ cursor: 'pointer' }} onClick={() => notifications.show({ message: '문서 관리 메뉴에서 확인하세요.', color: 'blue' })}>
+                                                    <Text size="xs" c={HANWHA_ORANGE} style={{ cursor: 'pointer' }} onClick={() => notifications.show({ message: '서류 관리 메뉴에서 확인하세요.', color: 'blue' })}>
                                                         View
                                                     </Text>
                                                 </Group>

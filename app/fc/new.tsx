@@ -34,7 +34,7 @@ import { ScreenHeader } from '@/components/ScreenHeader';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { invokeAdminAction } from '@/lib/admin-action-api';
-import { goBackOrReplace } from '@/lib/back-navigation';
+import { goBackOrReplace, returnTo } from '@/lib/back-navigation';
 import {
   buildFcBasicInformationFormValues,
   buildFcBasicInformationPatch,
@@ -494,7 +494,7 @@ function FcNewScreenContent() {
         successTitle: '저장 완료',
         successMessage: '기본정보가 저장되었습니다. FC 홈 화면으로 이동합니다.',
         notificationLabel: '관리자',
-        onDone: () => { if (isCurrentSubmit()) router.replace(INSURANCE_HOME_ROUTE); },
+        onDone: () => { if (isCurrentSubmit()) returnTo(router, INSURANCE_HOME_ROUTE); },
       });
     } catch {
       if (!isCurrentSubmit()) return;
@@ -569,7 +569,7 @@ function FcNewScreenContent() {
       return;
     }
     if (fromParam === 'auth' || fromParam === 'login') {
-      router.replace('/');
+      returnTo(router, '/');
       return;
     }
     goBackOrReplace(router, '/');

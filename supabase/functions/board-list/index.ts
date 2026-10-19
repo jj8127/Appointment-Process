@@ -29,6 +29,7 @@ import {
   isBoardAutomationListQueryRow,
   isBoardListQueryRow,
   isBoardPostReactionQueryRow,
+  isBoardPostViewQueryRow,
   type BoardListQueryRow,
 } from '../_shared/board-read-contract.ts';
 import {
@@ -204,6 +205,7 @@ serve(async (req: Request) => {
     editedAt: row.edited_at ?? undefined,
     isPinned: row.is_pinned,
     isMine: row.author_resident_id === actorCheck.actor.residentId,
+    isRead: row.author_resident_id === actorCheck.actor.residentId,
     stats: {
       commentCount: row.comment_count ?? 0,
       reactionCount: row.reaction_count ?? 0,
@@ -229,8 +231,10 @@ serve(async (req: Request) => {
     }>
   >();
 
+  const viewedPostIds = new Set<string>();
+
   if (postIds.length > 0) {
-    const [reactionsRes, attachmentsRes] = await Promise.all([
+    const [reactionsRes, attachmentsRes, viewsRes] = await Promise.all([
       collectGroupChatDataApiBatches(postIds, async (postIdBatch) => {
         const pages = await collectGroupChatDataApiPages(async (from, to) => {
           const result = await supabase
@@ -271,6 +275,26 @@ serve(async (req: Request) => {
           ? { data: pages.data, error: null }
           : { data: null, error: new Error('board_attachment_query_failed') };
       }),
+      collectGroupChatDataApiBatches(postIds, async (postIdBatch) => {
+        const pages = await collectGroupChatDataApiPages(async (from, to) => {
+          const result = await supabase
+            .from('board_post_views')
+            .select('post_id')
+            .eq('resident_id', actorCheck.actor.residentId)
+            .in('post_id', postIdBatch)
+            .order('post_id', { ascending: true })
+            .order('id', { ascending: true })
+            .range(from, to);
+          const rows = parseQueryRows(result.data, isBoardPostViewQueryRow);
+          return {
+            data: rows,
+            error: result.error ?? (rows ? null : new Error('board_view_query_invalid')),
+          };
+        });
+        return pages.ok
+          ? { data: pages.data, error: null }
+          : { data: null, error: new Error('board_view_query_failed') };
+      }),
     ]);
 
     if (!reactionsRes.ok) {
@@ -278,6 +302,10 @@ serve(async (req: Request) => {
     }
     if (!attachmentsRes.ok) {
       return dbError({ message: 'board attachment query failed' }, origin);
+    }
+    // Read state only decorates the list, so a failed lookup leaves posts unmarked.
+    if (viewsRes.ok) {
+      viewsRes.data.forEach((row) => viewedPostIds.add(row.post_id));
     }
 
     const reactionRows = reactionsRes.data;
@@ -360,6 +388,7 @@ serve(async (req: Request) => {
 
   const withExtras = (item: ReturnType<typeof normalize>) => ({
     ...item,
+    isRead: item.isRead || viewedPostIds.has(item.id),
     reactions: reactionMap.get(item.id) ?? { like: 0, heart: 0, check: 0, smile: 0 },
     attachments: attachmentMap.get(item.id) ?? [],
   });

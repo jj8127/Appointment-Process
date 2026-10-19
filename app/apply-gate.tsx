@@ -47,6 +47,7 @@ import { markNotificationNavigationIdle } from '@/lib/notification-navigation-co
 import { clearPendingNotificationNavigation } from '@/lib/pending-notification-navigation';
 import { addSentryBreadcrumb } from '@/lib/sentry-monitor';
 import { COLORS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { resetTo, returnTo } from '@/lib/back-navigation';
 
 type FeatherName = React.ComponentProps<typeof Feather>['name'];
 // The last item is the only step for an existing FC without identity data.
@@ -136,11 +137,11 @@ export default function ApplyGateScreen() {
   useEffect(() => {
     if (!hydrated || !platformHydrated) return;
     if (!isPlatformSignedIn) {
-      router.replace('/services/login?service=insurance');
+      resetTo(router, '/services/login?service=insurance');
       return;
     }
     if (role === 'admin') {
-      router.replace('/');
+      returnTo(router, '/');
       return;
     }
     if (isRequestBoardDesigner) {
@@ -167,7 +168,7 @@ export default function ApplyGateScreen() {
 
   const returnHomeLite = useCallback(() => {
     addSentryBreadcrumb(buildHomeEntryBreadcrumb('apply-gate.return-home'));
-    router.replace('/');
+    returnTo(router, '/');
   }, []);
 
   const startIdentityInput = useCallback(() => {

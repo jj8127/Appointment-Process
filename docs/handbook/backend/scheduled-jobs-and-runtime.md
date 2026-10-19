@@ -2,10 +2,40 @@ doc_id: FC-BACKEND-SCHEDULED-RUNTIME
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-10-14
-source_of_truth: supabase/migrations/20261014140000_platform_withdrawal_drain_schedule.sql + supabase/functions/docs-deadline-reminder/index.ts + supabase/functions/user-presence/index.ts + hooks/use-app-presence-heartbeat.ts
+last_verified: 2026-10-16
+source_of_truth: supabase/migrations/20261016110200_messenger_stage1_finish.sql + supabase/migrations/20261016110100_messenger_garamlink_sync.sql + supabase/functions/messenger-garamlink-sync/index.ts + supabase/migrations/20261014140000_platform_withdrawal_drain_schedule.sql + supabase/functions/docs-deadline-reminder/index.ts + supabase/functions/user-presence/index.ts + hooks/use-app-presence-heartbeat.ts
 
 # Backend Runbook: Scheduled Jobs And Runtime
+
+## 2026-10-16 통합 메신저 1단계 매일 작업과 운영자 정리
+
+`messenger_daily_sync_v1()`(03:30 KST)는 백필 → 본부 동기화 → 늦게 들어온 방 순서 복구 → 대조 순서로 돈다.
+- 본부: FC 소속의 번호(`1본부 …`)로 가람 아래 `garam-hq-N` 조직을 만들고 FC를 넣는다. 같은 전화번호의 본부장 계정은 소속에 적힌 모든 본부에 `manager`로 넣는다. 소속이 바뀌면 이전 본부 소속은 `revoked`가 된다. 본부를 읽을 수 없는 본부장은 `headquarters_unknown` 이슈로 남는다.
+- 순서 복구: `late_backfill_out_of_order` 이슈가 열린 방의 메시지 번호를 시간 순서로 다시 매긴다. 답장, 이벤트, 반응, 공지가 메시지를 따라간다. 클라이언트가 통합 모델을 읽기 시작하는 2단계 전에 이 호출을 빼야 한다.
+- 상대가 없는 1:1 메시지(`orphan_participant_missing`): 개인정보 처리방침상 회원 기간 동안만 보관한다. 처음 기록되고 30일이 지나면 운영자가 지운다.
+  - 목록: `select * from messenger_orphan_purge_candidates_v1();` (본문과 전화번호는 나오지 않는다)
+  - 삭제: `select messenger_purge_orphan_messages_v1(<목록 건수>);` 건수가 다르면 전체를 거부한다. 결과의 `fileUrls`는 스토리지에서 따로 지운다.
+
+## 2026-10-16 가람Link 대화 가져오기 예약 (통합 메신저 1단계)
+
+pg_cron `messenger-garamlink-sync`가 10분마다 `public.request_messenger_garamlink_sync_v1()`를 실행한다.
+- Vault secret `messenger_garamlink_sync_service_key`가 있을 때만 pg_net으로 Edge `messenger-garamlink-sync`를 호출한다.
+- Edge는 같은 service-role 값이 `apikey`와 `Authorization: Bearer`에 모두 있을 때만 요청을 받는다.
+- Edge는 가람Link `GET /api/messenger-export`를 커서로 이어 받는다. 한 번 호출에 최대 20배치, 40초까지 받는다.
+- 각 배치는 `messenger_import_request_board_batch_v1(payload, 기대 커서, 다음 커서)`로 넣는다. 가져오기와 커서 이동은 한 트랜잭션이다. 커서가 어긋나면 `cursor_conflict`로 배치 전체를 거부한다.
+
+- Edge secret: `REQUEST_BOARD_MESSENGER_EXPORT_URL`(예: `https://<garamlink-origin>/api/messenger-export`), `REQUEST_BOARD_MESSENGER_EXPORT_TOKEN`, `REQUEST_BOARD_STORAGE_ORIGIN`(가람Link Supabase URL, 예: `https://<garamlink-ref>.supabase.co`).
+  - token은 가람Link의 `FC_ONBOARDING_MESSENGER_EXPORT_TOKEN`과 같아야 한다.
+  - 셋 중 하나라도 없으면 Edge는 503 `not_configured`를 돌려준다.
+- 상태 확인: `select cursor, batches, messages, last_imported_at, last_error, last_error_at from messenger_import_cursors where source='request_board';`
+  - 실패 메시지는 `last_error`에 남고, 커서는 그대로다.
+- 중지: `select cron.unschedule('messenger-garamlink-sync');`
+- secret 값은 source·migration·로그·증거에 넣지 않는다.
+- 첨부파일 복사
+  - 메시지 배치를 넣기 전에 각 파일을 서명 링크로 받아 비공개 bucket `messenger-imported-attachments`의 `request_board/<source>/<messageId>/<attachmentId>`에 복사한다.
+  - 링크는 `REQUEST_BOARD_STORAGE_ORIGIN`의 `/storage/v1/object/` 아래만 받는다. 50MB를 넘거나 가람Link에 없는 파일은 '없는 파일'로 들어간다.
+  - 일시 오류가 나면 배치 전체를 다음 실행에서 다시 한다.
+- 삭제는 두 번째 피드(`/deletions`)로 받는다. 커서는 `messenger_import_cursors`의 `request_board_deletions` 행이다. 본문과 첨부 메시지를 함께 삭제 표시하고, 각각 `delete` 이벤트를 남긴다.
 
 ## 2026-10-14 공통 탈퇴 정리 drain 예약
 

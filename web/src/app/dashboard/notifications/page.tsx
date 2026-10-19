@@ -30,6 +30,7 @@ import { useState } from 'react';
 
 import { useSession } from '@/hooks/use-session';
 import { deleteAdminNotice, fetchAdminNotices, type AdminNoticeItem } from '@/lib/admin-notice-client';
+import { CHARCOAL } from '@/lib/brand-colors';
 
 const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
 
@@ -200,7 +201,7 @@ export default function NotificationsPage() {
         <Container size="xl" py="xl">
             <Group justify="space-between" mb="xl" align="flex-end">
                 <div>
-                    <Title order={2} mb={4}>
+                    <Title order={2} c={CHARCOAL} mb={4}>
                         공지사항 관리
                     </Title>
                     <Text c="dimmed" size="sm">

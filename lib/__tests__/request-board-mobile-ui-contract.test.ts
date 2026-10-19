@@ -338,9 +338,10 @@ describe('request-board mobile UI contracts', () => {
     expect(reviewSource).toContain('detail.policyholder_name');
     expect(reviewSource).toContain('detail.policyholder_phone');
     expect(reviewSource).toContain('계약자:');
+    const detailContentStart = reviewSource.indexOf('<InfoSection title="고객 정보">');
     const detailContentBlock = reviewSource.slice(
-      reviewSource.indexOf('<InfoSection title="고객 정보">'),
-      reviewSource.indexOf('{/* Designer Assignments */}'),
+      detailContentStart,
+      reviewSource.indexOf('</Animated.ScrollView>', detailContentStart),
     );
 
     expect(detailContentBlock).toContain('<Text style={styles.sectionTitle}>계약자 정보</Text>');
@@ -592,9 +593,8 @@ describe('request-board mobile UI contracts', () => {
 
   it('lets long review metadata wrap inside full-width fields', () => {
     expect(reviewSource).not.toContain("width: '48%'");
-    expect(reviewSource).toContain("width: '100%'");
-    expect(reviewSource).toContain('const valueLineLimit = fullWidth ? undefined : 3;');
-    expect(reviewSource).toContain('numberOfLines={valueLineLimit}');
+    expect(reviewSource).toContain('const stacked = fullWidth || label.length > 8;');
+    expect(reviewSource).toContain('numberOfLines={stacked ? undefined : 3}');
     expect(reviewSource).toContain('요청 FC');
     expect(reviewSource).toContain('전화번호');
     expect(reviewSource).toContain('설계 코드');

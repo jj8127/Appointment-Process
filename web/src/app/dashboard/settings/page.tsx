@@ -19,6 +19,7 @@ import { notifications } from '@mantine/notifications';
 import { IconAlertTriangle } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
+import { CHARCOAL } from '@/lib/brand-colors';
 
 type ConfirmStep = 1 | 2;
 
@@ -118,7 +119,7 @@ export default function SettingsPage() {
       <Stack gap="lg">
         <Paper withBorder radius="md" p="lg">
           <Stack gap="sm">
-            <Title order={3}>설정</Title>
+            <Title order={2} c={CHARCOAL}>설정</Title>
             <Text size="sm" c="dimmed">
               계정 정보를 확인하고 필요한 설정을 관리하세요.
             </Text>

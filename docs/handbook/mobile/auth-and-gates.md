@@ -79,6 +79,7 @@ source_of_truth: app/services/login.tsx + app/services/signup.tsx + app/login.ts
 
 - 조회 오류를 빈 목록이나 0명으로 바꾸지 않는다. 구조화된 인증 오류와 HTTP 401은 재로그인이 필요한 상태로 유지하고 기존 `/login?skipAuto=1` 경로를 사용한다.
 - 게시판 조회는 `BoardSessionError`와 `BoardApiError`의 status/code/needsRelogin을 사용한다. 역할 부족 등 일반 403 오류를 무조건 세션 만료로 바꾸지 않는다.
+- 첨부를 열 때 상세 응답의 서명 URL이 50분 이상 지났으면 같은 `board-detail` query를 다시 조회한다(2026-10-16). 이 재조회의 인증 오류도 위 규칙을 따르며, 실패하면 만료된 URL로 열지 않고 열기 실패를 알린다.
 - 계정·서명 세션이 바뀌면 게시글 원문·선택·진행 중 조회는 이전 세션의 자료를 새 편집기로 넘기지 않는다. 불투명한 메모리 범위만 query key에 사용한다.
 
 ## 2026-08-10 관리자 서면확인 가입 후 첫 로그인 계약
@@ -285,3 +286,8 @@ Identity query errors stop the apply/home gate and offer retry; they are not use
 ## 2026-10-16 보험 계정 설정의 가람in 탈퇴
 
 - 모두온 회원과 연결된 FC가 설정에서 탈퇴하면 `withdraw_member`(scope `insurance`)로 가람in만 탈퇴하고, 응답의 `memberSession`으로 모두온 로그인을 다시 세운 뒤 서비스 홈(`/`)으로 이동한다. 세션이 오지 않으면 기존처럼 전체 로그아웃한다. 연결되지 않은 FC는 `delete-account` 삭제와 `appLogout`을 그대로 쓴다.
+
+## 2026-10-15 Referral code copy and press-in exception
+
+- 설정의 추천 코드 복사는 `copyTextWithFeedback` 토스트를 사용한다.
+- 로그인 CTA의 `submitOnPressIn`은 2026-06-16 Android 키보드 회귀를 막는 문서화된 예외로 유지한다. 다른 이동·탭 컨트롤은 `onPress`를 사용한다. 규칙은 `docs/handbook/shared-ui-action-contracts.md`의 피드백 등급을 따른다.

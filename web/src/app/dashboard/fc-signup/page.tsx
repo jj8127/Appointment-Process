@@ -41,6 +41,7 @@ import {
   SignupReferralSearchError,
   type SignupReferralSearchResult,
 } from '@/lib/admin-assisted-signup-contract';
+import { CHARCOAL } from '@/lib/brand-colors';
 
 type FormState = {
   name: string;
@@ -254,7 +255,7 @@ export default function AdminAssistedSignupPage() {
           <Text c="orange.7" fw={800} size="sm" tt="uppercase" mb={4}>
             Controlled onboarding
           </Text>
-          <Title order={1} size="h2">관리자 서면확인 회원가입</Title>
+          <Title order={2} c={CHARCOAL}>관리자 서면확인 회원가입</Title>
           <Text c="dimmed" mt="xs" maw={760}>
             문자 수신이 어려운 FC의 서면 동의를 확인해 계정을 생성합니다. 이 절차는 휴대폰 인증 완료로 기록되지 않습니다.
           </Text>

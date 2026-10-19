@@ -1,5 +1,9 @@
 # 작업 로그
 
+## 2026-10-19 운영 메신저 통합 모델 계열 통합
+
+운영 DB의 메신저 통합 모델 migration 11개를 가진 최신 계열 fix/back-navigation-20261018(5f6d01c1, 100커밋)을 release 통합 브랜치에 합쳤다. 이 계열은 앞서 합친 두 운영 계열을 이미 포함한다. 충돌 12개를 해결했고 새로 생긴 시험 실패는 없다.
+
 ## 2026-10-19 운영 모두온 가입·탈퇴·메신저 계열 통합
 
 운영에 반영된 fix/moduon-signup-code-check-20261016(62커밋: 가입 인증 단계, 서비스별 탈퇴, 공통 가입 통합, 메신저 UX)을 release 통합 브랜치에 합쳤다. 가입 화면·StackedForm·signup-steps·AlertProvider는 운영판을 정본으로 택했고(app/signup.tsx는 공통 가입 리다이렉트), schema.sql은 이 계열 판을 썼다. 새로 생긴 시험 실패는 없다.
@@ -26,6 +30,30 @@
 ## 2026-10-15 복사 토스트·손 뗄 때 실행
 
 다섯 앱 인터랙션 조사에서 정리한 피드백 등급을 적용했다. 복사 결과를 차단형 Alert에서 토스트로 바꾸고, 미리보기 Modal 안의 복사는 버튼 상태로 표시한다. 단체방·요청게시판 뒤로가기와 메신저 탭은 손을 뗄 때 실행해 취소할 수 있다. 로그인 `submitOnPressIn` 예외는 유지한다. 실기기 확인·커밋·배포는 하지 않았다. [→ 상세](WORK_DETAIL.md#20261015-copy-toast-release-press)
+## 2026-10-18 뒤로가기 기록 정리 OTA
+
+로그아웃·세션 만료 이동이 맨 위 화면만 바꿔 뒤로가기 때 로그아웃 상태 화면들이 차례로 다시 로그인으로 보내던 문제(같은 화면이 여러 번 뜸), 작업 후 홈·설계요청 홈으로 replace하며 같은 화면이 두 겹 쌓이던 문제, 하단 탭 전환마다 화면이 쌓이던 문제를 고쳤다. `lib/back-navigation.ts`에 `resetTo`(기록 비우고 열기: 로그아웃·세션 만료·전체 서비스)와 `returnTo`(기록에 있으면 돌아가기: 홈·설계요청 홈·권한 가드)를 두고 약 35곳을 바꿨으며, 하단 탭은 [홈, 현재 탭] 한 겹만 유지한다. `fix/back-navigation-20261018`(`4ba898b4`, 직전 OTA 소스 `326af6f9` 포함)을 production 채널에 배포했다(update group `a8bcda07-63b7-4d66-88a7-4ab910423953`, runtime 4.2.21, Android·iOS, production 환경 변수 로드). tsc·lint 통과, root Jest는 변경 전 대비 새 실패 0(손으로 의존성을 주입하던 테스트 7개는 실제 back-navigation 모듈을 쓰도록 갱신). Hanhwa_FC 에뮬레이터에서 모두온 탭 이동·종료 확인, 가람in 탭 → 홈 → 모두온 홈, 전체 서비스 뒤 종료 확인을 확인했다. 로그아웃 흐름은 재로그인이 필요해 기기 대신 `app-logout-navigation` 테스트(기록 비움이 로그인 이동보다 먼저)로만 확인했다.
+
+## 2026-10-18 로컬 최신 통합 배포(게시판·설계요청·위촉 단계·설정 개편, 가람Link 연결·FC 삭제 수정)
+
+로컬 브랜치의 미배포 커밋을 운영 기준선 위에 합쳤다. 앱·Edge 기준선은 운영 OTA `e2bf640c`와 같은 `980695c9` 계열이고(board-list·delete-account 운영 소스가 이 계열과 일치), 관리자 웹 기준선은 운영 `d67cdfd`(admin-web-ux-r2)다. `release/all-latest-20261018`(`6e43670f`)에 게시판·설계요청·위촉 단계·설정·알림 설정 개편(feat/board-home-must-read-20261017, `4449d4bf`까지), `95c574c1`(가람Link 신원 검토 재로그인 안내 중단), `cccbcd0b`(FC 하드 삭제 전 가람Link 은퇴), 메신저 stage1, push-background의 fc-notify 커밋 6개(cherry-pick, 운영 fc-notify v108과 일치), admin-web-ux-r2·admin-referrals-embed·moduon-signup-code-check를 합쳤다. 이미 다른 SHA로 들어 있는 커밋(첨부 검은 화면, FC 홈 개편, 서비스 홈 사진, 지연 기준선, 10-13 계약 강화)과 stage1에 포함된 unified-model 초안은 다시 넣지 않았다. 메인 체크아웃의 커밋 안 된 변경 125건은 넣지 않았다.
+
+- request_board `release/rb-all-latest-20261018`(`96360fd` = 운영 `1ffc4bd` + `3e27b35`·`3b513ee` + messenger-export): Vercel `dpl_3UWu8eKs618oWCncGaUztufgBtrA` READY, alias `requestboard-steel.vercel.app`, `/api/health` 200, `/api/messenger-export` 토큰 미설정이라 503(의도), bridge-login 빈 요청 400, 배포 후 오류는 url.parse 경고 1건.
+- Edge(`6e43670f`): board-list v31, delete-account v48, admin-action v32(verify_jwt 유지), platform-service v9(verify_jwt false 유지). 인증 없는 요청은 모두 401/400으로 정상 거절.
+- 관리자 웹(`6e43670f`): Vercel `dpl_BUXfuJ28tWTFopTE5bcAjrgVARUA` READY, alias `adminweb-red.vercel.app`, 미로그인 경로 307·`/auth` 200·`/api/fc-delete` 미세션 401, 배포 후 오류 0건.
+- OTA(`6e43670f`): production 채널 update group `5cd2b0ab-b7f9-491b-aef7-d507de7acf18`, runtime 4.2.21, Android·iOS, production 환경 변수 로드 확인.
+- 검증: 앱 tsc·lint(기존 경고 1) 통과, 웹 build 통과, 웹 테스트 806/806, root Jest는 병합 전 기준선 대비 새 실패 0(통합으로 생긴 소스 계약 테스트 3개와 웹 fc-delete 계약 1개는 새 코드에 맞춰 갱신). request_board 서버 build·messenger-export 10/10·bridge 22/22, 기존 실패(ACL rollout evidence, sentry-sanitize 등)는 `1ffc4bd`·`3b513ee`에서도 같다.
+- 한계: 기기는 OTA 꺼진 로컬 빌드라 OTA 수신을 직접 확인하지 못했다. Edge 함수 로그는 Supabase 플러그인 인증이 없어 확인하지 못했다. 배포 뒤 하단 시트 세션이 만든 `78c21ceb`는 이번 OTA에 없다.
+- 워크트리 정리: 병합·포함된 깨끗한 워크트리 16개를 지웠다(브랜치는 유지, 공유 node_modules 링크는 먼저 해제). 커밋 안 된 변경이 있는 board-attachment·latency, 메인 체크아웃, w1, 두 release 워크트리는 남겼다.
+- 추가 OTA: 하단 시트 13곳을 SystemBarsModal로 옮긴 `78c21ceb`를 합친 `326af6f9`를 production 채널에 배포했다(update group `d7147113-771f-463a-94ec-673a4017b1de`, runtime 4.2.21, Android·iOS, production 환경 변수 로드). tsc·lint 통과, root Jest는 직전 배포 대비 새 실패 0. 실기기는 원격이라 연결이 끊겨 Hanhwa_FC 에뮬레이터(x86_64, 3버튼 내비)에서 같은 코드(`78c21ceb`) 빌드로 설계코드 등록 시트를 열어 취소·등록 버튼(아래 끝 y=2195)이 내비게이션 바 위로 떨어진 것을 확인하고 취소로 닫았다(저장 없음). 로컬 빌드는 JS 묶음이 캐시되면 `.env`가 빠질 수 있어 묶음 출력을 지우고 다시 빌드했다.
+
+## 2026-10-17 메신저 개편·가입 쌓이는 입력·FC 홈 개편 Android·iOS OTA
+
+운영 OTA(`be2190c`, 4.2.21) 위에 가람in 메신저 화면 개편(말풍선 묶음·한국 시간·읽은 위치·실패 말풍선 재전송·목록 필터·변경분만 받기·실시간 신호), 모두온 가입·가람in 추가 정보 쌓이는 입력, 서비스별 탈퇴, 하단 시트 여백, FC 홈 개편을 합쳐 `release/ota-messenger-20261017`(`42903f3`)에서 production 채널로 배포했다(update group `e2bf640c-73f8-40a3-80c9-ae46c13d1175`). 플로팅 모두온 메신저 입구는 사용자 결정으로 빼고(revert), 메인 체크아웃의 커밋 안 된 변경(DB·Edge 미반영 포함)은 넣지 않았다. 필요한 서버(fc-notify 변경분·실시간 신호·대화방 스냅샷 함수, platform-service v8)는 먼저 운영에 있었다. 타입·lint 통과, Jest 실패는 기존 17개 suite와 같다. 기기 확인은 다음 실행부터 가능하다. `eas update`는 `--environment production`이 있어야 Supabase 공개 값이 들어간다.
+
+## 2026-10-16 게시판 첨부 열기 검은 화면 수정
+
+게시판 첨부가 가끔 검은 화면으로 열리던 원인 세 가지를 고쳤다. PDF·한글·오피스 파일은 Android Custom Tab이 화면을 그리지 못하고 빈 탭만 남겨 외부 브라우저로 넘기고, 1시간짜리 서명 URL은 50분이 지나면 다시 받아 열며, 사진 미리보기에 로딩·실패 표시를 넣었으며, Android가 원격 사진을 원본 크기로 읽지 않도록 화면 크기로 줄여 읽게 했다. 사진이 많은 시책 글에서 Android 미리보기가 누른 사진 대신 1번째 사진을 띄우던 문제도 고치고, 현재 장과 앞뒤 한 장만 불러오게 했다. 로컬 검증만 했고 배포·OTA는 하지 않았다. [→ 상세](WORK_DETAIL.md#20261016-board-attachment-black-screen)
 ## 2026-10-16 로그인 이동 테스트를 쌓이는 가입 화면에 맞춤
 
 `login-navigation` 테스트가 예전 가입 화면(FormInput·회원가입 완료 버튼)을 직접 불러와 reanimated 파싱에서 실패했다. 쌓이는 화면 부품을 대체하고 질문별 입력칸과 동의 시트의 `동의하고 가입하기`로 제출하도록 바꿨다(30/30). [→ 상세](WORK_DETAIL.md#20261016-login-navigation-stacked-signup)
@@ -145,12 +173,22 @@
 ## 2026-10-14 가족간병 추천 초대 로컬 구현
 
 사용자가 승인한 카드 구성과 실제 결과 이미지를 위해 가족간병 안내에 개인 추천 주소 복사·공유를 추가했다. 기존 공통 계정 조회·Button/Toast/Clipboard/Share·가입 자동 입력을 재사용하고 보험 초대/공통 가입 목적과 pending을 분리한다. 기존 suite의 오래된 fixture 의존성도 현재 계약에 맞추되 실패/권한/동시성 assertion은 유지했다. 로컬 합성 화면과 행동 검증만 수행하며 운영 가입·DB·초대 웹·OTA·스토어 배포는 하지 않는다. [→ 상세](WORK_DETAIL.md#20261014-care-referral-invitation)
+## 2026-10-16 관리자 web 메뉴·검색·브랜드 정리와 처리·다운로드·개인정보 조회 기록
+
+운영 계열 `deploy/admin-web-ux-20261015` 위 `feature/admin-web-ux-r2-20261016`에서 진행했다. 메뉴를 업무 단위로 묶고 공지사항 메뉴를 추가했으며 에이전트 룸은 개발자 계정 전용(메뉴·페이지·API)으로 제한했다. 헤더 전체 FC 검색, 브랜드 주황 단일값, 페이지 제목·용어를 통일했다. append-only `admin_audit_events` migration과 처리·엑셀 다운로드·주민번호 조회 기록, 처리 이력 화면을 추가했다. migration은 로컬 PGlite 검증 후 사용자가 운영 SQL Editor에서 적용했고(이력 미기록), 운영 핫픽스 `6c19783`을 포함한 `f0dfa73`으로 배포했다(`dpl_2KZ2XuBxLgEjra6U9iX5d7cUwWKY`). push는 하지 않았다. [→ 상세](WORK_DETAIL.md#20261016-admin-web-ux-r2-audit)
 
 ## 2026-10-13 가입·공통 조회 릴리스 재검토 수리
 
 통합 릴리스의 필수 governance 누락을 가장 가까운 owner map·handbook과 기존 검사에 맞췄다. native 가입 증표 저장 key, 본인정보 timeout, OTA production public 환경과 Node 회귀 발견을 담당자가 기존 코드로 수리한다. 적용된 migration 12개는 운영 이력과 SQL hash를 대조해 body를 유지하고 로컬 이름·schema·fixture 참조만 맞춘다. primary 사용자 로그는 보존하며 실제 수정·검증·배포 상태는 canonical 인증 harness가 관리한다. 이 기록만으로 새 배포나 실제 SMS 수신을 주장하지 않는다. [→ 상세](WORK_DETAIL.md#20261013-cutover-review-repair)
 
 추가로 legacy 가입 RPC 4개의 forward 퇴역 migration을 clean source `3b546af`에서 운영 적용했다. 반환된 이력 `20261013113212`에 로컬 파일명·schema·fixture 참조를 맞췄으며 SQL body는 유지했다. 활성 Edge 55개/457개 source의 참조, catalog·cron 의존과 legacy 상태는 적용 전 0이었고 적용 후 retired RPC도 0개다. 기존 컬럼·이력은 유지하며 실제 적용 영수증과 남은 앱/SMS acceptance는 canonical QA/handoff에서 구분한다.
+## 2026-10-16 가람in FC 홈 개편
+
+승인된 프로토타입대로 FC 홈을 진행 상황·메시지·시험 접수·새 소식·바로가기 다섯 영역으로 바꿨다. 단계 완료 체크, 시험 카드 손가락 추적, 분류 칩 이동, 바로가기 누름 반응을 확정된 2배 속도로 넣고 "동작 줄이기"를 따른다. 없는 데이터(수당 금액·접수 시작일·글별 안읽음)는 만들지 않았다. 관리자 홈·헤더·하단 메뉴는 그대로다. 실기기 확인 전, 커밋·배포 없음. [→ 상세](WORK_DETAIL.md#20261016-fc-home-redesign)
+
+## 2026-10-15 복사 토스트·손 뗄 때 실행
+
+다섯 앱 인터랙션 조사에서 정리한 피드백 등급을 적용했다. 복사 결과를 차단형 Alert에서 토스트로 바꾸고, 미리보기 Modal 안의 복사는 버튼 상태로 표시한다. 단체방·요청게시판 뒤로가기와 메신저 탭은 손을 뗄 때 실행해 취소할 수 있다. 로그인 `submitOnPressIn` 예외는 유지한다. 실기기 확인·커밋·배포는 하지 않았다. [→ 상세](WORK_DETAIL.md#20261015-copy-toast-release-press)
 
 ## 2026-10-11 제휴병원 홈 시각 개선
 

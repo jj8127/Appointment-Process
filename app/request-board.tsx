@@ -1,13 +1,13 @@
 import { Feather } from '@expo/vector-icons';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
   Dimensions,
+  Image,
   KeyboardAvoidingView,
-  Modal,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppTopActionBar } from '@/components/AppTopActionBar';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
+import { SystemBarsModal } from '@/components/SystemBarsModal';
 import { useAppLogout } from '@/hooks/use-app-logout';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
@@ -41,6 +42,7 @@ import { getRequestBoardCustomerManagementRoute } from '@/lib/request-board-crea
 import { formatRequestBoardFcDisplayName } from '@/lib/request-board-fc-identity';
 import { getRequestBoardNotificationFeedback } from '@/lib/request-board-notification-feedback';
 import {
+  buildFcRequestPipeline,
   computeRequestBoardHomeStats,
   type RequestBoardHomeStats,
 } from '@/lib/request-board-home-stats';
@@ -712,7 +714,6 @@ export default function RequestBoardScreen() {
       />
       <View style={styles.pageTitleWrap}>
         <Text style={styles.pageTitle}>설계 요청</Text>
-        <Text style={styles.pageSubtitle}>의뢰 현황과 알림을 한눈에</Text>
       </View>
 
       {requestBoardAccessError && (
@@ -731,7 +732,8 @@ export default function RequestBoardScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={COLORS.primary} />
         }
       >
-        {/* Quick Actions */}
+        {/* Quick Actions (FC accounts reach these from the tools grid) */}
+        {!canUseFcWriteActions && (
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
@@ -759,6 +761,7 @@ export default function RequestBoardScreen() {
             </Pressable>
           </View>
         </MotiView>
+        )}
 
         {canUseFcWriteActions && (
           <MotiView
@@ -766,21 +769,25 @@ export default function RequestBoardScreen() {
             animate={{ opacity: 1, translateY: 0 }}
             transition={{ type: 'timing', duration: 400, delay: 60 }}
           >
-            <View style={styles.section}>
-              <Pressable
-                style={({ pressed }) => [styles.codeManageCard, pressed && { opacity: 0.7 }]}
-                onPress={openCreateRequest}
-              >
-                <View style={[styles.codeManageIcon, { backgroundColor: '#FFF1E6' }]}>
-                  <Feather name="plus" size={20} color={COLORS.primary} />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="새 설계 요청"
+              style={({ pressed }) => [styles.heroCard, pressed && styles.heroCardPressed]}
+              onPress={openCreateRequest}
+            >
+              <View style={styles.flex1}>
+                <Text style={styles.heroTitle}>새 설계 요청</Text>
+                <View style={styles.heroAction}>
+                  <Text style={styles.heroActionText}>요청하기</Text>
+                  <Feather name="arrow-right" size={14} color={COLORS.primaryButton} />
                 </View>
-                <View style={styles.codeManageText}>
-                  <Text style={styles.codeManageTitle}>새 설계 요청</Text>
-                  <Text style={styles.codeManageDesc}>고객 기준으로 요청을 작성합니다</Text>
-                </View>
-                <Feather name="chevron-right" size={18} color={COLORS.gray[400]} />
-              </Pressable>
-            </View>
+              </View>
+              <Image
+                source={require('@/assets/images/fc-home/documents.png')}
+                style={styles.heroImage}
+                accessibilityIgnoresInvertColors
+              />
+            </Pressable>
           </MotiView>
         )}
 
@@ -791,66 +798,74 @@ export default function RequestBoardScreen() {
             animate={{ opacity: 1, translateY: 0 }}
             transition={{ type: 'timing', duration: 400, delay: 80 }}
           >
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>의뢰 현황</Text>
+            <View style={isRequestBoardDesigner ? styles.section : styles.card}>
+              {isRequestBoardDesigner ? (
+                <Text style={styles.sectionTitle}>의뢰 현황</Text>
+              ) : (
+                <HomeSectionHeader
+                  icon={SECTION_ICON.progress}
+                  title="진행 상황"
+                  action={
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`의뢰 목록 전체 ${reqStats.total}건`}
+                      hitSlop={8}
+                      style={({ pressed }) => [styles.cardHeaderLink, pressed && { opacity: 0.6 }]}
+                      onPress={() => openRequests('all')}
+                    >
+                      <Text style={styles.cardHeaderLinkText}>전체 {reqStats.total}건</Text>
+                      <Feather name="chevron-right" size={16} color={COLORS.gray[500]} />
+                    </Pressable>
+                  }
+                />
+              )}
               {!isRequestBoardDesigner ? (
-                <View style={styles.reqFocusList}>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.reqFocusCard,
-                      styles.reqFocusCardPending,
-                      pressed && styles.reqFocusCardPressed,
-                    ]}
-                    onPress={() => openRequests('pending')}
-                  >
-                    <View style={[styles.reqFocusIconWrap, { backgroundColor: '#FEF3C7' }]}>
-                      <Feather name="clock" size={18} color="#B45309" />
-                    </View>
-                    <View style={styles.reqFocusText}>
-                      <View style={styles.reqFocusTitleRow}>
-                        <Text style={styles.reqFocusTitle}>설계매니저 수락 대기</Text>
-                        <Text style={[styles.reqFocusCount, { color: '#B45309' }]}>
-                          {reqStats.pending}건
-                        </Text>
+                <>
+                  {reqStats.reviewPending > 0 ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      style={({ pressed }) => [styles.myTurnCard, pressed && styles.reqFocusCardPressed]}
+                      onPress={() => openRequests('review_pending')}
+                    >
+                      <View style={styles.myTurnIcon}>
+                        <Feather name="eye" size={18} color="#fff" />
                       </View>
-                      <Text style={styles.reqFocusDesc}>
-                        {reqStats.pending > 0
-                          ? '아직 수락하지 않은 의뢰를 바로 확인하세요'
-                          : '현재 수락 대기 중인 의뢰가 없습니다'}
-                      </Text>
-                    </View>
-                    <Feather name="chevron-right" size={18} color="#B45309" />
-                  </Pressable>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.reqFocusCard,
-                      styles.reqFocusCardReview,
-                      pressed && styles.reqFocusCardPressed,
-                    ]}
-                    onPress={() => openRequests('review_pending')}
-                  >
-                    <View style={[styles.reqFocusIconWrap, { backgroundColor: '#EDE9FE' }]}>
-                      <Feather name="eye" size={18} color="#7C3AED" />
-                    </View>
-                    <View style={styles.reqFocusText}>
-                      <View style={styles.reqFocusTitleRow}>
-                        <Text style={styles.reqFocusTitle}>FC 검토 대기</Text>
-                        <Text style={[styles.reqFocusCount, { color: '#7C3AED' }]}>
-                          {reqStats.reviewPending}건
-                        </Text>
+                      <View style={styles.reqFocusText}>
+                        <Text style={styles.myTurnLabel}>내 차례</Text>
+                        <Text style={styles.myTurnTitle}>검토할 설계 {reqStats.reviewPending}건</Text>
                       </View>
-                      <Text style={styles.reqFocusDesc}>
-                        {reqStats.reviewPending > 0
-                          ? '설계 완료 후 확인이 필요한 건을 모아 봅니다'
-                          : '현재 FC 검토 대기 의뢰가 없습니다'}
-                      </Text>
+                      <Text style={styles.myTurnAction}>검토하기</Text>
+                    </Pressable>
+                  ) : null}
+                  {/* Where each request is, as the four steps a request moves through. */}
+                  <View>
+                    <View style={styles.pipelineRow}>
+                      {buildFcRequestPipeline(reqStats).map((step, index, steps) => (
+                        <Fragment key={step.key}>
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={`${step.label} ${step.count}건`}
+                            style={({ pressed }) => [styles.pipelineStep, pressed && { opacity: 0.7 }]}
+                            onPress={() => openRequests(step.key)}
+                          >
+                            <Text style={[styles.pipelineCount, step.count > 0 && styles.pipelineCountActive]}>
+                              {step.count}
+                            </Text>
+                            <Text style={[styles.pipelineLabel, step.count > 0 && styles.pipelineLabelActive]}>
+                              {step.label}
+                            </Text>
+                          </Pressable>
+                          {index < steps.length - 1 ? (
+                            <Feather name="chevron-right" size={14} color={COLORS.gray[300]} />
+                          ) : null}
+                        </Fragment>
+                      ))}
                     </View>
-                    <Feather name="chevron-right" size={18} color="#7C3AED" />
-                  </Pressable>
-                </View>
-              ) : null}
-              <View style={styles.reqStatsGrid}>
-                {isRequestBoardDesigner ? (
+                  </View>
+                </>
+              ) : (
+                <View style={styles.reqStatsGrid}>
+
                   <>
                     <Pressable
                       style={({ pressed }) => [
@@ -896,59 +911,8 @@ export default function RequestBoardScreen() {
                       <Text style={styles.reqStatDesc}>완료 의뢰 기준</Text>
                     </View>
                   </>
-                ) : (
-                  <>
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.reqStatCard,
-                        { borderLeftColor: COLORS.primary },
-                        pressed && styles.reqStatCardPressed,
-                      ]}
-                      onPress={() => openRequests('all')}
-                    >
-                      <Text style={[styles.reqStatValue, { color: COLORS.primary }]}>{reqStats.total}</Text>
-                      <Text style={styles.reqStatLabel}>전체 의뢰건수</Text>
-                      <Text style={styles.reqStatDesc}>누적 의뢰</Text>
-                    </Pressable>
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.reqStatCard,
-                        { borderLeftColor: '#F59E0B' },
-                        pressed && styles.reqStatCardPressed,
-                      ]}
-                      onPress={() => openRequests('pending')}
-                    >
-                      <Text style={[styles.reqStatValue, { color: '#F59E0B' }]}>{reqStats.pending}</Text>
-                      <Text style={styles.reqStatLabel}>수락 대기중</Text>
-                      <Text style={styles.reqStatDesc}>설계 매니저 수락 대기</Text>
-                    </Pressable>
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.reqStatCard,
-                        { borderLeftColor: '#3B82F6' },
-                        pressed && styles.reqStatCardPressed,
-                      ]}
-                      onPress={() => openRequests('in_progress')}
-                    >
-                      <Text style={[styles.reqStatValue, { color: '#3B82F6' }]}>{reqStats.inProgress}</Text>
-                      <Text style={styles.reqStatLabel}>진행중인 의뢰</Text>
-                      <Text style={styles.reqStatDesc}>처리 중</Text>
-                    </Pressable>
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.reqStatCard,
-                        { borderLeftColor: '#10B981' },
-                        pressed && styles.reqStatCardPressed,
-                      ]}
-                      onPress={() => openRequests('completed')}
-                    >
-                      <Text style={[styles.reqStatValue, { color: '#10B981' }]}>{reqStats.completed}</Text>
-                      <Text style={styles.reqStatLabel}>완료 의뢰</Text>
-                      <Text style={styles.reqStatDesc}>완료된 의뢰</Text>
-                    </Pressable>
-                  </>
-                )}
-              </View>
+                </View>
+              )}
             </View>
           </MotiView>
         )}
@@ -1134,7 +1098,7 @@ export default function RequestBoardScreen() {
           </MotiView>
         )}
 
-        {showStats && (
+        {showStats && !canUseFcWriteActions && (
           <MotiView
             from={{ opacity: 0, translateY: 12 }}
             animate={{ opacity: 1, translateY: 0 }}
@@ -1162,55 +1126,37 @@ export default function RequestBoardScreen() {
           </MotiView>
         )}
 
-        {/* FC Links */}
+        {/* FC tools */}
         {canUseFcWriteActions && (
           <MotiView
             from={{ opacity: 0, translateY: 12 }}
             animate={{ opacity: 1, translateY: 0 }}
             transition={{ type: 'timing', duration: 400, delay: 120 }}
           >
-            <View style={styles.section}>
-              <Pressable
-                style={({ pressed }) => [styles.codeManageCard, pressed && { opacity: 0.7 }]}
-                onPress={() => openRequests()}
-              >
-                <View style={styles.codeManageIcon}>
-                  <Feather name="clipboard" size={20} color={COLORS.text.primary} />
-                </View>
-                <View style={styles.codeManageText}>
-                  <Text style={styles.codeManageTitle}>의뢰 목록 · 검토</Text>
-                  <Text style={styles.codeManageDesc}>설계 완료 건 승인 및 파일 확인</Text>
-                </View>
-                <Feather name="chevron-right" size={18} color={COLORS.gray[400]} />
-              </Pressable>
-              <View style={{ height: SPACING.sm }} />
-              <Pressable
-                style={({ pressed }) => [styles.codeManageCard, pressed && { opacity: 0.7 }]}
-                onPress={openCustomerManagement}
-              >
-                <View style={styles.codeManageIcon}>
-                  <Feather name="users" size={20} color={COLORS.text.primary} />
-                </View>
-                <View style={styles.codeManageText}>
-                  <Text style={styles.codeManageTitle}>고객관리</Text>
-                  <Text style={styles.codeManageDesc}>고객 선택 및 신규 등록 화면으로 이동</Text>
-                </View>
-                <Feather name="chevron-right" size={18} color={COLORS.gray[400]} />
-              </Pressable>
-              <View style={{ height: SPACING.sm }} />
-              <Pressable
-                style={({ pressed }) => [styles.codeManageCard, pressed && { opacity: 0.7 }]}
-                onPress={openFcCodes}
-              >
-                <View style={styles.codeManageIcon}>
-                  <Feather name="tag" size={20} color={COLORS.text.primary} />
-                </View>
-                <View style={styles.codeManageText}>
-                  <Text style={styles.codeManageTitle}>설계코드 관리</Text>
-                  <Text style={styles.codeManageDesc}>보험회사별 FC 코드 등록 및 관리</Text>
-                </View>
-                <Feather name="chevron-right" size={18} color={COLORS.gray[400]} />
-              </Pressable>
+            <View style={styles.card}>
+              <HomeSectionHeader icon={SECTION_ICON.shortcut} title="바로가기" />
+              <View style={styles.toolsGrid}>
+                {[
+                  { key: 'requests', image: require('@/assets/images/fc-home/appointment.png'), label: '의뢰 목록', onPress: () => openRequests() },
+                  { key: 'customers', image: require('@/assets/images/fc-home/profile.png'), label: '고객관리', onPress: openCustomerManagement },
+                  { key: 'codes', image: require('@/assets/images/service-home/insurance.png'), label: '설계코드', onPress: openFcCodes },
+                  { key: 'messenger', image: require('@/assets/images/fc-home/section-chat.png'), label: '메신저', onPress: openMessenger },
+                  { key: 'link', image: require('@/assets/images/fc-home/link.png'), label: '가람Link 주소', onPress: copyRequestBoardUrl },
+                  { key: 'guide', image: require('@/assets/images/fc-home/howto.png'), label: '사용법 영상', onPress: openYoutube },
+                ].map((tool) => (
+                  <Pressable
+                    key={tool.key}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [styles.toolTile, pressed && { opacity: 0.7 }]}
+                    onPress={tool.onPress}
+                  >
+                    <View style={styles.toolIcon}>
+                      <Image source={tool.image} style={styles.toolImage} accessibilityIgnoresInvertColors />
+                    </View>
+                    <Text style={styles.toolLabel} numberOfLines={1}>{tool.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
             </View>
           </MotiView>
         )}
@@ -1221,15 +1167,22 @@ export default function RequestBoardScreen() {
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'timing', duration: 400, delay: 200 }}
         >
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>최근 활동</Text>
-              {notifications.length > 3 && (
-                <Pressable onPress={openNotifications}>
-                  <Text style={styles.seeAll}>전체보기</Text>
+          <View style={styles.card}>
+            <HomeSectionHeader
+              icon={SECTION_ICON.activity}
+              title="최근 활동"
+              action={notifications.length > 3 ? (
+                <Pressable
+                  accessibilityRole="button"
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.cardHeaderLink, pressed && { opacity: 0.6 }]}
+                  onPress={openNotifications}
+                >
+                  <Text style={styles.cardHeaderLinkText}>전체보기</Text>
+                  <Feather name="chevron-right" size={16} color={COLORS.gray[500]} />
                 </Pressable>
-              )}
-            </View>
+              ) : undefined}
+            />
 
             {loading ? (
               <View style={styles.loadingWrap}>
@@ -1237,7 +1190,7 @@ export default function RequestBoardScreen() {
               </View>
             ) : recentNotifs.length === 0 ? (
               <View style={styles.emptyWrap}>
-                <Feather name="inbox" size={40} color={COLORS.gray[200]} />
+                <Feather name="inbox" size={32} color={COLORS.gray[300]} />
                 <Text style={styles.emptyText}>아직 가람Link 알림이 없습니다</Text>
                 <Pressable
                   style={({ pressed }) => [styles.emptyAction, pressed && { opacity: 0.7 }]}
@@ -1248,7 +1201,7 @@ export default function RequestBoardScreen() {
                 </Pressable>
               </View>
             ) : (
-              <View style={styles.feedList}>
+              <View>
                 {recentNotifs.map((item, index) => {
                   const catKey = (item.category ?? '').trim().toLowerCase();
                   const catColor = getCategoryColor(catKey);
@@ -1298,56 +1251,19 @@ export default function RequestBoardScreen() {
           </View>
         </MotiView>
 
-        {/* How It Works */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'timing', duration: 400, delay: 300 }}
-        >
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>설계 요청 흐름</Text>
-            <View style={styles.flowCard}>
-              <View style={styles.flowRow}>
-                {[
-                  { icon: 'edit-3' as const, label: '의뢰\n작성' },
-                  { icon: 'send' as const, label: '매니저\n배정' },
-                  { icon: 'check-square' as const, label: '설계\n완료' },
-                  { icon: 'star' as const, label: 'FC\n확인' },
-                ].flatMap((step, i) => [
-                  ...(i > 0 ? [
-                    <View key={`arr-${i}`} style={styles.flowArrowH}>
-                      <Feather name="chevron-right" size={11} color={COLORS.gray[300]} />
-                    </View>,
-                  ] : []),
-                  <View key={step.label} style={styles.flowStepH}>
-                    <View style={[styles.flowIconWrapH, i === 0 && styles.flowIconActiveH]}>
-                      <Feather
-                        name={step.icon}
-                        size={13}
-                        color={i === 0 ? COLORS.primary : COLORS.gray[400]}
-                      />
-                    </View>
-                    <Text style={[styles.flowLabelH, i === 0 && styles.flowLabelActiveH]}>
-                      {step.label}
-                    </Text>
-                  </View>,
-                ])}
-              </View>
-            </View>
-          </View>
-        </MotiView>
-
         {/* Info Cards */}
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'timing', duration: 400, delay: 400 }}
         >
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>알아두세요</Text>
+          <View style={styles.card}>
+            <HomeSectionHeader icon={SECTION_ICON.info} title="알아두세요" />
             <View style={styles.infoCardsWrap}>
               <View style={styles.infoCard}>
-                <Feather name="shield" size={18} color="#3B82F6" />
+                <View style={styles.infoCardIcon}>
+                  <Feather name="lock" size={16} color={COLORS.primaryButton} />
+                </View>
                 <View style={styles.infoCardText}>
                   <Text style={styles.infoCardTitle}>개인정보 보호</Text>
                   <Text style={styles.infoCardDesc}>
@@ -1356,7 +1272,9 @@ export default function RequestBoardScreen() {
                 </View>
               </View>
               <View style={styles.infoCard}>
-                <Feather name="bell" size={18} color="#10B981" />
+                <View style={styles.infoCardIcon}>
+                  <Feather name="bell" size={16} color={COLORS.primaryButton} />
+                </View>
                 <View style={styles.infoCardText}>
                   <Text style={styles.infoCardTitle}>푸시 알림</Text>
                   <Text style={styles.infoCardDesc}>
@@ -1376,13 +1294,13 @@ export default function RequestBoardScreen() {
         bottomInset={insets.bottom}
       />
 
-      <Modal
+      <SystemBarsModal
         visible={designerRejectModalVisible}
         transparent
         animationType="slide"
         onRequestClose={resetDesignerRejectModal}
       >
-        <KeyboardAvoidingView
+        {(modalInsets) => <KeyboardAvoidingView
           style={styles.modalKeyboardAvoidingView}
           behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
         >
@@ -1390,7 +1308,7 @@ export default function RequestBoardScreen() {
             style={styles.modalOverlay}
             onPress={resetDesignerRejectModal}
           />
-          <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+          <View style={[styles.modalSheet, { paddingBottom: modalInsets.bottom + 16 }]}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>의뢰 거절 사유</Text>
             <Text style={styles.modalDesc}>
@@ -1431,8 +1349,27 @@ export default function RequestBoardScreen() {
               </Pressable>
             </View>
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        </KeyboardAvoidingView>}
+      </SystemBarsModal>
+    </View>
+  );
+}
+
+const SECTION_ICON = {
+  progress: require('@/assets/images/fc-home/allowance.png'),
+  shortcut: require('@/assets/images/fc-home/section-shortcut.png'),
+  activity: require('@/assets/images/fc-home/section-notice.png'),
+  info: require('@/assets/images/service-home/care.png'),
+};
+
+/** Same header as the FC home cards: 3D icon, title, optional link on the right. */
+function HomeSectionHeader({ icon, title, action }: { icon: number; title: string; action?: ReactNode }) {
+  return (
+    <View style={styles.cardHeader}>
+      <Image source={icon} style={styles.cardHeaderIcon} accessibilityIgnoresInvertColors />
+      <Text style={styles.cardHeaderTitle}>{title}</Text>
+      <View style={styles.flex1} />
+      {action}
     </View>
   );
 }
@@ -1440,9 +1377,93 @@ export default function RequestBoardScreen() {
 /* ─── Styles ─── */
 
 const styles = StyleSheet.create({
+  card: {
+    marginBottom: 12,
+    paddingTop: 18,
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    borderRadius: 24,
+    backgroundColor: '#ffffff',
+  },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 },
+  cardHeaderIcon: { width: 28, height: 28 },
+  cardHeaderTitle: { fontSize: 18, fontWeight: '800', color: COLORS.gray[900] },
+  cardHeaderLink: { flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 32 },
+  cardHeaderLinkText: { fontSize: 13, fontWeight: '600', color: COLORS.gray[500] },
+  flex1: { flex: 1 },
+  heroCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 112,
+    marginTop: SPACING.xs,
+    marginBottom: 12,
+    paddingLeft: 22,
+    paddingRight: 12,
+    borderRadius: 24,
+    backgroundColor: COLORS.primary,
+    overflow: 'hidden',
+  },
+  heroCardPressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
+  heroTitle: { fontSize: 22, fontWeight: '800', color: '#ffffff', letterSpacing: -0.4 },
+  heroAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+  },
+  heroActionText: { fontSize: 13, fontWeight: '800', color: COLORS.primaryButton },
+  heroImage: { width: 92, height: 92 },
+  myTurnCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 4,
+    borderRadius: 18,
+    backgroundColor: COLORS.primaryPale,
+  },
+  myTurnIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.primaryButton,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  myTurnLabel: { fontSize: 12, fontWeight: '700', color: '#9a3412' },
+  myTurnTitle: { fontSize: 16, fontWeight: '800', color: COLORS.gray[900] },
+  myTurnAction: { fontSize: 14, fontWeight: '800', color: COLORS.primaryButton },
+  pipelineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: SPACING.sm,
+  },
+  pipelineStep: { flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: 4 },
+  pipelineCount: { fontSize: 24, fontWeight: '800', color: COLORS.gray[300], fontVariant: ['tabular-nums'] },
+  pipelineCountActive: { color: COLORS.primary },
+  pipelineLabel: { fontSize: 12, fontWeight: '600', color: COLORS.gray[500] },
+  pipelineLabelActive: { color: COLORS.gray[900] },
+  toolsGrid: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 8 },
+  toolTile: { width: '33.333%', alignItems: 'center', gap: 6, paddingVertical: 4 },
+  toolIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    backgroundColor: '#fdf3ea',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toolImage: { width: 44, height: 44 },
+  toolLabel: { fontSize: 13, fontWeight: '500', color: COLORS.gray[900] },
   container: {
     flex: 1,
-    backgroundColor: COLORS.gray[50],
+    backgroundColor: '#f3f4f6',
   },
   pageTitleWrap: {
     marginHorizontal: SPACING.base,
@@ -1453,12 +1474,6 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.xl,
     fontWeight: '800' as const,
     color: COLORS.gray[900],
-    textAlign: 'center',
-  },
-  pageSubtitle: {
-    fontSize: TYPOGRAPHY.fontSize.sm,
-    color: COLORS.text.muted,
-    marginTop: 2,
     textAlign: 'center',
   },
 
@@ -1527,54 +1542,6 @@ const styles = StyleSheet.create({
   },
 
   /* Flow */
-  flowCard: {
-    backgroundColor: '#fff',
-    borderRadius: RADIUS.lg,
-    paddingHorizontal: SPACING.base,
-    paddingVertical: SPACING.md,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    ...SHADOWS.sm,
-  },
-  flowRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-  },
-  flowStepH: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 5,
-  },
-  flowIconWrapH: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: COLORS.gray[100],
-    borderWidth: 1.5,
-    borderColor: COLORS.gray[200],
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  flowIconActiveH: {
-    backgroundColor: COLORS.primaryPale,
-    borderColor: COLORS.primary,
-  },
-  flowLabelH: {
-    fontSize: TYPOGRAPHY.fontSize.xs,
-    color: COLORS.gray[500],
-    textAlign: 'center',
-    fontWeight: '500' as const,
-    lineHeight: 14,
-  },
-  flowLabelActiveH: {
-    color: COLORS.primary,
-    fontWeight: '700' as const,
-  },
-  flowArrowH: {
-    marginTop: 10,
-    paddingHorizontal: 2,
-  },
 
   /* Feed */
   loadingWrap: {
@@ -1582,12 +1549,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyWrap: {
-    backgroundColor: '#fff',
-    borderRadius: RADIUS.lg,
-    padding: SPACING.xl,
+    paddingVertical: SPACING.lg,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
     gap: SPACING.sm,
   },
   emptyText: {
@@ -1606,19 +1569,10 @@ const styles = StyleSheet.create({
     fontWeight: '600' as const,
   },
 
-  feedList: {
-    backgroundColor: '#fff',
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    overflow: 'hidden',
-    ...SHADOWS.sm,
-  },
   feedItem: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     paddingVertical: SPACING.md,
-    paddingHorizontal: SPACING.base,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: COLORS.border.light,
   },
@@ -1691,59 +1645,11 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: CARD_GAP,
   },
-  reqFocusList: {
-    gap: SPACING.sm,
-    marginBottom: SPACING.sm,
-  },
-  reqFocusCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.md,
-    backgroundColor: '#fff',
-    borderRadius: RADIUS.md,
-    padding: SPACING.base,
-    borderWidth: 1,
-    ...SHADOWS.sm,
-  },
-  reqFocusCardPending: {
-    borderColor: '#FCD34D',
-  },
-  reqFocusCardReview: {
-    borderColor: '#DDD6FE',
-  },
   reqFocusCardPressed: {
     opacity: 0.85,
   },
-  reqFocusIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   reqFocusText: {
     flex: 1,
-  },
-  reqFocusTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: SPACING.sm,
-  },
-  reqFocusTitle: {
-    flex: 1,
-    fontSize: TYPOGRAPHY.fontSize.sm,
-    fontWeight: '700' as const,
-    color: COLORS.gray[800],
-  },
-  reqFocusCount: {
-    fontSize: TYPOGRAPHY.fontSize.base,
-    fontWeight: '800' as const,
-  },
-  reqFocusDesc: {
-    fontSize: TYPOGRAPHY.fontSize.xs,
-    color: COLORS.text.secondary,
-    marginTop: 2,
   },
   reqStatCard: {
     width: (SCREEN_WIDTH - SPACING.base * 2 - CARD_GAP) / 2,
@@ -2071,34 +1977,6 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border.light,
     ...SHADOWS.sm,
   },
-  createRequestCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.primary,
-    borderRadius: RADIUS.md,
-    padding: SPACING.base,
-    gap: SPACING.md,
-    minHeight: 74,
-    ...SHADOWS.base,
-  },
-  createRequestIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  createRequestTitle: {
-    fontSize: TYPOGRAPHY.fontSize.base,
-    fontWeight: '800' as const,
-    color: '#fff',
-  },
-  createRequestDesc: {
-    fontSize: TYPOGRAPHY.fontSize.sm,
-    color: 'rgba(255,255,255,0.86)',
-    marginTop: 1,
-  },
   codeManageIcon: {
     width: 40,
     height: 40,
@@ -2120,18 +1998,19 @@ const styles = StyleSheet.create({
   },
 
   /* Info Cards */
-  infoCardsWrap: {
-    gap: SPACING.sm,
-  },
+  infoCardsWrap: { gap: SPACING.base },
   infoCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: '#fff',
-    borderRadius: RADIUS.md,
-    padding: SPACING.base,
     gap: SPACING.md,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
+  },
+  infoCardIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#fdf3ea',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   infoCardText: {
     flex: 1,

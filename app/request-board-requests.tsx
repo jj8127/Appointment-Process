@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { REQUEST_PROGRESS_TONE, RequestProgressSteps } from '@/components/RequestProgressSteps';
+import { summarizeRequestProgress } from '@/lib/request-board-progress';
 
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { BottomNavigation } from '@/components/BottomNavigation';
@@ -289,7 +291,7 @@ export default function RequestBoardRequestsScreen() {
     { key: 'pending', label: '수락 대기', count: pendingCount },
     { key: 'in_progress', label: '진행중', count: inProgressCount },
     { key: 'completed', label: '완료', count: completedCount },
-    { key: 'cancelled', label: '취소', count: cancelledCount },
+    { key: 'cancelled', label: '거절·취소', count: cancelledCount },
     { key: 'review_pending', label: '검토 대기', count: reviewPendingCount },
   ];
 
@@ -307,6 +309,8 @@ export default function RequestBoardRequestsScreen() {
     const designCodeDisplay = getRequestDesignCodeDisplay(item);
     const fcContactSummary = getRequestFcContactSummary(item, designCodeDisplay);
     const fcMeta = fcDecisionMeta;
+    const progress = summarizeRequestProgress(item.request_designers, isRequestBoardDesigner ? 'designer' : 'fc');
+    const progressTone = progress ? REQUEST_PROGRESS_TONE[progress.tone] : null;
     const designerRejectionSummary = getDesignerRejectionSummary(item);
     const customerName = String(item.customer_name ?? '').trim();
     const policyholderName = String(item.policyholder_name ?? '').trim();
@@ -351,15 +355,15 @@ export default function RequestBoardRequestsScreen() {
               {customerDisplayName}
             </Text>
             <View style={styles.badgeColumn}>
-              {isPendingReview && (
+              {isPendingReview && !progress && (
                 <View style={styles.reviewStatusBadge}>
                   <Feather name="eye" size={10} color="#fff" />
                   <Text style={styles.reviewStatusBadgeText}>검토 대기</Text>
                 </View>
               )}
-              <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
-                <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}>
-                  {statusInfo.label}
+              <View style={[styles.statusBadge, { backgroundColor: progressTone?.background ?? statusInfo.bg }]}>
+                <Text style={[styles.statusBadgeText, { color: progressTone?.color ?? statusInfo.color }]}>
+                  {progress?.label ?? statusInfo.label}
                 </Text>
               </View>
             </View>
@@ -378,6 +382,21 @@ export default function RequestBoardRequestsScreen() {
           <Text style={styles.productNames} numberOfLines={1}>
             {getProductNames(item)}
           </Text>
+          {progress ? (
+            <View style={styles.progressBlock}>
+              <RequestProgressSteps step={progress.step} tone={progress.tone} />
+              <View style={styles.progressMetaRow}>
+                <Text style={[styles.turnText, progress.isMyTurn && styles.turnTextMine]}>
+                  {progress.turnLabel}
+                </Text>
+                {progress.manager ? (
+                  <Text style={styles.managerText} numberOfLines={1}>
+                    담당 {progress.manager}{progress.others > 0 ? ` 외 ${progress.others}명` : ''}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
           {fcContactSummary ? (
             <View style={styles.requestFcSummaryRow}>
               <Feather name="user" size={11} color={COLORS.primary} />
@@ -392,12 +411,14 @@ export default function RequestBoardRequestsScreen() {
             <Feather name="calendar" size={11} color={COLORS.gray[400]} />
             <Text style={styles.cardMetaText}>{formatDate(item.created_at)}</Text>
           </View>
-          <View style={styles.cardMeta}>
-            <Feather name={fcMeta.icon} size={11} color={fcMeta.color} />
-            <Text style={[styles.cardMetaText, { color: fcMeta.color }]} numberOfLines={1}>
-              {fcMeta.text}
-            </Text>
-          </View>
+          {!progress ? (
+            <View style={styles.cardMeta}>
+              <Feather name={fcMeta.icon} size={11} color={fcMeta.color} />
+              <Text style={[styles.cardMetaText, { color: fcMeta.color }]} numberOfLines={1}>
+                {fcMeta.text}
+              </Text>
+            </View>
+          ) : null}
           <View style={[styles.cardMeta, { marginLeft: 'auto' }]}>
             <Text style={[styles.cardMetaText, { color: COLORS.primary }]}>
               상세 보기
@@ -407,12 +428,9 @@ export default function RequestBoardRequestsScreen() {
         </View>
         {designerRejectionSummary ? (
           <View style={styles.rejectionReasonBox}>
-            <View style={styles.rejectionReasonHeader}>
-              <Feather name="message-square" size={11} color="#DC2626" />
-              <Text style={styles.rejectionReasonLabel}>
-                {designerRejectionSummary.label}
-              </Text>
-            </View>
+            <Text style={styles.rejectionReasonLabel}>
+              {designerRejectionSummary.label}
+            </Text>
             <Text style={styles.rejectionReasonText} numberOfLines={2}>
               {designerRejectionSummary.reason}
             </Text>
@@ -444,38 +462,28 @@ export default function RequestBoardRequestsScreen() {
           </View>
         </View>
 
-        <View style={styles.summaryRow}>
+        {/* One summary in the app's orange tone: what waits on the manager, and what waits on me. */}
+        <View style={styles.summaryStrip}>
           <Pressable
-            style={({ pressed }) => [
-              styles.summaryCard,
-              styles.summaryCardPending,
-              pressed && styles.summaryCardPressed,
-            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`설계매니저 수락 대기 ${pendingCount}건`}
+            style={({ pressed }) => [styles.summaryHalf, pressed && styles.summaryCardPressed]}
             onPress={() => setActiveFilter('pending')}
           >
-            <View style={[styles.summaryIconWrap, { backgroundColor: '#FEF3C7' }]}>
-              <Feather name="clock" size={15} color="#B45309" />
-            </View>
-            <View style={styles.summaryText}>
-              <Text style={styles.summaryLabel}>설계매니저 수락 대기</Text>
-              <Text style={[styles.summaryValue, { color: '#B45309' }]}>{pendingCount}건</Text>
-            </View>
+            <Text style={styles.summaryLabel}>매니저 수락 대기</Text>
+            <Text style={styles.summaryValue}>{pendingCount}<Text style={styles.summaryUnit}>건</Text></Text>
           </Pressable>
+          <View style={styles.summaryDivider} />
           <Pressable
-            style={({ pressed }) => [
-              styles.summaryCard,
-              styles.summaryCardReview,
-              pressed && styles.summaryCardPressed,
-            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`내 검토 대기 ${reviewPendingCount}건`}
+            style={({ pressed }) => [styles.summaryHalf, pressed && styles.summaryCardPressed]}
             onPress={() => setActiveFilter('review_pending')}
           >
-            <View style={[styles.summaryIconWrap, { backgroundColor: '#EDE9FE' }]}>
-              <Feather name="eye" size={15} color="#7C3AED" />
-            </View>
-            <View style={styles.summaryText}>
-              <Text style={styles.summaryLabel}>FC 검토 대기</Text>
-              <Text style={[styles.summaryValue, { color: '#7C3AED' }]}>{reviewPendingCount}건</Text>
-            </View>
+            <Text style={styles.summaryLabel}>내 검토 대기</Text>
+            <Text style={[styles.summaryValue, reviewPendingCount > 0 && styles.summaryValueAlert]}>
+              {reviewPendingCount}<Text style={styles.summaryUnit}>건</Text>
+            </Text>
           </Pressable>
         </View>
 
@@ -578,7 +586,23 @@ export default function RequestBoardRequestsScreen() {
 
 /* ─── Styles ─── */
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.gray[50] },
+  summaryStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.md,
+    borderRadius: 18,
+    backgroundColor: COLORS.primaryPale,
+  },
+  summaryHalf: { flex: 1, paddingHorizontal: 18, paddingVertical: 14, gap: 2 },
+  summaryDivider: { width: 1, alignSelf: 'stretch', marginVertical: 14, backgroundColor: '#fed7aa' },
+  summaryUnit: { fontSize: 14, fontWeight: '700' as const, color: COLORS.gray[600] },
+  summaryValueAlert: { color: COLORS.primaryButton },
+  progressBlock: { marginTop: 10, gap: 8 },
+  progressMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  turnText: { fontSize: 13, fontWeight: '700', color: COLORS.gray[600] },
+  turnTextMine: { color: COLORS.primaryButton },
+  managerText: { flex: 1, textAlign: 'right', fontSize: 12, color: COLORS.gray[500] },
+  container: { flex: 1, backgroundColor: '#f3f4f6' },
 
   /* Header */
   header: {
@@ -614,50 +638,19 @@ const styles = StyleSheet.create({
     color: COLORS.text.muted,
     marginTop: 1,
   },
-  summaryRow: {
-    flexDirection: 'row',
-    gap: SPACING.sm,
-    marginBottom: SPACING.sm,
-  },
-  summaryCard: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.sm,
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
-    backgroundColor: COLORS.gray[50],
-  },
-  summaryCardPending: {
-    borderColor: '#FCD34D',
-  },
-  summaryCardReview: {
-    borderColor: '#DDD6FE',
-  },
   summaryCardPressed: {
     opacity: 0.85,
   },
-  summaryIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  summaryText: {
-    flex: 1,
-  },
   summaryLabel: {
-    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontSize: 12,
     fontWeight: '600' as const,
-    color: COLORS.gray[600],
+    color: '#9a3412',
   },
   summaryValue: {
-    fontSize: TYPOGRAPHY.fontSize.base,
+    fontSize: 22,
     fontWeight: '800' as const,
-    marginTop: 1,
+    color: COLORS.gray[900],
+    fontVariant: ['tabular-nums'],
   },
 
   /* Filter tabs */
@@ -674,21 +667,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    backgroundColor: COLORS.gray[50],
+    minHeight: 34,
+    paddingHorizontal: 14,
+    borderRadius: 17,
+    backgroundColor: COLORS.gray[100],
   },
-  filterTabActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
+  filterTabActive: { backgroundColor: COLORS.primaryButton },
   filterTabText: {
-    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontSize: 13,
     fontWeight: '600' as const,
-    color: COLORS.gray[600],
+    color: COLORS.gray[700],
   },
   filterTabTextActive: { color: '#fff' },
   filterTabCount: {
@@ -701,14 +689,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   filterTabCountActive: { backgroundColor: 'rgba(255,255,255,0.3)' },
-  filterTabCountAlert: { backgroundColor: '#FEE2E2' },
+  filterTabCountAlert: { backgroundColor: COLORS.primaryPale },
   filterTabCountText: {
     fontSize: 10,
     fontWeight: '700' as const,
     color: COLORS.gray[600],
   },
   filterTabCountTextActive: { color: '#fff' },
-  filterTabCountTextAlert: { color: COLORS.error },
+  filterTabCountTextAlert: { color: COLORS.primaryButton },
 
   /* Error */
   errorBanner: {
@@ -732,7 +720,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: SPACING.sm,
   },
-  loadingText: { fontSize: TYPOGRAPHY.fontSize.sm, color: COLORS.text.muted },
   emptyWrap: {
     flex: 1,
     alignItems: 'center',
@@ -878,29 +865,24 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.xs,
     color: COLORS.gray[500],
   },
+  // Same treatment as the appointment screens: neutral box, red edge and label, readable reason.
   rejectionReasonBox: {
     marginTop: SPACING.sm,
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: 8,
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    backgroundColor: '#FEF2F2',
-  },
-  rejectionReasonHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 3,
+    padding: 12,
+    borderRadius: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.error,
+    backgroundColor: COLORS.gray[50],
   },
   rejectionReasonLabel: {
-    fontSize: TYPOGRAPHY.fontSize.xs,
-    fontWeight: '700' as const,
-    color: '#DC2626',
+    fontSize: 12,
+    fontWeight: '800' as const,
+    color: '#B91C1C',
+    marginBottom: 4,
   },
   rejectionReasonText: {
-    fontSize: TYPOGRAPHY.fontSize.xs,
-    lineHeight: 17,
-    color: COLORS.gray[700],
+    fontSize: 14,
+    lineHeight: 20,
+    color: COLORS.gray[800],
   },
 });

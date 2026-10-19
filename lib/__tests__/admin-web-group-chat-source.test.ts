@@ -13,7 +13,9 @@ describe('admin web group chat wiring', () => {
     const layout = readWebFile(join('app', 'dashboard', 'layout.tsx'));
     const messengerHub = readWebFile(join('app', 'dashboard', 'messenger', 'page.tsx'));
 
-    expect(layout).not.toContain('/dashboard/group-chat');
+    // The layout may alias the group chat route to the messenger menu for highlighting, but adds no menu item for it.
+    expect(layout).not.toContain("href: '/dashboard/group-chat'");
+    expect(layout).toContain("'/dashboard/group-chat': '/dashboard/messenger'");
     expect(layout).not.toContain('가람PA 단톡방');
     expect(messengerHub).toContain('/dashboard/group-chat');
     expect(messengerHub).toContain('가람PA 단톡방');

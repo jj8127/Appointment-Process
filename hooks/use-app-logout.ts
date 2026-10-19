@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef } from 'react';
 
 import { useSession } from '@/hooks/use-session';
+import { resetTo } from '@/lib/back-navigation';
 
 export function useAppLogout(loginPath: string = '/login?skipAuto=1', surface: 'insurance' | 'service-hub' = 'insurance') {
   const router = useRouter();
@@ -22,7 +23,8 @@ export function useAppLogout(loginPath: string = '/login?skipAuto=1', surface: '
     }
     if (!hydrated || redirected.current || (surface === 'service-hub' && !requested.current)) return;
     redirected.current = true;
-    router.replace(loginPath as any);
+    // Clear the stack so back on the login screen cannot walk into signed-out screens that redirect again.
+    resetTo(router, loginPath as any);
   }, [focused, hydrated, loginPath, signedIn, surface, router]);
 
   return useCallback(() => {

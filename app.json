@@ -10,6 +10,7 @@
     "backgroundColor": "#ffffff",
     "newArchEnabled": true,
     "ios": {
+      "version": "4.2.22",
       "supportsTablet": true,
       "bundleIdentifier": "com.jj8127.fconboardingapp",
       "icon": "./assets/images/moduon/moduon-app-icon.png",

@@ -85,6 +85,7 @@ import { buildWelcomeTitle } from '@/lib/welcome-title';
 import { hasInsuranceHomeContext, resolveInsuranceServiceRoute } from '@/lib/service-home';
 import { waitForNotificationNavigationDecision } from '@/lib/notification-navigation-coordinator';
 import type { FcProfile } from '@/types/fc';
+import { resetTo } from '@/lib/back-navigation';
 
 const YOUTUBE_URL = 'https://youtube.com/playlist?list=PLF5rd5c2rE9xy-VsAdwq4NEUsJQtKD7Qd&si=vKx4TDq6ww9ZgKiT';
 
@@ -1365,7 +1366,7 @@ function LegacyInsuranceHome() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="전체 서비스"
-                onPress={() => router.replace('/')}
+                onPress={() => resetTo(router, '/')}
                 style={({ pressed }) => [styles.serviceHomeLink, pressed && styles.pressedOpacity]}
               >
                 <Feather name="grid" size={16} color={TEXT_MUTED} />
@@ -1708,7 +1709,7 @@ function LegacyInsuranceHome() {
                                 : latestAdminMsg?.content || '최근 메시지가 없습니다'
                           }
                           timeLabel={formatHomeRelativeTime(latestAdminMsg?.created_at) || null}
-                          unreadCount={hasUnreadMessages ? Number(unreadMsgCount) : 0}
+                          unreadCount={hasUnreadMessages && typeof unreadMsgCount === 'number' ? unreadMsgCount : 0}
                           onOpenMessenger={() => handlePressLink('/messenger')}
                         />
                       </FcHomeSectionBoundary>

@@ -102,6 +102,7 @@ Home and home-lite delegate navigation to focused `useAppLogout` after local ses
 
 ## 상태/분기
 
+- 위촉 1~4단계 화면(`consent`, `docs-upload`, `hanwha-commission`, `appointment`)은 맨 위에 `OnboardingStepNowCard`를 둔다. 상태(내 차례/총무 확인 중/다시 제출 필요/완료/이전 단계 진행 중)와 할 일 한 문장, 반려 사유는 `lib/onboarding-step-now.ts`가 계산한다. 잠긴 단계는 비활성 입력칸을 보여주지 않고, 서류 반려 사유는 해당 서류 카드에서 다시 올리기 버튼과 함께 보인다.
 - `home-lite`는 unlock 전 안내 역할
 - 본등록 후 정식 홈(`/`) 진입은 `fc_profiles.identity_completed === true`일 때만 허용한다. `resident_id_masked`나 `address` 같은 public profile 잔존값만으로는 홈 진입을 unlock하지 않는다.
 - `set-password`는 추천인 코드가 전달된 가입에서 추천인 코드를 다시 검증하고 `apply_referral_link_state`를 비밀번호 저장과 `signup_completed=true`보다 먼저 완료해야 한다. 추천인 코드가 해석되지 않으면 본등록을 완료시키지 않고 사용자가 추천인을 다시 선택하게 한다.
@@ -207,3 +208,14 @@ Document, consent and commission pages block initial unknown data from becoming 
 - Consent, appointment, and Hanwha commission submissions attach the current app-session token. The Edge Function resolves the FC from that signed session and rejects a body phone that names another member.
 - Consent dates must be real calendar dates and cannot be in the future. Appointment and commission mutations bind both the profile id and canonical phone to the resolved actor.
 - A missing, expired, inactive, or mismatched session fails before any business-table write. Client-supplied phone and profile identifiers are selectors to validate, never authorization facts.
+## 2026-10-15 Temporary ID copy feedback
+
+- 수당 동의 화면의 임시사번 복사는 `copyTextWithFeedback`을 사용한다. 성공·빈 값·실패는 차단형 Alert가 아니라 토스트로 알린다. 규칙은 `docs/handbook/shared-ui-action-contracts.md`의 피드백 등급을 따른다.
+
+## 2026-10-16 FC home redesign
+
+- FC 홈은 `components/fc-home/`의 다섯 영역으로 구성한다: 내 진행 상황(`FcHomeProgressCard`), 메시지, 시험 접수(열린 회차·D-day), 새 소식(최신 공지 + 게시판 분류), 바로가기(3D 아이콘 + 수당·추천 카드).
+- 새 소식은 `rankHomeBoardPosts` 순서(안 읽은 필독 → 안 읽은 글 → 읽은 글)로 큰 카드 1건과 행 2건을 보인다. 제목 옆 숫자는 안 읽은 글 수, `필독 N`은 안 읽은 필독 수이며 둘 다 `전체` 기준이다. `isRead`가 없는 응답에서는 7일 이내 글을 새 글로 보고 순서를 바꾸지 않는다. 게시판에서 글을 열면 홈 캐시의 읽음 표시도 함께 지운다.
+- 진행 단계 계산·다음 단계 문구·이동 경로는 기존 `fc-workflow`를 그대로 사용한다. 단계 완료 체크 애니메이션은 마지막으로 본 단계(`fc-home-last-seen-step:<phone>`)보다 진행됐을 때만 한 번 재생하고, 첫 방문과 "동작 줄이기"에서는 재생하지 않는다.
+- 앱 안내 투어 구역은 1 진행 상황, 2 메시지, 3 시험 접수, 4 새 소식이다. 바로가기 투어 문구는 경로별로 매긴다. 홈 안내 카드는 없애고 "사용법" 바로가기에서 홈 안내·바로가기 안내·영상 가이드를 고른다.
+- 애니메이션 시간은 `FC_HOME_MOTION`(2026-10-16 프로토타입 확정값)을 따른다.

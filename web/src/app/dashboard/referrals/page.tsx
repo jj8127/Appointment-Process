@@ -52,6 +52,7 @@ import {
   type ReferralAdminMutationRequest,
   type ReferralAdminUnresolvedItem,
 } from '@/types/referrals';
+import { CHARCOAL } from '@/lib/brand-colors';
 
 const PAGE_SIZE = 20;
 const BACKFILL_LIMIT = 100;
@@ -620,7 +621,7 @@ export default function ReferralDashboardPage() {
       <Stack gap="lg">
         <Group justify="space-between" align="flex-end">
           <div>
-            <Title order={2}>추천인 코드</Title>
+            <Title order={2} c={CHARCOAL}>추천인 코드</Title>
             <Text size="sm" c="dimmed" mt={4}>
               기존 FC 추천코드 발급 현황을 조회하고 운영 이력을 확인합니다.
             </Text>

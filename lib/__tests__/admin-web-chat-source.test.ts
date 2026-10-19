@@ -263,8 +263,9 @@ describe('admin web direct chat list source', () => {
     expect(edgeFunction).toContain("account.staff_type !== 'developer'");
     expect(edgeFunction).toContain(".eq('recipient_role', role)");
     expect(edgeFunction).toContain(
-      '`recipient_actor_id.eq.${viewer.actorId},and(recipient_actor_id.is.null,resident_id.is.null)`',
+      'query.or(`recipient_actor_id.eq.${viewer.actorId},${broadcastScope}`)',
     );
+    expect(edgeFunction).toContain("'and(recipient_actor_id.is.null,resident_id.is.null)'");
     expect(edgeFunction).toContain('authorizeNotificationReceipt(');
     expect(edgeFunction).toContain(".eq('role', 'admin')");
     expect(edgeFunction).toContain(".in('resident_id', sharedAdminPhones)");

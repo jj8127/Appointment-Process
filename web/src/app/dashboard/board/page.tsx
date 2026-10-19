@@ -24,6 +24,7 @@ import {
   deleteBoardAttachments,
   deleteBoardComment,
   deleteBoardPost,
+  pinBoardPost,
   fetchBoardCategories,
   fetchBoardDetail,
   fetchBoardList,
@@ -74,6 +75,8 @@ import {
   IconMoodSmile,
   IconPaperclip,
   IconPhoto,
+  IconPin,
+  IconPinnedOff,
   IconPlus,
   IconSearch,
   IconThumbUp,
@@ -84,6 +87,7 @@ import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryCli
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { CHARCOAL } from '@/lib/brand-colors';
 
 // 감정 표현 타입
 const REACTION_TYPES = [
@@ -1073,6 +1077,29 @@ function BoardContent() {
     },
   });
 
+  const pinPostMutation = useMutation({
+    mutationFn: async ({ postId, isPinned }: { postId: string; isPinned: boolean }) => {
+      if (!actor) throw new Error('로그인이 필요합니다.');
+      return pinBoardPost(actor, postId, isPinned);
+    },
+    onSuccess: (_data, { postId, isPinned }) => {
+      queryClient.invalidateQueries({ queryKey: ['board-posts'] });
+      queryClient.invalidateQueries({ queryKey: ['board-detail', postId] });
+      notifications.show({
+        title: isPinned ? '필독 지정' : '필독 해제',
+        message: isPinned ? '게시판 맨 위에 고정했습니다.' : '필독 고정을 해제했습니다.',
+        color: 'orange',
+      });
+    },
+    onError: () => {
+      notifications.show({
+        title: '필독 설정 실패',
+        message: '필독 설정을 저장하지 못했습니다.',
+        color: 'red',
+      });
+    },
+  });
+
   const postSaving = createPostMutation.isPending || updatePostMutation.isPending;
   const composerLocked = !!pendingAttachmentRetry || postSaving;
   const composerDisabled = !canWrite || composerLocked || (isEditMode && !editReady);
@@ -1383,7 +1410,7 @@ function BoardContent() {
         {/* 헤더 */}
         <Group justify="space-between" align="flex-start">
           <div>
-            <Title order={1} fw={800} c="dark.8">
+            <Title order={2} c={CHARCOAL}>
               정보 게시판
             </Title>
             <Text c="dimmed" mt={4}>
@@ -1519,6 +1546,11 @@ function BoardContent() {
                               >
                                 {resolveCategoryName(post.categoryId)}
                               </Badge>
+                              {post.isPinned && (
+                                <Badge size="xs" variant="filled" color="orange" leftSection={<IconPin size={10} />}>
+                                  필독
+                                </Badge>
+                              )}
                             </Group>
                             <Text size="xs" c="dimmed">
                               {new Date(post.createdAt).toLocaleDateString('ko-KR', {
@@ -1549,6 +1581,18 @@ function BoardContent() {
                               >
                                 수정
                               </Menu.Item>
+                              {actor?.role === 'admin' && (
+                                <Menu.Item
+                                  leftSection={post.isPinned ? <IconPinnedOff size={14} /> : <IconPin size={14} />}
+                                  disabled={pinPostMutation.isPending}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    pinPostMutation.mutate({ postId: post.id, isPinned: !post.isPinned });
+                                  }}
+                                >
+                                  {post.isPinned ? '필독 해제' : '필독 지정'}
+                                </Menu.Item>
+                              )}
                               <Menu.Item
                                 color="red"
                                 leftSection={<IconTrash size={14} />}

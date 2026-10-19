@@ -108,6 +108,60 @@ describe('direct-message authenticated service API', () => {
     });
   });
 
+  it('asks for changes after a cursor and reads deletes and the next cursor', async () => {
+    invokeFcNotifyMock.mockResolvedValue({
+      data: {
+        ok: true,
+        conversation,
+        messages: [message],
+        mode: 'changes',
+        deleted_ids: [secondMessageId, 7],
+        cursor: '2026-07-25T00:02:00.000Z',
+      },
+      error: null,
+    });
+
+    await expect(
+      fetchGaraminDirectMessages(conversationId, { since: '2026-07-25T00:00:30.000Z' }),
+    ).resolves.toMatchObject({
+      mode: 'changes',
+      messages: [{ id: messageId }],
+      deletedIds: [secondMessageId],
+      cursor: '2026-07-25T00:02:00.000Z',
+      realtimeTopic: null,
+    });
+    expect(invokeFcNotifyMock).toHaveBeenCalledWith({
+      type: 'direct_message_list',
+      conversation_id: conversationId,
+      since: '2026-07-25T00:00:30.000Z',
+    });
+  });
+
+  it('reads the realtime channel only when it has the expected shape', async () => {
+    const topic = `dm-${'a'.repeat(64)}`;
+    invokeFcNotifyMock.mockResolvedValueOnce({
+      data: { ok: true, conversation, messages: [message], mode: 'full', cursor: null, realtime_topic: topic },
+      error: null,
+    });
+    await expect(fetchGaraminDirectMessages(conversationId)).resolves.toMatchObject({ realtimeTopic: topic });
+    invokeFcNotifyMock.mockResolvedValueOnce({
+      data: { ok: true, conversation, messages: [message], realtime_topic: 'messages' },
+      error: null,
+    });
+    await expect(fetchGaraminDirectMessages(conversationId)).resolves.toMatchObject({ realtimeTopic: null });
+  });
+
+  it('treats an answer from a server without cursors as a full list', async () => {
+    invokeFcNotifyMock.mockResolvedValue({
+      data: { ok: true, conversation, messages: [message], deleted_ids: [secondMessageId] },
+      error: null,
+    });
+
+    await expect(
+      fetchGaraminDirectMessages(conversationId, { since: '2026-07-25T00:00:30.000Z' }),
+    ).resolves.toMatchObject({ mode: 'full', deletedIds: [], cursor: null });
+  });
+
   it('rejects foreign, malformed, and out-of-order list rows', async () => {
     invokeFcNotifyMock.mockResolvedValue({
       data: {

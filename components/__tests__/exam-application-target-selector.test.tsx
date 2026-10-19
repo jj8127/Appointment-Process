@@ -38,6 +38,11 @@ function FlatList(props: ListProps) {
 function Modal({ visible, children, ...props }: NativeProps) {
   return visible ? createElement('Modal', { ...props, visible }, children) : null;
 }
+function SystemBarsModal({ children, ...props }: Omit<NativeProps, 'children'> & {
+  children: (insets: { top: number; right: number; bottom: number; left: number }) => ReactNode;
+}) {
+  return Modal({ ...props, children: children({ top: 0, right: 0, bottom: 24, left: 0 }) });
+}
 
 // Exercise the actual selector and replace only native rendering boundaries.
 function loadSelector(): React.ComponentType<SelectorProps> {
@@ -51,12 +56,12 @@ function loadSelector(): React.ComponentType<SelectorProps> {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     if (name === 'react/jsx-runtime') return require('react/jsx-runtime');
     if (name === 'react-native') return {
-      FlatList, Modal, KeyboardAvoidingView: 'KeyboardAvoidingView',
+      FlatList, KeyboardAvoidingView: 'KeyboardAvoidingView',
       Platform: { OS: 'ios' }, Pressable: 'Pressable', Text: 'Text', TextInput: 'TextInput', View: 'View',
       StyleSheet: { create: (styles: unknown) => styles, hairlineWidth: 1 },
     };
     if (name === '@expo/vector-icons') return { Feather: 'Feather' };
-    if (name === 'react-native-safe-area-context') return { useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 24, left: 0 }) };
+    if (name === '@/components/SystemBarsModal') return { SystemBarsModal };
     throw new Error(`Unexpected selector dependency: ${name}`);
   }, exported);
   return exported.ExamApplicationTargetSelector!;

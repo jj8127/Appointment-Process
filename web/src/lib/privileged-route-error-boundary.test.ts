@@ -99,8 +99,9 @@ test('privileged proxy and RPC routes keep internal error messages server-side',
   assert.match(groupChatSource, /getVerifiedServerSession[\s\S]*if \(!supabaseUrl \|\| !serviceKey\)[\s\S]*code: 'service_unavailable'[\s\S]*}, 503\)/);
   assert.doesNotMatch(groupChatSource, /missing_group_chat_config|Missing Supabase group chat configuration/);
 
-  assert.match(fcDeleteSource, /error\.message === 'account_delete_target_not_found'/);
-  assert.match(fcDeleteSource, /serverError\(error, 'api\/fc-delete'\)/);
+  // FC deletion is delegated to admin-action (which retires the GaramLink account first); only its own message is relayed.
+  assert.match(fcDeleteSource, /functions\/v1\/admin-action/);
+  assert.match(fcDeleteSource, /action: 'deleteFc'/);
   assert.doesNotMatch(fcDeleteSource, /\{ error: error\.message/);
 
   assert.match(examApplicantsSource, /if \(error\) throw error;[\s\S]*if \(!data\?\.id\) return null/);

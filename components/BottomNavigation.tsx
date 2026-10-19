@@ -2,6 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { useRouter, usePathname } from 'expo-router';
 import { Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import Animated from 'react-native-reanimated';
+import { returnTo } from '@/lib/back-navigation';
 import type { BottomNavPreset } from '@/lib/bottom-navigation';
 import { INSURANCE_HOME_ROUTE } from '@/lib/service-home';
 import { COLORS, SHADOWS } from '@/lib/theme';
@@ -130,21 +131,28 @@ export function BottomNavigation({
       return;
     }
 
-    // 라우팅
+    // 라우팅: 탭은 [홈, 현재 탭] 한 겹만 쌓는다. 홈 탭과 같은 화면의 모드 전환은 기록의 홈으로 돌아가고,
+    // 다른 탭은 홈 위에 한 겹으로 연다. 탭을 오갈수록 같은 화면이 계속 쌓여 뒤로가기가 제자리를 돌던 문제를 막는다.
     if (item.route) {
-      const [targetPath, query] = item.route.split('?');
-      // query가 있는 경우(mode 전환 등)는 스택 누적 없이 replace 처리
-      if (query) {
-        const params = Object.fromEntries(new URLSearchParams(query).entries());
-        if (pathname === targetPath) {
-          router.setParams(params as any);
-          return;
-        }
-        router.replace({ pathname: targetPath as any, params } as any);
+      const toHref = (route: string) => {
+        const [path, query] = route.split('?');
+        return query
+          ? { path, href: { pathname: path, params: Object.fromEntries(new URLSearchParams(query).entries()) } as any }
+          : { path, href: route as any };
+      };
+      const target = toHref(item.route);
+      if (pathname === target.path) {
+        if (typeof target.href === 'object') router.setParams(target.href.params);
         return;
       }
-      if (pathname === targetPath) return;
-      router.navigate(item.route as any);
+      const homeRoute = navItems[0]?.route;
+      const home = homeRoute ? toHref(homeRoute) : null;
+      if (!home || item.route === homeRoute || target.path === home.path) {
+        returnTo(router, target.href);
+        return;
+      }
+      if (pathname !== home.path) returnTo(router, home.href);
+      router.navigate(target.href);
     }
   };
 

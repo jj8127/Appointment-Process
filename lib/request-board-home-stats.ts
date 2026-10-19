@@ -48,8 +48,9 @@ const assignmentStatusToBucket = (
 ): 'pending' | 'in_progress' | 'completed' | 'cancelled' | null => {
   if (status === 'pending') return 'pending';
   if (status === 'accepted' || status === 'in_progress') return 'in_progress';
-  if (status === 'completed' || status === 'rejected') return 'completed';
-  if (status === 'cancelled' || status === 'canceled') return 'cancelled';
+  if (status === 'completed') return 'completed';
+  // A manager's rejection is not a finished design for the FC.
+  if (status === 'rejected' || status === 'cancelled' || status === 'canceled') return 'cancelled';
   return null;
 };
 
@@ -142,4 +143,23 @@ export function computeRequestBoardHomeStats(
       : 0;
 
   return { total, pending, reviewPending: 0, inProgress, completed, completedThisMonth, avgDays };
+}
+
+export type FcRequestPipelineStep = {
+  key: 'pending' | 'in_progress' | 'review_pending' | 'completed';
+  label: string;
+  count: number;
+};
+
+/**
+ * The FC home shows where requests are as four steps. FC stats count review-pending assignments
+ * inside `completed`, so the last step shows only assignments the FC already decided.
+ */
+export function buildFcRequestPipeline(stats: RequestBoardHomeStats): FcRequestPipelineStep[] {
+  return [
+    { key: 'pending', label: '수락 대기', count: stats.pending },
+    { key: 'in_progress', label: '설계 중', count: stats.inProgress },
+    { key: 'review_pending', label: '검토 대기', count: stats.reviewPending },
+    { key: 'completed', label: '완료', count: Math.max(stats.completed - stats.reviewPending, 0) },
+  ];
 }

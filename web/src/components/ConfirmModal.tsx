@@ -12,6 +12,7 @@ type ConfirmModalProps = {
   confirmLabel?: string;
   color?: string;
   submitting?: boolean;
+  confirmDisabled?: boolean;
 };
 
 export function ConfirmModal({
@@ -23,6 +24,7 @@ export function ConfirmModal({
   confirmLabel = '확인',
   color = 'orange',
   submitting = false,
+  confirmDisabled = false,
 }: ConfirmModalProps) {
   return (
     <Modal
@@ -41,7 +43,7 @@ export function ConfirmModal({
           <Button variant="default" disabled={submitting} onClick={onClose}>
             취소
           </Button>
-          <Button color={color} loading={submitting} onClick={onConfirm}>
+          <Button color={color} loading={submitting} disabled={confirmDisabled} onClick={onConfirm}>
             {confirmLabel}
           </Button>
         </Group>
