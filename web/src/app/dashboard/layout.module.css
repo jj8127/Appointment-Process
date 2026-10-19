@@ -100,11 +100,18 @@
   padding: 0 20px;
   border-radius: 999px;
   cursor: pointer;
-  transition: color 320ms ease;
+  transition: color 320ms ease, background-color 320ms ease;
 }
 
-.groupTab:hover {
+.groupTab:hover,
+.groupTab[data-expanded] {
   color: var(--dashboard-ink);
+}
+
+/* The tab whose menu is open gets a soft pill behind it. */
+.groupTab:not([aria-current='true']):hover,
+.groupTab:not([aria-current='true'])[data-expanded] {
+  background: #f1f1ee;
 }
 
 .groupTab[aria-current='true'] {
@@ -223,8 +230,14 @@
 @media (prefers-reduced-motion: reduce) {
   .groupIndicator,
   .groupTab,
-  .railItem {
+  .railItem,
+  .groupMenuItem,
+  .groupMenuItem svg {
     transition: none;
+  }
+
+  .groupMenuItem {
+    animation: none;
   }
 
   .main {
@@ -256,4 +269,31 @@
 .groupMenuItem[data-active] {
   background: var(--dashboard-ink);
   color: #fff;
+}
+
+/* Menu items rise in one after another; --n is the item index. */
+.groupMenuItem {
+  animation: groupMenuItemIn 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(60ms + var(--n, 0) * 50ms);
+}
+
+.groupMenuItem svg {
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.groupMenuItem[data-hovered] svg {
+  transform: translateX(2px) scale(1.08);
+}
+
+@keyframes groupMenuItemIn {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
 }

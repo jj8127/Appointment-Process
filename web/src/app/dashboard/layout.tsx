@@ -47,6 +47,14 @@ const NAV_ALIASES: Record<string, string> = {
 };
 
 // The longest menu href that equals or contains the current path is active, so detail pages keep their menu lit.
+// Dropdown under a group tab: drops in from the tab with a light blur.
+const GROUP_MENU_TRANSITION = {
+  in: { opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0)' },
+  out: { opacity: 0, transform: 'translateY(-8px) scale(0.97)', filter: 'blur(6px)' },
+  common: { transformOrigin: 'top center' },
+  transitionProperty: 'opacity, transform, filter',
+};
+
 function findActiveNavHref(pathname: string, hrefs: string[]): string | null {
   const path = NAV_ALIASES[pathname] ?? pathname;
   let best: string | null = null;
@@ -218,14 +226,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     position="bottom"
                     offset={12}
                     width={240}
-                    transitionProps={{ transition: 'pop', duration: 260 }}
+                    transitionProps={{ transition: GROUP_MENU_TRANSITION, duration: 320, timingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)' }}
                     classNames={{ dropdown: styles.groupMenu, item: styles.groupMenuItem }}
                   >
                     <Menu.Target>{tab}</Menu.Target>
                     <Menu.Dropdown>
-                      {group.items.map((item) => (
+                      {group.items.map((item, index) => (
                         <Menu.Item
                           key={item.href}
+                          style={{ '--n': index } as React.CSSProperties}
                           leftSection={<item.icon size={18} stroke={1.7} />}
                           data-active={item.href === activeHref || undefined}
                           onClick={() => router.push(item.href)}
