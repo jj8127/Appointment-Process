@@ -626,6 +626,7 @@ const commonListMocks = {
   '@/lib/user-intent-policy': userIntentPolicy,
   '@/lib/exam-round-sort': { sortExamRoundsNewestFirst: (rounds) => rounds },
   '@/lib/admin-document-review': adminDocumentReview,
+  '@/lib/shared': { ADMIN_STEP_LABELS: {}, getAdminStepDisplay: () => ({ step: 0, label: '', color: 'gray' }) },
   './page.module.css': { default: {} },
   './actions': {},
   'next/link': { default: component('Link') },

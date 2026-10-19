@@ -229,6 +229,9 @@
 }
 
 .fcName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 14px;
   font-weight: 600;
   color: var(--dashboard-ink);
@@ -397,11 +400,22 @@
 .docHead,
 .docRow {
   display: grid;
-  grid-template-columns: minmax(64px, 0.9fr) minmax(64px, 1fr) 98px 54px auto;
+  /* Same fixed tracks for header and rows so the columns line up. */
+  grid-template-columns: minmax(0, 1fr) 100px 58px 118px;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  min-width: 420px;
+  min-width: 380px;
+}
+
+.docHead > :nth-child(3),
+.docRow > :nth-child(3) {
+  text-align: center;
+}
+
+.docHead > :nth-child(4) {
+  text-align: right;
+  padding-right: 6px;
 }
 
 .docHead {
@@ -422,10 +436,17 @@
   background: #fff6ef;
 }
 
+.docCell {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
 .docType {
   font-weight: 500;
   color: var(--dashboard-ink);
   word-break: keep-all;
+  line-height: 1.3;
 }
 
 .fileLink {
@@ -590,4 +611,78 @@
   .openLink {
     transition: none;
   }
+}
+
+.stepTag {
+  font-size: 10px;
+  font-weight: 600;
+  color: #4a4944;
+  background: #fff;
+  border-radius: 999px;
+  padding: 1px 7px;
+  box-shadow: inset 0 0 0 1px #e6e6e3;
+}
+
+/* Onboarding step of the selected submitter */
+.stepBlock {
+  background: var(--dashboard-panel);
+  border-radius: 16px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.stepHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stepCaption {
+  font-size: 11px;
+  font-weight: 600;
+  color: #8a8983;
+}
+
+.stepLabel {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dashboard-ink);
+}
+
+.stepBar {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.stepSegment {
+  display: grid;
+  gap: 5px;
+  font-size: 10px;
+  line-height: 1.25;
+  color: #9a9993;
+  text-align: center;
+  word-break: keep-all;
+}
+
+.stepSegment i {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: #e4e4e1;
+}
+
+.stepSegment[data-state='done'] i {
+  background: var(--dashboard-ink);
+}
+
+.stepSegment[data-state='current'] {
+  color: var(--dashboard-ink);
+  font-weight: 600;
+}
+
+.stepSegment[data-state='current'] i {
+  background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.3) 0 2px, transparent 2px 5px), var(--primary-color);
 }

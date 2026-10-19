@@ -30,6 +30,7 @@ import { useSession } from '@/hooks/use-session';
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { ADMIN_DOCUMENT_STATUS_LABELS, fetchAdminDocuments, signAdminDocument, type AdminDocumentRow as DocumentRow } from '@/lib/admin-document-client';
 import { groupDocumentsByFc, resolveReviewSelection } from '@/lib/admin-document-review';
+import { ADMIN_STEP_LABELS, getAdminStepDisplay } from '@/lib/shared';
 import { requireDocumentStatusReceipt } from '@/lib/user-intent-policy';
 import styles from './page.module.css';
 
@@ -301,6 +302,7 @@ export default function DocumentsPage() {
 
     const isRowPending = (doc: DocumentRow) => updateStatusMutation.isPending && updateStatusMutation.variables?.doc.id === doc.id;
     const profile = selectedGroup?.docs[0]?.fc_profiles;
+    const selectedStep = selectedGroup?.docs[0]?.fc_workflow_profile ? getAdminStepDisplay(selectedGroup.docs[0].fc_workflow_profile) : null;
     const emptyText = isLoading ? '서류 목록을 불러오는 중입니다.' : isError ? '서류 목록을 확인할 수 없습니다.' : '해당 조건의 서류가 존재하지 않습니다.';
 
     return (
@@ -368,7 +370,10 @@ export default function DocumentsPage() {
                                 >
                                     <span className={styles.avatar}>{head.fc_profiles?.name?.[0] ?? '?'}</span>
                                     <span className={styles.fcText}>
-                                        <span className={styles.fcName}>{head.fc_profiles?.name || '알수없음'}</span>
+                                        <span className={styles.fcName}>
+                                            {head.fc_profiles?.name || '알수없음'}
+                                            {head.fc_workflow_profile ? <span className={styles.stepTag}>{getAdminStepDisplay(head.fc_workflow_profile).step}단계</span> : null}
+                                        </span>
                                         <span className={styles.fcMeta}>{head.fc_profiles?.phone} · {head.fc_profiles?.affiliation || '소속없음'}</span>
                                     </span>
                                     <span className={styles.fcCount}>
@@ -461,18 +466,33 @@ export default function DocumentsPage() {
                                         <span className={styles.fcMeta}>{profile?.phone} · {profile?.affiliation || '소속없음'}</span>
                                     </span>
                                 </div>
+                                {selectedStep ? (
+                                    <div className={styles.stepBlock} aria-label={`현재 단계 ${selectedStep.label}`}>
+                                        <div className={styles.stepHead}>
+                                            <span className={styles.stepCaption}>현재 단계</span>
+                                            <span className={styles.stepLabel}>{selectedStep.label}</span>
+                                        </div>
+                                        <div className={styles.stepBar}>
+                                            {Object.values(ADMIN_STEP_LABELS).map((label, index) => (
+                                                <span key={label} className={styles.stepSegment} data-state={index < selectedStep.step ? 'done' : index === selectedStep.step ? 'current' : 'todo'}>
+                                                    <i />
+                                                    <span>{label.replace(/^\d단계\s*/, '')}</span>
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ) : null}
                                 <div className={styles.docTable} role="table" aria-label="이 FC의 서류">
                                     <div className={styles.docHead} role="row">
-                                        <span role="columnheader">문서 구분</span>
-                                        <span role="columnheader">첨부파일</span>
+                                        <span role="columnheader">문서 구분 · 첨부파일</span>
                                         <span role="columnheader">제출일시</span>
                                         <span role="columnheader">상태</span>
                                         <span role="columnheader">심사/관리</span>
                                     </div>
                                     {selectedGroup.docs.map((doc) => (
                                         <div key={doc.id} className={styles.docRow} role="row" aria-current={doc.id === selectedDoc?.id || undefined}>
-                                            <span role="cell" className={styles.docType}>{doc.doc_type}</span>
-                                            <span role="cell" style={{ minWidth: 0 }}>
+                                            <span role="cell" className={styles.docCell}>
+                                                <span className={styles.docType}>{doc.doc_type}</span>
                                                 <button type="button" className={styles.fileLink} title={doc.file_name ?? undefined} data-missing={!hasStoragePath(doc.storage_path) || undefined} onClick={() => selectDoc(doc)}>
                                                     {hasStoragePath(doc.storage_path) ? (doc.file_name || '파일 확인') : '미제출'}
                                                 </button>
