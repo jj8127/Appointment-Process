@@ -35,6 +35,18 @@ describe('diagnostic privacy source boundary', () => {
     expect(source).toContain("reason: 'registration_failed'");
   });
 
+  test('fc-notify push data carries no phone numbers or names to Expo, APNs or FCM', () => {
+    // The app opens a push by notificationId + target, so identifiers stay out of the payload.
+    const source = read('supabase/functions/fc-notify/index.ts');
+    const pushDataBlocks = [...source.matchAll(/to: t\.expo_push_token,[\s\S]*?\n\s*data: \{([\s\S]*?)\n\s*\},\n/g)]
+      .map((match) => match[1]);
+    expect(pushDataBlocks.length).toBeGreaterThanOrEqual(2);
+    for (const data of pushDataBlocks) {
+      expect(data).toContain('notificationId');
+      expect(data).not.toMatch(/\b(resident_id|sender_id|sender_name|name|phone):/);
+    }
+  });
+
   test('foreground notification handlers use the current Expo presentation fields', () => {
     for (const relativePath of ['app/_layout.tsx', 'lib/notifications.ts']) {
       const source = read(relativePath);
