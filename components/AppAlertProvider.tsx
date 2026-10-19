@@ -130,7 +130,7 @@ function AlertCard({
                 accessibilityRole="button"
                 onPress={() => onButtonPress(index)}
               >
-                <Text style={buttonStyle.text}>{button.text ?? '확인'}</Text>
+                <Text style={buttonStyle.text} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>{button.text ?? '확인'}</Text>
               </Pressable>
             );
           })}
@@ -257,7 +257,6 @@ const styles = StyleSheet.create({
     marginTop: SPACING.lg,
     width: '100%',
     flexDirection: 'row',
-    justifyContent: 'space-between',
     gap: SPACING.sm,
   },
   buttonRowCenter: {
@@ -269,15 +268,16 @@ const styles = StyleSheet.create({
   button: {
     borderRadius: RADIUS.md,
     paddingVertical: SPACING.md,
-    paddingHorizontal: SPACING.lg,
+    paddingHorizontal: SPACING.sm,
     borderWidth: 1,
     borderColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 44,
   },
+  // Two side-by-side actions share the row equally so long labels stay on one line.
   buttonCompact: {
-    width: 100,
+    flex: 1,
   },
   buttonFull: {
     width: '100%',
