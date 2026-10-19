@@ -7,6 +7,10 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 
 # Admin Web Playbook: Exam And Referral Ops
 
+## 2026-10-19 관리자 웹 개편 병합
+
+- 추천 화면 3개(`referrals`, `referrals/allowances`, `referrals/graph`)는 개편 헤더 상태 칩과 스타일을 따른다. 데이터 조회·RPC 호출은 바뀌지 않았다. 시험 일정은 옆 달력과 마감 지난 회차 회색 표시, 열린 회차 우선 정렬을 쓴다.
+
 ## 2026-10-10 시험 신청 페이지 조회 실패 구분 (로컬 수정)
 
 - `/api/admin/exam-applicants`의 신청 목록 reader는 회차 필터를 DB 조회에 먼저 적용하고 `created_at DESC, id DESC`로 정렬한 뒤 1,000행씩 끝까지 조회한다. 상세 이전/다음도 같은 정렬 계약을 따른다.

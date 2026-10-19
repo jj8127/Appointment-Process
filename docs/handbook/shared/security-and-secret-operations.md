@@ -7,6 +7,12 @@ source_of_truth: env contracts + reset-password functions + assisted-password fu
 
 # Security And Secret Operations
 
+## 2026-10-19 관리자 웹 개편 병합의 보안 경계
+
+- 개편 라인의 설정 화면 변경은 헤더 상태 칩과 스타일뿐이며 세션·권한·민감 정보 표시 규칙은 바뀌지 않았다.
+- 푸시 data 개인정보 시험(`lib/__tests__/diagnostic-privacy-source.test.ts`)은 CRLF 체크아웃에서도 푸시 payload를 찾도록 줄바꿈을 `?
+`으로 맞춘다.
+
 ## 2026-10-14 연결 계정 탈퇴의 인증·정리 경계
 
 - 공통 탈퇴는 현재 signed actor에서만 시작한다. frozen 이후에는 operation UUID와 원래 세션 SHA256 digest가 일치하는 접수만 이어간다. 원문 토큰·비밀번호를 journal에 저장하지 않으며 이 증표로 로그인 권한이나 새 탈퇴 작업을 발급하지 않는다.

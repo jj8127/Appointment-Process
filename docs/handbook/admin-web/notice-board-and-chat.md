@@ -7,6 +7,12 @@ source_of_truth: web/src/app/dashboard/notifications/* + web/src/app/dashboard/b
 
 # Admin Web Playbook: Notice, Board, Chat
 
+## 2026-10-19 관리자 웹 개편 병합
+
+- Codex 개편 라인(`feature/admin-redesign-shell-home-20261019`, 3260e9c3)을 release에 합쳤다. 공지와 게시판은 '공지·게시판' 한 화면이 되었고, 게시글 첨부는 그 화면에서 미리보기하며 첨부 상세 조회 실패 시 다시 시도와 실패 표시를 한다. 채팅·메신저 화면은 개편 스타일을 따른다.
+- 공지 발송 서버 액션(`dashboard/notifications/actions.ts`)과 푸시 경로(`push-notification-service.ts`)는 병합에서 바뀌지 않았다. 알림 끄기 적용·만료 토큰 삭제(6853ed75)와 게시글 분류(22ee42c0)가 그대로 유지된다.
+- 에이전트 룸(`/api/agent-room`, `agent-room-server.ts`)은 개편 라인에서 삭제되었다.
+
 ## 2026-10-13 조회·권한·후속 저장 결과
 
 관리자 공지·채팅·추천인 선택은 실패와 실제 빈 결과를 구분한다. 대상·메시지·첨부 요약의 여러 페이지를 끝까지 확인하고 잘못된 count/행/receipt를 성공으로 받아들이지 않는다. 같은 세션의 갱신 실패에는 기존 자료와 재시도를 유지하며 변경된 세션·대화에는 늦은 응답을 적용하지 않는다. manager의 읽기/본인 공지 권한은 서버에서 다시 확인한다.
