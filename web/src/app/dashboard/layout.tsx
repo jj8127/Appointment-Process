@@ -26,7 +26,7 @@ import {
 } from '@tabler/icons-react';
 import { usePathname, useRouter } from 'next/navigation';
 import type React from 'react';
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import styles from './layout.module.css';
 
 type NavItem = {
@@ -46,15 +46,14 @@ const NAV_ALIASES: Record<string, string> = {
   '/dashboard/board': '/dashboard/notifications',
 };
 
-// The longest menu href that equals or contains the current path is active, so detail pages keep their menu lit.
-// Dropdown under a group tab: drops in from the tab with a light blur.
-const GROUP_MENU_TRANSITION = {
-  in: { opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0)' },
-  out: { opacity: 0, transform: 'translateY(-8px) scale(0.97)', filter: 'blur(6px)' },
-  common: { transformOrigin: 'top center' },
-  transitionProperty: 'opacity, transform, filter',
-};
+// Group bar geometry; these match .groupTabs padding/gap and .groupTab padding in layout.module.css.
+const GROUP_BAR_PADDING = 5;
+const GROUP_TAB_GAP = 2;
+const GROUP_TAB_PADDING = 20;
+// Width of one page column while the full menu is open.
+const MEGA_COLUMN_WIDTH = 176;
 
+// The longest menu href that equals or contains the current path is active, so detail pages keep their menu lit.
 function findActiveNavHref(pathname: string, hrefs: string[]): string | null {
   const path = NAV_ALIASES[pathname] ?? pathname;
   let best: string | null = null;
@@ -122,18 +121,45 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     close();
   }, [pathname, close]);
 
-  // Slide the black pill under the active group tab.
+  // Hovering the group bar opens every group's pages at once. Each tab widens to its column,
+  // so the bar and the panel below share one set of widths and the black pill can be computed, not measured mid-animation.
   const tabsRef = useRef<HTMLElement | null>(null);
-  const [indicator, setIndicator] = useState<{ left: number; width: number } | null>(null);
+  const [labelWidths, setLabelWidths] = useState<number[] | null>(null);
+  const [megaOpen, setMegaOpen] = useState(false);
+  const [hotGroup, setHotGroup] = useState<string | null>(null);
+  const megaTimer = useRef<number | undefined>(undefined);
+  const scheduleMega = (next: boolean, delay: number) => {
+    window.clearTimeout(megaTimer.current);
+    megaTimer.current = window.setTimeout(() => setMegaOpen(next), delay);
+  };
+  const closeMega = () => {
+    window.clearTimeout(megaTimer.current);
+    setMegaOpen(false);
+  };
+  useEffect(() => () => window.clearTimeout(megaTimer.current), []);
   useEffect(() => {
     const measure = () => {
-      const button = tabsRef.current?.querySelector<HTMLElement>(`[data-group="${activeGroup.label}"]`);
-      setIndicator(button ? { left: button.offsetLeft, width: button.offsetWidth } : null);
+      const labels = tabsRef.current?.querySelectorAll<HTMLElement>('[data-group] > span');
+      setLabelWidths(labels?.length ? Array.from(labels, (label) => Math.ceil(label.getBoundingClientRect().width)) : null);
     };
     measure();
+    void document.fonts?.ready.then(measure);
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
-  }, [activeGroup.label, isDesktop, hydrated]);
+  }, [navGroups, isDesktop, hydrated]);
+  const tabWidths = labelWidths?.map((width) => width + GROUP_TAB_PADDING * 2);
+  const columnWidths = tabWidths?.map((width) => (megaOpen ? Math.max(width, MEGA_COLUMN_WIDTH) : width));
+  // The closed bar keeps its place in the header; the open bar floats over its neighbours from the same centre.
+  const closedBarWidth = tabWidths
+    ? tabWidths.reduce((sum, width) => sum + width, 0) + GROUP_TAB_GAP * (tabWidths.length - 1) + GROUP_BAR_PADDING * 2
+    : undefined;
+  const activeIndex = navGroups.indexOf(activeGroup);
+  const indicator = columnWidths && activeIndex >= 0
+    ? {
+        left: GROUP_BAR_PADDING + columnWidths.slice(0, activeIndex).reduce((sum, width) => sum + width + GROUP_TAB_GAP, 0),
+        width: columnWidths[activeIndex],
+      }
+    : null;
 
   useEffect(() => {
     if (!hydrated || role !== 'fc') return;
@@ -199,52 +225,79 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </Group>
 
           {showGroupTabs ? (
-            <nav aria-label="메뉴 묶음" className={styles.groupTabs} ref={tabsRef}>
-              <span className={styles.groupIndicator} style={indicator ?? { opacity: 0 }} aria-hidden="true" />
-              {navGroups.map((group) => {
-                const tab = (
-                  <button
-                    type="button"
-                    data-group={group.label}
-                    className={styles.groupTab}
-                    aria-current={group === activeGroup ? 'true' : undefined}
-                    onClick={() => router.push(group.items[0].href)}
-                  >
-                    {group.label}
-                  </button>
-                );
-                if (group.items.length < 2) return <Fragment key={group.label}>{tab}</Fragment>;
-                // Hovering a group tab previews its pages so one click reaches any of them.
-                return (
-                  <Menu
-                    key={group.label}
-                    trigger="hover"
-                    openDelay={80}
-                    closeDelay={180}
-                    position="bottom"
-                    offset={12}
-                    width={240}
-                    transitionProps={{ transition: GROUP_MENU_TRANSITION, duration: 320, timingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)' }}
-                    classNames={{ dropdown: styles.groupMenu, item: styles.groupMenuItem }}
-                  >
-                    <Menu.Target>{tab}</Menu.Target>
-                    <Menu.Dropdown>
-                      {group.items.map((item, index) => (
-                        <Menu.Item
+            <div className={styles.megaSlot} style={{ width: closedBarWidth }}>
+              <div
+                className={styles.megaWrap}
+                data-open={megaOpen || undefined}
+                onMouseEnter={() => scheduleMega(true, 80)}
+                onMouseLeave={() => { scheduleMega(false, 180); setHotGroup(null); }}
+                onFocus={() => scheduleMega(true, 0)}
+                onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) closeMega();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') closeMega();
+                }}
+              >
+                <nav aria-label="메뉴 묶음" className={styles.groupTabs} ref={tabsRef}>
+                  <span className={styles.groupIndicator} style={indicator ?? { opacity: 0 }} aria-hidden="true" />
+                  {navGroups.map((group, groupIndex) => (
+                    <button
+                      key={group.label}
+                      type="button"
+                      data-group={group.label}
+                      data-hot={hotGroup === group.label || undefined}
+                      className={styles.groupTab}
+                      style={columnWidths ? { width: columnWidths[groupIndex] } : undefined}
+                      aria-current={group === activeGroup ? 'true' : undefined}
+                      aria-expanded={megaOpen}
+                      aria-controls="dashboard-mega-menu"
+                      onMouseEnter={() => setHotGroup(group.label)}
+                      onClick={() => {
+                        closeMega();
+                        router.push(group.items[0].href);
+                      }}
+                    >
+                      <span>{group.label}</span>
+                    </button>
+                  ))}
+                </nav>
+                {/* Every group's pages, one column under each tab. */}
+                <nav
+                  id="dashboard-mega-menu"
+                  aria-label="전체 메뉴"
+                  className={styles.megaPanel}
+                  style={columnWidths ? { gridTemplateColumns: columnWidths.map((width) => `${width}px`).join(' ') } : undefined}
+                  inert={!megaOpen}
+                >
+                  {navGroups.map((group, groupIndex) => (
+                    <div
+                      key={group.label}
+                      className={styles.megaColumn}
+                      data-hot={hotGroup === group.label || undefined}
+                      onMouseEnter={() => setHotGroup(group.label)}
+                    >
+                      {group.items.map((item, itemIndex) => (
+                        <button
                           key={item.href}
-                          style={{ '--n': index } as React.CSSProperties}
-                          leftSection={<item.icon size={18} stroke={1.7} />}
-                          data-active={item.href === activeHref || undefined}
-                          onClick={() => router.push(item.href)}
+                          type="button"
+                          className={styles.megaItem}
+                          style={{ '--n': groupIndex + itemIndex } as React.CSSProperties}
+                          aria-current={item.href === activeHref ? 'page' : undefined}
+                          onClick={() => {
+                            closeMega();
+                            router.push(item.href);
+                          }}
                         >
-                          {item.label}
-                        </Menu.Item>
+                          <item.icon size={17} stroke={1.7} />
+                          <span>{item.label}</span>
+                        </button>
                       ))}
-                    </Menu.Dropdown>
-                  </Menu>
-                );
-              })}
-            </nav>
+                    </div>
+                  ))}
+                </nav>
+              </div>
+            </div>
           ) : null}
 
           <Group gap={isDesktop ? 10 : 4} wrap="nowrap" style={{ flexShrink: 0, flex: showGroupTabs ? 1 : undefined, justifyContent: 'flex-end' }}>

@@ -100,17 +100,18 @@
   padding: 0 20px;
   border-radius: 999px;
   cursor: pointer;
-  transition: color 320ms ease, background-color 320ms ease;
+  white-space: nowrap;
+  transition: color 320ms ease, background-color 320ms ease, width 480ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .groupTab:hover,
-.groupTab[data-expanded] {
+.groupTab[data-hot] {
   color: var(--dashboard-ink);
 }
 
-/* The tab whose menu is open gets a soft pill behind it. */
+/* The tab over the pointed column gets a soft pill behind it. */
 .groupTab:not([aria-current='true']):hover,
-.groupTab:not([aria-current='true'])[data-expanded] {
+.groupTab:not([aria-current='true'])[data-hot] {
   background: #f1f1ee;
 }
 
@@ -231,12 +232,14 @@
   .groupIndicator,
   .groupTab,
   .railItem,
-  .groupMenuItem,
-  .groupMenuItem svg {
+  .megaPanel,
+  .megaColumn,
+  .megaItem,
+  .megaItem svg {
     transition: none;
   }
 
-  .groupMenuItem {
+  .megaWrap[data-open] .megaItem {
     animation: none;
   }
 
@@ -245,47 +248,135 @@
   }
 }
 
-/* Hover menu under each group tab. */
-.groupMenu {
-  border: 0;
-  border-radius: 20px;
-  padding: 6px;
+/* Full menu: hovering the group bar widens every tab to a column and drops all pages below. */
+.megaSlot {
+  position: relative;
+  flex-shrink: 0;
+  height: 46px;
+}
+
+.megaWrap {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: 300;
+  transform: translateX(-50%);
+}
+
+.megaWrap .groupTabs {
+  transition: box-shadow 360ms ease;
+}
+
+.megaWrap[data-open] .groupTabs {
+  box-shadow: 0 10px 30px rgba(30, 29, 24, 0.1);
+}
+
+.megaPanel {
+  position: absolute;
+  top: calc(100% + 12px);
+  left: 0;
+  display: grid;
+  gap: 2px;
+  align-items: start;
+  padding: 5px;
+  border-radius: 24px;
   background: #fff;
   box-shadow: 0 18px 40px rgba(30, 29, 24, 0.12);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-8px) scale(0.98);
+  transform-origin: top center;
+  filter: blur(6px);
+  transition: opacity 360ms cubic-bezier(0.22, 1, 0.36, 1), transform 480ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 360ms ease, visibility 0s linear 480ms;
 }
 
-.groupMenuItem {
-  border-radius: 14px;
-  padding: 10px 12px;
-  font-size: 14px;
-  color: var(--dashboard-ink);
-  transition: background-color 240ms ease;
+/* Keeps the pointer inside the menu while it crosses the gap under the bar. */
+.megaPanel::before {
+  content: '';
+  position: absolute;
+  inset: -14px 0 100% 0;
 }
 
-.groupMenuItem[data-hovered] {
+.megaWrap[data-open] .megaPanel {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: none;
+  filter: none;
+  transition-delay: 0s;
+}
+
+.megaColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 4px;
+  border-radius: 18px;
+  transition: background-color 280ms ease;
+}
+
+.megaColumn[data-hot] {
   background: var(--dashboard-panel);
 }
 
-.groupMenuItem[data-active] {
+.megaItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--dashboard-ink);
+  cursor: pointer;
+  transition: background-color 240ms ease, color 240ms ease;
+}
+
+.megaItem svg {
+  flex-shrink: 0;
+  color: #8a8983;
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1), color 240ms ease;
+}
+
+.megaItem:hover {
+  background: #fff;
+  box-shadow: 0 1px 0 rgba(30, 29, 24, 0.06);
+}
+
+.megaItem:hover svg {
+  color: var(--primary-color);
+  transform: translateX(2px) scale(1.08);
+}
+
+.megaItem[aria-current='page'] {
   background: var(--dashboard-ink);
   color: #fff;
 }
 
-/* Menu items rise in one after another; --n is the item index. */
-.groupMenuItem {
-  animation: groupMenuItemIn 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: calc(60ms + var(--n, 0) * 50ms);
+.megaItem[aria-current='page'] svg {
+  color: #fff;
 }
 
-.groupMenuItem svg {
-  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+.megaItem:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: -2px;
 }
 
-.groupMenuItem[data-hovered] svg {
-  transform: translateX(2px) scale(1.08);
+/* Items rise in one after another; --n is the item's place across the columns. */
+.megaWrap[data-open] .megaItem {
+  animation: megaItemIn 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(80ms + var(--n, 0) * 45ms);
 }
 
-@keyframes groupMenuItemIn {
+@keyframes megaItemIn {
   from {
     opacity: 0;
     filter: blur(4px);
