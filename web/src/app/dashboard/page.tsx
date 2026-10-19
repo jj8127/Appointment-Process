@@ -2627,109 +2627,75 @@ export default function DashboardPage() {
               <div className={fcm.content}>
                 <div className={fcm.contentHead}>
                   <Text className={fcm.contentTitle}>{FC_MODAL_STEPS.find((step) => step.value === modalTab)?.label ?? ''}</Text>
+                  {modalTab === 'info' ? (() => {
+                    const allowanceCard = ALLOWANCE_FLOW_CARDS.find((card) => card.key === getAllowanceDisplayState(selectedFc).key);
+                    return allowanceCard ? (
+                      <span className={fcm.subState}><i />{allowanceCard.label} · {allowanceCard.helper}</span>
+                    ) : null;
+                  })() : null}
                 </div>
               <Tabs.Panel value="info">
                 <Stack gap="md">
-                  {(() => {
-                    const allowanceDisplay = getAllowanceDisplayState(selectedFc);
-
-                    return (
-                      <Box>
-                        <Text size="xs" fw={700} c="dimmed" mb={6}>
-                          현재 진행 단계
-                        </Text>
-                        <SimpleGrid cols={{ base: 1, sm: 2, lg: 5 }} spacing="sm">
-                          {ALLOWANCE_FLOW_CARDS.map((step) => {
-                            const active = step.key === allowanceDisplay.key;
-                            return (
-                              <Paper
-                                key={step.key}
-                                radius={16}
-                                p="sm"
-                                style={{
-                                  boxShadow: active ? 'inset 0 0 0 1.5px var(--primary-color)' : undefined,
-                                  backgroundColor: active
-                                    ? '#fff6ef'
-                                    : 'var(--dashboard-panel)',
-                                }}
-                              >
-                                <Group justify="space-between" align="flex-start" gap="xs">
-                                  <Stack gap={2}>
-                                    <Text size="xs" c="dimmed" fw={700}>
-                                      {step.label}
-                                    </Text>
-                                    <Text size="sm" fw={700}>
-                                      {step.helper}
-                                    </Text>
-                                  </Stack>
-                                  <Badge
-                                    size="xs"
-                                    variant={active ? 'filled' : 'light'}
-                                    color={active ? 'orange' : 'gray'}
-                                  >
-                                    {active ? '현재' : '대기'}
-                                  </Badge>
-                                </Group>
-                              </Paper>
-                            );
-                          })}
-                        </SimpleGrid>
-                      </Box>
-                    );
-                  })()}
-
-                  <TextInput
-                    label="임시사번"
-                    placeholder="T-123456"
-                    classNames={{ input: 'muted-placeholder-input' }}
-                    value={tempIdInput}
-                    onChange={(e) => {
-                      const val = e.currentTarget?.value || '';
-                      setTempIdInput(val);
-                    }}
-                  />
-                    {canResetToLookup && (
-                    <>
-                      <Button radius="xl"
-                        variant="light"
-                        color="gray"
-                        size="xs"
-                        leftSection={<IconRefresh size={14} />}
-                        loading={resetToLookupMutation.isPending}
-                        onClick={() => {
-                          showConfirm({
-                            title: '조회중 단계로 되돌리기',
-                            message: '임시사번과 보증보험 조회 동의일을 비우고 조회중(임시사번 미입력) 단계로 되돌릴까요?',
-                            confirmLabel: '되돌리기',
-                            color: 'orange',
-                            onConfirm: () => resetToLookupMutation.mutate(),
-                          });
+                  <section className={fcm.section}>
+                    <Text className={fcm.sectionTitle}>기본 정보</Text>
+                    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
+                      <Stack gap={6}>
+                      <TextInput
+                        label="임시사번"
+                        placeholder="T-123456"
+                        classNames={{ input: 'muted-placeholder-input' }}
+                        value={tempIdInput}
+                        onChange={(e) => {
+                          const val = e.currentTarget?.value || '';
+                          setTempIdInput(val);
                         }}
-                      >
-                        조회중 단계로 되돌리기
-                      </Button>
-                      <Text size="xs" c="dimmed" mt={-8}>
-                        잘못 입력한 임시사번을 비우고 이전 단계로 되돌릴 때 사용합니다.
-                      </Text>
-                    </>
-                  )}
-                  <Box>
-                    <Text size="sm" fw={500} mb={6}>
-                      경력 구분 {careerInput === null && <Text span c="red" size="xs">(선택 필요)</Text>}
-                    </Text>
-                    <Chip.Group value={careerInput || ''} onChange={(v) => setCareerInput(v as '신입' | '경력' | null)}>
-                      <Group gap="xs">
-                        <Chip value="신입" color="orange" variant="light">
-                          신입
-                        </Chip>
-                        <Chip value="경력" color="blue" variant="light">
-                          경력
-                        </Chip>
-                      </Group>
-                    </Chip.Group>
-                  </Box>
+                      />
+                      {canResetToLookup && (
+                      <>
+                        <Button radius="xl"
+                          variant="subtle"
+                          color="gray"
+                          size="compact-xs"
+                          w="fit-content"
+                          leftSection={<IconRefresh size={14} />}
+                          loading={resetToLookupMutation.isPending}
+                          onClick={() => {
+                            showConfirm({
+                              title: '조회중 단계로 되돌리기',
+                              message: '임시사번과 보증보험 조회 동의일을 비우고 조회중(임시사번 미입력) 단계로 되돌릴까요?',
+                              confirmLabel: '되돌리기',
+                              color: 'orange',
+                              onConfirm: () => resetToLookupMutation.mutate(),
+                            });
+                          }}
+                        >
+                          조회중 단계로 되돌리기
+                        </Button>
+                        <Text size="xs" c="dimmed">
+                          잘못 입력한 임시사번을 비우고 이전 단계로 되돌릴 때 사용합니다.
+                        </Text>
+                      </>
+                    )}
+                      </Stack>
+                      <Box>
+                        <Text size="sm" fw={500} mb={6}>
+                          경력 구분 {careerInput === null && <Text span c="red" size="xs">(선택 필요)</Text>}
+                        </Text>
+                        <Chip.Group value={careerInput || ''} onChange={(v) => setCareerInput(v as '신입' | '경력' | null)}>
+                          <Group gap="xs">
+                            <Chip value="신입" color="orange" variant="light">
+                              신입
+                            </Chip>
+                            <Chip value="경력" color="blue" variant="light">
+                              경력
+                            </Chip>
+                          </Group>
+                        </Chip.Group>
+                      </Box>
+                    </SimpleGrid>
+                  </section>
 
-                  <Box mt="md">
+                  <Box>
                     {(() => {
                       const allowanceDisplay = getAllowanceDisplayState(selectedFc);
                       const effectiveAllowanceDate = allowanceDateInput
@@ -2777,13 +2743,8 @@ export default function DashboardPage() {
 
                       return (
                         <>
-                          <Paper radius={18} p="md" bg="var(--dashboard-panel)">
-                            <Text fw={600} size="sm" mb="xs">
-                              보증 보험 동의 관리
-                            </Text>
-                            <Text size="xs" c="dimmed" mb="md">
-                              화면에서 현재 진행 단계를 확인한 뒤, 아래에서 상태를 저장하거나 변경하세요.
-                            </Text>
+                          <section className={fcm.section}>
+                            <Text className={fcm.sectionTitle}>보증보험 조회 동의</Text>
                             {!hasTempIdForAllowance ? (
                               <Alert
                                 mb="md"
@@ -2822,52 +2783,51 @@ export default function DashboardPage() {
                               </Alert>
                             ) : null}
 
-                            <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-                              <Stack gap="sm">
-                                <DateInput
-                                  label="보증보험 조회 동의일"
-                                  value={allowanceDateInput}
-                                  onChange={handleAllowanceDateChange}
-                                  placeholder="YYYY-MM-DD"
-                                  valueFormat="YYYY-MM-DD"
-                                  disabled={isReadOnly || !hasTempIdForAllowance}
-                                  clearable={false}
-                                  radius="lg"
-                                  size="md"
-                                  leftSection={<IconCalendar size={16} />}
-                                  previousIcon={<IconChevronLeft size={16} />}
-                                  nextIcon={<IconChevronRight size={16} />}
-                                  popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
-                                  styles={getModalDateInputStyles(isReadOnly || !hasTempIdForAllowance)}
-                                />
-                                <Button radius="xl"
-                                  fullWidth
-                                  size="sm"
-                                  color={isReadOnly ? 'gray' : 'orange'}
-                                  variant="light"
-                                  leftSection={<IconDeviceFloppy size={16} />}
-                                  onClick={() => updateAllowanceDateMutation.mutate()}
-                                  loading={updateAllowanceDateMutation.isPending}
-                                  disabled={isReadOnly || !hasTempIdForAllowance || !allowanceDateInput}
-                                >
-                                  보증보험 조회 동의일 저장
-                                </Button>
-                              </Stack>
-
-                              <Stack gap="sm">
-                                <Box>
-                                  <Text
-                                    size="sm"
-                                    fw={500}
-                                    mb={6}
-                                    c="transparent"
-                                    aria-hidden="true"
-                                  >
-                                    상태 조작
-                                  </Text>
+                            <div className={fcm.flow}>
+                            <div className={fcm.flowRow} data-done={(Boolean(selectedFc.allowance_date)) || undefined}>
+                              <span className={fcm.flowNo}>1</span>
+                              <div className={fcm.flowBody}>
+                                <Text className={fcm.flowLabel}>보증보험 조회 동의일</Text>
+                                <Group gap="xs" wrap="nowrap" align="flex-start">
+                                  <Box style={{ flex: 1, minWidth: 0 }}>
+                                    <DateInput
+                                      aria-label="보증보험 조회 동의일"
+                                      value={allowanceDateInput}
+                                      onChange={handleAllowanceDateChange}
+                                      placeholder="YYYY-MM-DD"
+                                      valueFormat="YYYY-MM-DD"
+                                      disabled={isReadOnly || !hasTempIdForAllowance}
+                                      clearable={false}
+                                      radius="lg"
+                                      size="md"
+                                      leftSection={<IconCalendar size={16} />}
+                                      previousIcon={<IconChevronLeft size={16} />}
+                                      nextIcon={<IconChevronRight size={16} />}
+                                      popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
+                                      styles={getModalDateInputStyles(isReadOnly || !hasTempIdForAllowance)}
+                                    />
+                                  </Box>
                                   <Button radius="xl"
-                                    fullWidth
-                                    color="blue"
+                                    size="md"
+                                    color={isReadOnly ? 'gray' : 'dark'}
+                                    variant="filled"
+                                    leftSection={<IconDeviceFloppy size={16} />}
+                                    onClick={() => updateAllowanceDateMutation.mutate()}
+                                    loading={updateAllowanceDateMutation.isPending}
+                                    disabled={isReadOnly || !hasTempIdForAllowance || !allowanceDateInput}
+                                  >
+                                    저장
+                                  </Button>
+                                </Group>
+                              </div>
+                            </div>
+                            <div className={fcm.flowRow} data-done={(allowanceDisplay.key === 'prescreen' || allowanceDisplay.key === 'approved') || undefined}>
+                              <span className={fcm.flowNo}>2</span>
+                              <div className={fcm.flowBody}>
+                                <Text className={fcm.flowLabel}>사전 심사</Text>
+                                  <Button radius="xl"
+                                    color="dark"
+                                    w="fit-content"
                                     variant={allowanceDisplay.key === 'prescreen' ? 'filled' : 'light'}
                                     onClick={() => allowanceStateButtons[0].onClick()}
                                     disabled={allowanceStateDisabled}
@@ -2875,7 +2835,12 @@ export default function DashboardPage() {
                                   >
                                     사전 심사 요청 하기
                                   </Button>
-                                </Box>
+                              </div>
+                            </div>
+                            <div className={fcm.flowRow} data-done={(allowanceDisplay.key === 'approved') || undefined}>
+                              <span className={fcm.flowNo}>3</span>
+                              <div className={fcm.flowBody}>
+                                <Text className={fcm.flowLabel}>승인</Text>
                                 <StatusToggle
                                   value={allowanceDisplay.key === 'approved' ? 'approved' : 'pending'}
                                   onChange={(val) => {
@@ -2894,85 +2859,16 @@ export default function DashboardPage() {
                                   allowPendingPress
                                   isManagerMode={isReadOnly}
                                 />
-                              </Stack>
-                            </SimpleGrid>
-                          </Paper>
+                              </div>
+                            </div>
+                            </div>
+                          </section>
                         </>
                       );
                     })()}
                   </Box>
 
-                  <Button radius="xl" fullWidth mt="md" onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} disabled={isReadOnly || (selectedFc.status !== 'draft' && selectedFc.status !== 'temp-id-issued' && selectedFc.status !== 'allowance-pending')} color={isReadOnly ? "gray" : "dark"}>
-                    변경사항 저장
-                  </Button>
-
-                  <Divider my="sm" />
-
-                  <Group grow>
-                    <Button radius="xl"
-                      variant="light"
-                      color={isReadOnly ? "gray" : "dark"}
-                      leftSection={<IconSend size={16} />}
-                      loading={reminderPending} disabled={isReadOnly || reminderPending}
-                      onClick={async () => {
-                        if (reminderPendingRef.current) return;
-                        reminderPendingRef.current = true;
-                        setReminderPending(true);
-                        try {
-                        // Resolve the current notification recipient from the stable FC id on the server.
-                        const notificationResult = await sendPushNotificationForFc(selectedFc.id, {
-                          title: '진행 요청',
-                          body: '관리자가 진행을 요청하였습니다.',
-                          target: {
-                            version: 1,
-                            kind: 'onboarding_section',
-                            fcId: selectedFc.id,
-                            section: 'home',
-                          },
-                          data: { url: '/' },
-                        });
-                        if (!('inbox' in notificationResult) || !('failures' in notificationResult)) {
-                          logger.warn('[dashboard] reminder request rejected');
-                          notifications.show({
-                            title: '알림 요청 실패',
-                            message: '알림 요청을 처리하지 못했습니다. 수신자와 권한을 확인해 주세요.',
-                            color: 'red',
-                          });
-                          return;
-                        }
-                        const invalidRecipient = notificationResult.failures.some(
-                          (failure) => failure === 'missing_recipient' || failure === 'recipient_mismatch',
-                        );
-                        if (invalidRecipient) {
-                          logger.warn('[dashboard] reminder recipient invalid');
-                          notifications.show({
-                            title: '수신자 확인 필요',
-                            message: '유효한 알림 수신자를 확인할 수 없습니다.',
-                            color: 'red',
-                          });
-                          return;
-                        }
-                        if (!notificationResult.inbox?.logged) {
-                          logger.warn('[dashboard] reminder inbox persistence failed');
-                          notifications.show({
-                            title: '알림 등록 실패',
-                            message: '알림을 등록하지 못했습니다. 다시 시도해 주세요.',
-                            color: 'red',
-                          });
-                          return;
-                        }
-                        notifications.show({
-                          title: '전송 완료',
-                          message: '알림을 보냈습니다.',
-                          color: 'blue',
-                        });
-                        } catch {
-                          notifications.show({ title: '알림 결과 확인 필요', message: '전송 결과를 확인하지 못했습니다. 잠시 후 알림 상태를 확인해주세요.', color: 'red' });
-                        } finally { reminderPendingRef.current = false; setReminderPending(false); }
-                      }}
-                    >
-                      재촉 알림
-                    </Button>
+                  <div className={fcm.actionBar}>
                     <Button radius="xl"
                       variant="subtle"
                       color={isReadOnly ? "gray" : "red"}
@@ -2994,7 +2890,76 @@ export default function DashboardPage() {
                     >
                       FC 삭제
                     </Button>
-                  </Group>
+                    <Group gap="xs">
+                      <Button radius="xl"
+                        variant="light"
+                        color={isReadOnly ? "gray" : "dark"}
+                        leftSection={<IconSend size={16} />}
+                        loading={reminderPending} disabled={isReadOnly || reminderPending}
+                        onClick={async () => {
+                          if (reminderPendingRef.current) return;
+                          reminderPendingRef.current = true;
+                          setReminderPending(true);
+                          try {
+                          // Resolve the current notification recipient from the stable FC id on the server.
+                          const notificationResult = await sendPushNotificationForFc(selectedFc.id, {
+                            title: '진행 요청',
+                            body: '관리자가 진행을 요청하였습니다.',
+                            target: {
+                              version: 1,
+                              kind: 'onboarding_section',
+                              fcId: selectedFc.id,
+                              section: 'home',
+                            },
+                            data: { url: '/' },
+                          });
+                          if (!('inbox' in notificationResult) || !('failures' in notificationResult)) {
+                            logger.warn('[dashboard] reminder request rejected');
+                            notifications.show({
+                              title: '알림 요청 실패',
+                              message: '알림 요청을 처리하지 못했습니다. 수신자와 권한을 확인해 주세요.',
+                              color: 'red',
+                            });
+                            return;
+                          }
+                          const invalidRecipient = notificationResult.failures.some(
+                            (failure) => failure === 'missing_recipient' || failure === 'recipient_mismatch',
+                          );
+                          if (invalidRecipient) {
+                            logger.warn('[dashboard] reminder recipient invalid');
+                            notifications.show({
+                              title: '수신자 확인 필요',
+                              message: '유효한 알림 수신자를 확인할 수 없습니다.',
+                              color: 'red',
+                            });
+                            return;
+                          }
+                          if (!notificationResult.inbox?.logged) {
+                            logger.warn('[dashboard] reminder inbox persistence failed');
+                            notifications.show({
+                              title: '알림 등록 실패',
+                              message: '알림을 등록하지 못했습니다. 다시 시도해 주세요.',
+                              color: 'red',
+                            });
+                            return;
+                          }
+                          notifications.show({
+                            title: '전송 완료',
+                            message: '알림을 보냈습니다.',
+                            color: 'blue',
+                          });
+                          } catch {
+                            notifications.show({ title: '알림 결과 확인 필요', message: '전송 결과를 확인하지 못했습니다. 잠시 후 알림 상태를 확인해주세요.', color: 'red' });
+                          } finally { reminderPendingRef.current = false; setReminderPending(false); }
+                        }}
+                      >
+                        재촉 알림
+                      </Button>
+                      <Button radius="xl" onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} disabled={isReadOnly || (selectedFc.status !== 'draft' && selectedFc.status !== 'temp-id-issued' && selectedFc.status !== 'allowance-pending')} color={isReadOnly ? "gray" : "dark"}>
+                        변경사항 저장
+                      </Button>
+                    </Group>
+                  </div>
                 </Stack>
               </Tabs.Panel>
 

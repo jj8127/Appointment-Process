@@ -187,6 +187,112 @@
   font-weight: 600;
 }
 
+
+/* Sub-stage chip beside the step title (보증 보험 동의). */
+.subState {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #fff1e6;
+  color: #c2470d;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.subState i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(243, 111, 33, 0.18);
+}
+
+/* Content sections */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--dashboard-panel);
+  border-radius: 20px;
+  padding: 18px;
+}
+
+.sectionTitle {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--dashboard-ink);
+}
+
+.section [class*='Input-input'] {
+  background: #fff;
+  border: 0;
+  border-radius: 12px;
+}
+
+/* Numbered flow: 동의일 -> 사전 심사 -> 승인 */
+.flow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.flowRow {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  background: #fff;
+  border-radius: 16px;
+  padding: 14px;
+}
+
+.flowNo {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #8a8984;
+  box-shadow: inset 0 0 0 1.5px #e4e4e1;
+}
+
+.flowRow[data-done] .flowNo {
+  background: var(--dashboard-ink);
+  color: #fff;
+  box-shadow: none;
+}
+
+.flowBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.flowLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dashboard-ink);
+  line-height: 30px;
+}
+
+/* Bottom action bar */
+.actionBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 14px;
+  border-top: 1px solid #f0f0ee;
+}
+
 /* Right column */
 .content {
   min-width: 0;
