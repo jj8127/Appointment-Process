@@ -391,7 +391,8 @@
         "web/src/lib/client-session-transition.ts",
         "web/src/lib/client-session-provider.test.mjs",
         "web/src/lib/server-session-generation.test.mjs",
-        "supabase/tests/session-generation-postgres.test.mjs"
+        "supabase/tests/session-generation-postgres.test.mjs",
+        "supabase/functions/_shared/request-board-fc-retirement.ts"
       ],
       "requires_any": [
         "docs/handbook/shared/cross-repo-bridge-contract.md",
@@ -452,7 +453,12 @@
         "lib/notification-center-read-state.ts",
         "lib/notification-notice-checkpoint.ts",
         "lib/notifications.ts",
-        "lib/system-notification-badge.ts"
+        "lib/system-notification-badge.ts",
+        "supabase/functions/_shared/run-after-response.ts",
+        "supabase/functions/_shared/server-timing.ts",
+        "supabase/functions/__tests__/direct-message-changes.contract.test.ts",
+        "supabase/functions/__tests__/direct-thread-snapshot.contract.test.ts",
+        "supabase/functions/__tests__/messenger-push-after-response.contract.test.ts"
       ],
       "requires_any": [
         "docs/handbook/backend/notifications-inbox-push.md",
@@ -475,6 +481,20 @@
         "docs/handbook/mobile/messenger-and-content.md",
         "docs/handbook/backend/notifications-inbox-push.md",
         "docs/handbook/data/data-model-canon.md"
+      ]
+    },
+    {
+      "id": "backend-messenger-garamlink-sync",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/messenger-garamlink-sync/",
+        "supabase/functions/_shared/messenger-garamlink-sync.ts",
+        "supabase/functions/__tests__/messenger-garamlink-sync.test.node.ts"
+      ],
+      "requires_any": [
+        "docs/handbook/mobile/messenger-and-content.md",
+        "docs/handbook/backend/notifications-inbox-push.md",
+        "docs/handbook/backend/scheduled-jobs-and-runtime.md"
       ]
     },
     {
