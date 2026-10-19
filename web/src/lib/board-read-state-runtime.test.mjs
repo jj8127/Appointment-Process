@@ -10,6 +10,7 @@ import * as commentRequest from './board-comment-request.ts';
 import * as boardListPages from './board-list-pages.ts';
 import * as creationRequest from './creation-request.ts';
 import * as brandColors from './brand-colors.ts';
+import * as dashboardWorkQueue from './dashboard-work-queue.ts';
 import * as adminAuditEvent from './admin-audit-event.ts';
 
 const rootRequire = createRequire(new URL('../../../package.json', import.meta.url));
@@ -682,8 +683,9 @@ test('dashboard failed FC reads do not display empty-list text or invented zero 
     '../actions': {},
     './appointment/actions': {},
     './docs/actions': {},
-    './page.module.css': { default: {} },
+    './page.module.css': { default: { heroNumber: 'heroNumber' } },
     '@/lib/dashboard-table-display': { DASHBOARD_FC_LIST_COLUMNS: [], DASHBOARD_FC_LIST_COLUMN_COUNT: 9 },
+    '@/lib/dashboard-work-queue': dashboardWorkQueue,
     '../../lib/logger': { logger: {} },
   }, { fetch: async () => response, window: { location: { search: '', pathname: '/dashboard' }, history: { state: null, replaceState() {} } } });
   await page.render();
@@ -693,10 +695,13 @@ test('dashboard failed FC reads do not display empty-list text or invented zero 
   await page.setQuery(failure());
   assert.ok(page.find('QueryErrorAlert'));
   assert.equal(page.findAll('Text').filter((node) => node.props.children === '조건에 맞는 데이터가 없습니다.').length, 0);
-  assert.deepEqual(page.findAll('Text').filter((node) => node.props.size === '2.5rem').map((node) => node.props.children), ['—', '—', '—']);
+  assert.deepEqual(page.findAll('Text').filter((node) => node.props.size === '1.9rem').map((node) => node.props.children), ['—', '—', '—', '—']);
+  assert.equal(page.find('Text', (node) => node.props.className === 'heroNumber')?.props.children, '—');
+  assert.ok(page.find('Text', (node) => node.props.children === 'FC 목록을 확인할 수 없습니다.'));
   await page.setQuery(success([]));
   assert.equal(page.find('QueryErrorAlert'), undefined);
   assert.ok(page.find('Text', (node) => node.props.children === '조건에 맞는 데이터가 없습니다.'));
-  assert.deepEqual(page.findAll('Text').filter((node) => node.props.size === '2.5rem').map((node) => node.props.children), [0, 0, 0]);
+  assert.deepEqual(page.findAll('Text').filter((node) => node.props.size === '1.9rem').map((node) => node.props.children), [0, 0, 0, 0]);
+  assert.equal(page.find('Text', (node) => node.props.className === 'heroNumber')?.props.children, 0);
   await page.close();
 });

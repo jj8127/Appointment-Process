@@ -44,6 +44,7 @@ import {
   TextInput,
   ThemeIcon,
   Title,
+  UnstyledButton,
   Tooltip
 } from '@mantine/core';
 import { DateInput } from '@mantine/dates';
@@ -51,7 +52,6 @@ import { useDisclosure } from '@mantine/hooks';
 import {
   IconCalendar,
   IconCheck,
-  IconClock,
   IconChevronLeft,
   IconChevronRight,
   IconDeviceFloppy,
@@ -96,8 +96,17 @@ import {
   getAdminStepDisplay,
   getAppointmentProgress,
   getDocProgress,
+  getHanwhaProgress,
   getSummaryStatus
 } from '../../lib/shared';
+import {
+  DASHBOARD_WORK_QUEUES,
+  countDashboardWork,
+  getDashboardWorkQueueKey,
+  isDashboardMetricFilter,
+  type DashboardMetricFilter,
+  type DashboardWorkQueueKey,
+} from '@/lib/dashboard-work-queue';
 import { sendPushNotificationForFc } from '../actions';
 import { updateAppointmentAction } from './appointment/actions';
 import { updateDocStatusAction } from './docs/actions';
@@ -407,9 +416,19 @@ const getDefaultModalTab = (profile: FCProfileWithDocuments): string => {
   return 'info';
 };
 
+const getFcWorkQueueKey = (fc: FCProfileWithDocuments): DashboardWorkQueueKey | null =>
+  getDashboardWorkQueueKey({
+    step: calcStep(fc),
+    allowanceKey: getAllowanceDisplayState(fc).key,
+    docProgressKey: getDocProgress(fc).key,
+    hanwhaKey: getHanwhaProgress(fc).key,
+    lifeKey: getAppointmentProgress(fc, 'life').key,
+    nonlifeKey: getAppointmentProgress(fc, 'nonlife').key,
+  });
+
 type DashboardListState = {
   activeTab: string;
-  metricFilter: 'all' | 'pendingAllowance' | 'pendingDocs';
+  metricFilter: DashboardMetricFilter;
   keyword: string;
   currentPage: number;
 };
@@ -422,7 +441,7 @@ function readDashboardListState(search: string, tabs: readonly string[]): Dashbo
   const page = Number(params.get('page'));
   return {
     activeTab: tab && tabs.includes(tab) ? tab : 'all',
-    metricFilter: metric === 'pendingAllowance' || metric === 'pendingDocs' ? metric : 'all',
+    metricFilter: isDashboardMetricFilter(metric) ? metric : 'all',
     keyword: params.get('q') ?? '',
     currentPage: Number.isInteger(page) && page > 1 ? page : 1,
   };
@@ -448,7 +467,7 @@ export default function DashboardPage() {
   const queryClient = useQueryClient();
   const { hydrated, isReadOnly, role, residentId } = useSession();
   const [activeTab, setActiveTab] = useState<string | null>('all');
-  const [metricFilter, setMetricFilter] = useState<'all' | 'pendingAllowance' | 'pendingDocs'>('all');
+  const [metricFilter, setMetricFilter] = useState<DashboardMetricFilter>('all');
   const [keyword, setKeyword] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [listStateRestored, setListStateRestored] = useState(false);
@@ -734,16 +753,8 @@ export default function DashboardPage() {
         result = result.filter((fc: FCProfileWithDocuments & { adminStep: number }) => fc.adminStep === stepNum);
       }
     }
-    if (metricFilter === 'pendingAllowance') {
-      result = result.filter((fc: FCProfileWithDocuments & { step: number }) => {
-        const allowanceDisplay = getAllowanceDisplayState(fc);
-        return fc.step === 1 && ['entered', 'prescreen'].includes(allowanceDisplay.key);
-      });
-    } else if (metricFilter === 'pendingDocs') {
-      result = result.filter(
-        (fc: FCProfileWithDocuments & { step: number }) =>
-          fc.step === 2 && getDocProgress(fc).key === 'in-progress',
-      );
+    if (metricFilter !== 'all') {
+      result = result.filter((fc: FCProfileWithDocuments) => getFcWorkQueueKey(fc) === metricFilter);
     }
     if (keyword.trim()) {
       const q = keyword.trim().toLowerCase();
@@ -785,7 +796,7 @@ export default function DashboardPage() {
   });
 
   // 탭이나 검색어가 변경되면 첫 페이지로 이동
-  const handleMetricFilterChange = (nextFilter: 'all' | 'pendingAllowance' | 'pendingDocs') => {
+  const handleMetricFilterChange = (nextFilter: DashboardMetricFilter) => {
     setMetricFilter((current) => current === nextFilter && nextFilter !== 'all' ? 'all' : nextFilter);
     setActiveTab('all');
     setCurrentPage(1);
@@ -2110,30 +2121,28 @@ export default function DashboardPage() {
   ));
 
   /* Metrics Calculation */
-  const metrics = useMemo(() => {
-    if (!fcs) return { total: 0, pendingAllowance: 0, pendingDocs: 0 };
-
-    return fcs.reduce(
-      (acc, fc: FCProfileWithDocuments) => {
-        acc.total += 1;
-
-        const workflowStep = calcStep(fc);
-        const allowanceDisplay = getAllowanceDisplayState(fc);
-        const docProgress = getDocProgress(fc);
-
-        if (workflowStep === 1 && ['entered', 'prescreen'].includes(allowanceDisplay.key)) {
-          acc.pendingAllowance += 1;
-        }
-
-        if (workflowStep === 2 && docProgress.key === 'in-progress') {
-          acc.pendingDocs += 1;
-        }
-
-        return acc;
-      },
-      { total: 0, pendingAllowance: 0, pendingDocs: 0 },
-    );
+  const workSummary = useMemo(() => {
+    const queued = (fcs ?? []).map((fc: FCProfileWithDocuments) => ({ fc, key: getFcWorkQueueKey(fc) }));
+    const stepCounts = [0, 0, 0, 0, 0, 0];
+    for (const fc of fcs ?? []) stepCounts[getAdminStepDisplay(fc).step] += 1;
+    return {
+      total: fcs?.length ?? 0,
+      ...countDashboardWork(queued.map((row) => row.key)),
+      stepCounts,
+      // Queue order first, then the existing list order inside each queue.
+      items: DASHBOARD_WORK_QUEUES.flatMap((queue) =>
+        queued.filter((row) => row.key === queue.key).map((row) => ({ fc: row.fc, queue })),
+      ),
+    };
   }, [fcs]);
+  const visibleWorkItems = workSummary.items.filter((item) => metricFilter === 'all' || item.queue.key === metricFilter);
+  const maxStepCount = Math.max(1, ...workSummary.stepCounts);
+  const busiestStep = workSummary.stepCounts.slice(0, 5).indexOf(Math.max(...workSummary.stepCounts.slice(0, 5)));
+  const openWorkItem = (fc: FCProfileWithDocuments, key: DashboardWorkQueueKey) => {
+    if (key === 'pendingDocs') router.push('/dashboard/docs');
+    else if (key === 'pendingAppointment') router.push('/dashboard/appointment');
+    else handleOpenModal(fc);
+  };
 
   const canResetToLookup = Boolean(
     selectedFc?.temp_id && !isReadOnly && isLookupResettableStatus(selectedFc?.status),
@@ -2141,11 +2150,11 @@ export default function DashboardPage() {
   return (
     <Box p="lg" maw={1600} mx="auto">
       <Stack gap="xl">
-        {/* Header Section */}
+        {/* Header: today's work */}
         <Group justify="space-between" align="flex-end">
           <div>
-            <Title order={2} c={CHARCOAL}>대시보드</Title>
-            <Text c="dimmed" mt={4}>FC 온보딩 전체 현황판</Text>
+            <Title order={2} c={CHARCOAL}>오늘 처리할 건</Title>
+            <Text c="dimmed" mt={4}>FC 온보딩 전체 현황판 · {dayjs().format('M월 D일')}</Text>
           </div>
           <Group gap="xs">
             <Button
@@ -2155,7 +2164,7 @@ export default function DashboardPage() {
                 queryClient.invalidateQueries({ queryKey: ['fc-signup-referral-code'] });
               }}
               variant="default"
-              radius="md"
+              radius="xl"
             >
               새로고침
             </Button>
@@ -2174,124 +2183,158 @@ export default function DashboardPage() {
           </Alert>
         )}
 
-        {/* Metrics Cards */}
-        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
-          <Card
-            component="button"
-            type="button"
-            padding="lg"
-            radius="md"
-            withBorder
-            shadow="sm"
-            className={styles.metricCard}
-            data-active={metricFilter === 'all' || undefined}
-            data-tone="total"
-            aria-pressed={metricFilter === 'all'}
-            onClick={() => handleMetricFilterChange('all')}
-          >
-            <Group justify="space-between" mb="xs">
-              <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>총 인원</Text>
-              <ThemeIcon variant="light" color="blue" radius="md" size="lg">
-                <IconUser size={22} stroke={2} />
-              </ThemeIcon>
+        {/* Work summary: pending total, queues that filter the list, FCs per step */}
+        <div className={styles.workTop}>
+          <div className={styles.hero}>
+            <div>
+              <Text size="sm" c="white" opacity={0.85}>처리 대기 합계</Text>
+              <Text className={styles.heroNumber}>{fcs ? workSummary.pending : '—'}</Text>
+            </div>
+            <Group gap={6}>
+              {DASHBOARD_WORK_QUEUES.filter((queue) => workSummary.counts[queue.key] > 0).map((queue) => (
+                <span key={queue.key} className={styles.heroPill}>{queue.task} {workSummary.counts[queue.key]}</span>
+              ))}
             </Group>
-            <Group align="flex-end" gap="xs">
-              <Text fw={800} size="2.5rem" lh={1}>{fcs ? metrics.total : '—'}</Text>
-              <Text c="dimmed" size="sm" mb={6}>명</Text>
-            </Group>
-            <Group justify="space-between" mt="md" gap="xs">
-              <Text c="green" size="xs" fw={700}>가입 완료 FC 현황</Text>
-              {metricFilter === 'all' && <Badge size="xs" variant="light" color="blue">전체 보기</Badge>}
-            </Group>
-          </Card>
+          </div>
 
-          <Card
-            component="button"
-            type="button"
-            padding="lg"
-            radius="md"
-            withBorder
-            shadow="sm"
-            className={styles.metricCard}
-            data-active={metricFilter === 'pendingAllowance' || undefined}
-            data-tone="allowance"
-            aria-pressed={metricFilter === 'pendingAllowance'}
-            onClick={() => handleMetricFilterChange('pendingAllowance')}
-          >
-            <Group justify="space-between" mb="xs">
-              <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>보증 보험 동의 승인 대기</Text>
-              <ThemeIcon variant="light" color="orange" radius="md" size="lg">
-                <IconClock size={22} stroke={2} />
-              </ThemeIcon>
-            </Group>
-            <Group align="flex-end" gap="xs">
-              <Text fw={800} size="2.5rem" lh={1}>{fcs ? metrics.pendingAllowance : '—'}</Text>
-              <Text c="dimmed" size="sm" mb={6}>건</Text>
-            </Group>
-            <Group justify="space-between" mt="md" gap="xs">
-              <Text c="orange" size="xs" fw={700}>승인 필요</Text>
-              {metricFilter === 'pendingAllowance' && <Badge size="xs" color="orange">필터 적용</Badge>}
-            </Group>
-          </Card>
+          <div className={styles.queueGrid}>
+            {DASHBOARD_WORK_QUEUES.map((queue) => (
+              <Card
+                key={queue.key}
+                component="button"
+                type="button"
+                padding="md"
+                radius="lg"
+                className={styles.metricCard}
+                data-active={metricFilter === queue.key || undefined}
+                data-tone={queue.key}
+                aria-pressed={metricFilter === queue.key}
+                onClick={() => handleMetricFilterChange(queue.key)}
+              >
+                <Text c="dimmed" fw={600} size="xs">{queue.label}</Text>
+                <Group align="flex-end" gap={4} mt={6}>
+                  <Text fw={800} size="1.9rem" lh={1}>{fcs ? workSummary.counts[queue.key] : '—'}</Text>
+                  <Text c="dimmed" size="sm" mb={3}>건</Text>
+                </Group>
+                <Group justify="space-between" mt={8} gap="xs">
+                  <Text size="xs" c="dimmed">{queue.step}단계</Text>
+                  {metricFilter === queue.key && <Badge size="xs" color="dark">필터 적용</Badge>}
+                </Group>
+              </Card>
+            ))}
+          </div>
 
-          <Card
-            component="button"
-            type="button"
-            padding="lg"
-            radius="md"
-            withBorder
-            shadow="sm"
-            className={styles.metricCard}
-            data-active={metricFilter === 'pendingDocs' || undefined}
-            data-tone="documents"
-            aria-pressed={metricFilter === 'pendingDocs'}
-            onClick={() => handleMetricFilterChange('pendingDocs')}
-          >
-            <Group justify="space-between" mb="xs">
-              <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>서류검토 대기</Text>
-              <ThemeIcon variant="light" color="indigo" radius="md" size="lg">
-                <IconFileText size={22} stroke={2} />
-              </ThemeIcon>
+          <Card padding="md" radius="lg" className={styles.stepCard}>
+            <Group justify="space-between" mb={10} wrap="nowrap" gap="xs">
+              <Text fw={700} size="sm">단계별 FC</Text>
+              <UnstyledButton
+                className={styles.totalButton}
+                data-active={(metricFilter === 'all' && (activeTab ?? 'all') === 'all') || undefined}
+                aria-pressed={metricFilter === 'all' && (activeTab ?? 'all') === 'all'}
+                onClick={() => handleActiveTabChange('all')}
+              >
+                <Text size="xs" c="dimmed" component="span">총 인원 </Text>
+                <Text size="sm" fw={800} component="span">{fcs ? workSummary.total : '—'}</Text>
+                <Text size="xs" c="dimmed" component="span">명</Text>
+              </UnstyledButton>
             </Group>
-            <Group align="flex-end" gap="xs">
-              <Text fw={800} size="2.5rem" lh={1}>{fcs ? metrics.pendingDocs : '—'}</Text>
-              <Text c="dimmed" size="sm" mb={6}>건</Text>
-            </Group>
-            <Group justify="space-between" mt="md" gap="xs">
-              <Text c="indigo" size="xs" fw={700}>검토 필요</Text>
-              {metricFilter === 'pendingDocs' && <Badge size="xs" color="indigo">필터 적용</Badge>}
-            </Group>
+            <Stack gap={6}>
+              {Object.entries(ADMIN_STEP_LABELS).map(([key, label], index) => (
+                <UnstyledButton
+                  key={key}
+                  className={styles.stepRow}
+                  data-active={activeTab === key || undefined}
+                  aria-pressed={activeTab === key}
+                  onClick={() => handleActiveTabChange(activeTab === key ? 'all' : key)}
+                >
+                  <Text size="xs" className={styles.stepLabel}>{label}</Text>
+                  <span className={styles.stepTrack}>
+                    <span
+                      className={styles.stepFill}
+                      data-busiest={(index === busiestStep && workSummary.stepCounts[index] > 0) || undefined}
+                      style={{ width: `${Math.round((workSummary.stepCounts[index] / maxStepCount) * 100)}%` }}
+                    />
+                  </span>
+                  <Text size="xs" fw={700} ta="right">{fcs ? workSummary.stepCounts[index] : '—'}</Text>
+                </UnstyledButton>
+              ))}
+            </Stack>
+            <Text size="xs" c="green" fw={700} mt={10}>가입 완료 FC 현황</Text>
           </Card>
-        </SimpleGrid>
+        </div>
 
         {isError && <QueryErrorAlert error={error} onRetry={refetch} isFetching={isFetching} hasData={!!fcs} subject="FC 목록" />}
 
-        {/* Quick Actions */}
-        <Paper p="md" radius="md" withBorder bg="gray.0">
-          <Group justify="space-between">
-            <Group>
-              <ThemeIcon variant="white" size="lg" radius="md" color="dark">
-                <IconSend size={20} />
-              </ThemeIcon>
-              <div>
-                <Text size="sm" fw={700}>빠른 작업</Text>
-                <Text size="xs" c="dimmed">자주 사용하는 기능을 바로 실행하세요.</Text>
-              </div>
+        <div className={styles.workMid}>
+          {/* Combined work queue */}
+          <Paper radius="lg" p="md" bg="white">
+            <Group justify="space-between" mb="xs">
+              <Text fw={700} size="sm">
+                처리 대기열{metricFilter !== 'all' ? ` · ${DASHBOARD_WORK_QUEUES.find((queue) => queue.key === metricFilter)?.label ?? ''}` : ''}
+              </Text>
+              {fcs ? <Text size="xs" c="dimmed">{visibleWorkItems.length}건 중 {Math.min(visibleWorkItems.length, 6)}건</Text> : null}
             </Group>
-            <Group gap="xs">
-              <Button variant="white" color="dark" size="xs" leftSection={<IconUser size={14} />} onClick={() => router.push('/dashboard/exam/applicants')}>
+            <Table verticalSpacing={8}>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>FC</Table.Th>
+                  <Table.Th>처리할 일</Table.Th>
+                  <Table.Th>진행 단계</Table.Th>
+                  <Table.Th />
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {visibleWorkItems.length > 0 ? visibleWorkItems.slice(0, 6).map(({ fc, queue }) => {
+                  const stepDisplay = getAdminStepDisplay(fc);
+                  return (
+                    <Table.Tr key={`${queue.key}:${fc.id}`}>
+                      <Table.Td>
+                        <Text size="sm" fw={600}>{fc.name}</Text>
+                        <Text size="xs" c="dimmed">{fc.affiliation || '-'}</Text>
+                      </Table.Td>
+                      <Table.Td><Text size="sm">{queue.task}</Text></Table.Td>
+                      <Table.Td>
+                        <Badge variant="dot" color={stepDisplay.color} size="sm">{stepDisplay.label}</Badge>
+                      </Table.Td>
+                      <Table.Td ta="right">
+                        <Button size="xs" radius="xl" color="dark" onClick={() => openWorkItem(fc, queue.key)}>
+                          {isReadOnly ? '보기' : '처리'}
+                        </Button>
+                      </Table.Td>
+                    </Table.Tr>
+                  );
+                }) : (
+                  <Table.Tr>
+                    <Table.Td colSpan={4} py="lg" ta="center">
+                      <Text size="sm" c="dimmed">{isLoading ? 'FC 목록을 불러오는 중입니다.' : !fcs ? 'FC 목록을 확인할 수 없습니다.' : '처리 대기 없음'}</Text>
+                    </Table.Td>
+                  </Table.Tr>
+                )}
+              </Table.Tbody>
+            </Table>
+          </Paper>
+
+          {/* Quick Actions */}
+          <Paper radius="lg" p="md" bg="white">
+            <Group gap="xs" mb="sm">
+              <ThemeIcon variant="light" size="md" radius="xl" color="dark">
+                <IconSend size={16} />
+              </ThemeIcon>
+              <Text size="sm" fw={700}>빠른 작업</Text>
+            </Group>
+            <Stack gap="xs">
+              <Button variant="default" radius="xl" justify="flex-start" leftSection={<IconUser size={14} />} onClick={() => router.push('/dashboard/exam/applicants')}>
                 시험 신청자 관리
               </Button>
-              <Button variant="white" color={isReadOnly ? "gray" : "dark"} size="xs" leftSection={<IconCalendar size={14} />} onClick={() => router.push('/dashboard/exam/schedule')} disabled={isReadOnly}>
+              <Button variant="default" radius="xl" justify="flex-start" leftSection={<IconCalendar size={14} />} onClick={() => router.push('/dashboard/exam/schedule')} disabled={isReadOnly}>
                 시험 일정 등록
               </Button>
-              <Button variant="filled" color={isReadOnly ? "gray" : "dark"} size="xs" leftSection={<IconSend size={14} />} onClick={() => router.push('/dashboard/notifications/create')} disabled={isReadOnly}>
+              <Button radius="xl" justify="flex-start" color={isReadOnly ? "gray" : "orange"} leftSection={<IconSend size={14} />} onClick={() => router.push('/dashboard/notifications/create')} disabled={isReadOnly}>
                 새 공지 작성
               </Button>
-            </Group>
-          </Group>
-        </Paper>
-
+            </Stack>
+          </Paper>
+        </div>
         {/* Main Content Area */}
         <Paper shadow="sm" radius="lg" withBorder p="md" bg="white">
           <Stack gap="xs" mb="md">
