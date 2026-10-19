@@ -69,18 +69,10 @@ const MODAL_CALENDAR_STYLES: DateInputProps['styles'] = {
     calendarHeader: {
         padding: '6px 4px',
         borderBottom: '1px solid #eef1f4',
-        display: 'grid',
-        gridTemplateColumns: '28px 1fr 28px',
         alignItems: 'center',
     },
-    calendarHeaderControlIcon: { margin: '0 auto' },
-    calendarHeaderLevel: {
-        fontWeight: 700,
-        fontSize: 14,
-        textAlign: 'center',
-        justifySelf: 'center',
-    },
-    calendarHeaderControl: { borderRadius: 8, justifySelf: 'center' },
+    calendarHeaderLevel: { fontWeight: 700, fontSize: 14 },
+    calendarHeaderControl: { borderRadius: 8 },
     month: {
         width: '100%',
         tableLayout: 'fixed',
