@@ -160,6 +160,19 @@ export default function MessengerHubPage() {
           <Text className={surface.subtitle}>
             가람지사 내부 대화와 설계요청 대화를 한 화면에서 선택할 수 있습니다.
           </Text>
+          {counts ? (
+            <div className={surface.headMeta}>
+              {[
+                { label: '가람지사', value: counts.internalUnread },
+                { label: '단톡방', value: counts.groupChatUnread },
+                { label: '설계요청', value: requestBoardConfig.available ? counts.requestBoardUnread : null },
+              ].map((room) => (
+                <span key={room.label} className={surface.metaChip} data-tone={room.value ? 'hot' : room.value === 0 ? 'ok' : undefined}>
+                  <i />{room.label} <b>{room.value ?? '-'}</b>
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
 

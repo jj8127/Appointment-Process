@@ -103,6 +103,7 @@ function loadAgentRoomFetcher() {
     if (id === '@/components/QueryErrorAlert') return { QueryErrorAlert: noopComponent };
     if (id === '@/lib/query-read-error') return { QueryReadError };
     if (id === '@/types/agent-room') return constants;
+    if (id.endsWith('.module.css')) return { default: {} };
     if (id === 'react/jsx-runtime') return { Fragment: 'fragment', jsx: () => null, jsxs: () => null };
     throw new Error(`Unexpected dependency ${id}`);
   }, fetch: (...args) => globalThis.fetch(...args) });

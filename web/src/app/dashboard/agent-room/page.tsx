@@ -16,7 +16,8 @@ import {
 import { IconRefresh } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, type CSSProperties } from 'react';
+import surface from '../surface.module.css';
 
 import { AgentRoomScene } from '@/components/agent-room/AgentRoomScene';
 import { QueryErrorAlert } from '@/components/QueryErrorAlert';
@@ -427,9 +428,19 @@ export default function AgentRoomPage() {
   const quietCount = quietAgents.length;
 
   return (
-    <Stack gap="md">
+    <Stack gap={14} className={surface.page}>
+      <div className={surface.head} style={{ '--i': 0 } as CSSProperties}>
+        <div>
+          <Title order={1} className={surface.title}>에이전트 룸</Title>
+          <div className={surface.headMeta}>
+            <span className={surface.metaChip} data-tone={activeCount > 0 ? 'hot' : undefined}><i />작업 중 <b>{activeCount}</b></span>
+            <span className={surface.metaChip} data-tone="ok"><i />최근 <b>{recentCount}</b></span>
+            <span className={surface.metaChip}><i />대기 <b>{quietCount}</b></span>
+          </div>
+        </div>
+      </div>
       <Paper
-        radius={28}
+        radius={24}
         p={{ base: 'md', md: 'xl' }}
         style={{
           background: 'radial-gradient(circle at top, rgba(34, 40, 60, 0.42), transparent 42%), linear-gradient(180deg, #11141d 0%, #090b10 100%)',

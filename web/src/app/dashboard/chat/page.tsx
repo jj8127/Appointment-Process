@@ -284,6 +284,14 @@ function ChatAccountPage() {
                 <div>
                     <Title order={1} className={surface.title}>1:1 메신저</Title>
                     <Text className={surface.subtitle}>FC들과 실시간으로 1:1 대화를 나눌 수 있습니다.</Text>
+                    {chatList ? (
+                        <div className={surface.headMeta}>
+                            <span className={surface.metaChip}><i />대화 <b>{chatList.length}</b></span>
+                            <span className={surface.metaChip} data-tone={chatList.some((item) => item.unread_count > 0) ? 'hot' : 'ok'}>
+                                <i />미확인 <b>{chatList.reduce((sum, item) => sum + item.unread_count, 0)}</b>
+                            </span>
+                        </div>
+                    ) : null}
                 </div>
             </div>
 

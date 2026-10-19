@@ -31,6 +31,7 @@ import { useState, type CSSProperties } from 'react';
 import { useSession } from '@/hooks/use-session';
 import { deleteAdminNotice, fetchAdminNotices, type AdminNoticeItem } from '@/lib/admin-notice-client';
 import styles from './page.module.css';
+import surface from '../surface.module.css';
 
 const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
 
@@ -216,6 +217,14 @@ export default function NotificationsPage() {
                     <Text c="dimmed" size="sm">
                         앱 사용자에게 전송된 공지 이력을 관리합니다.
                     </Text>
+                    {noticesData ? (
+                        <div className={surface.headMeta}>
+                            <span className={surface.metaChip}><i />전체 <b>{noticesData.length}</b></span>
+                            <span className={surface.metaChip} data-tone="ok">
+                                <i />이번 달 <b>{noticesData.filter((notice) => dayjs(notice.created_at).isSame(dayjs(), 'month')).length}</b>
+                            </span>
+                        </div>
+                    ) : null}
                 </div>
 
                 <Group gap="xs">

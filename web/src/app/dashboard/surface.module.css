@@ -40,6 +40,54 @@
   margin-top: 4px;
 }
 
+/* Header status summary: short chips under the title; data-tone="hot" marks what needs action. */
+.headMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.metaChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--dashboard-ink);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.metaChip i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #c9c8c3;
+}
+
+.metaChip b {
+  font-weight: 650;
+}
+
+.metaChip[data-tone='hot'] {
+  background: #fff1e6;
+  color: #c2470d;
+}
+
+.metaChip[data-tone='hot'] i {
+  background: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(243, 111, 33, 0.18);
+}
+
+.metaChip[data-tone='ok'] i {
+  background: #1f9d55;
+}
+
 .actions {
   display: flex;
   align-items: center;

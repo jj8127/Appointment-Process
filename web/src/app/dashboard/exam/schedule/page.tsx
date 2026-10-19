@@ -387,6 +387,14 @@ export default function ExamSchedulePage() {
     };
 
     const openRounds = sortedRounds.filter((round) => !dayjs().isAfter(deadlineCutoff(round.registration_deadline)));
+    const today = dayjs().startOf('day');
+    const nextExam = sortedRounds
+        .filter((round) => round.exam_date && !dayjs(round.exam_date).isBefore(today))
+        .sort((a, b) => dayjs(a.exam_date).diff(dayjs(b.exam_date)))[0];
+    const nextDeadline = [...openRounds]
+        .sort((a, b) => dayjs(a.registration_deadline).diff(dayjs(b.registration_deadline)))[0];
+    const daysUntil = (value: string) => dayjs(value).startOf('day').diff(today, 'day');
+    const dLabel = (days: number) => (days === 0 ? 'D-day' : `D-${days}`);
     const statTiles = [
         { key: 'all', label: '전체 회차', value: sortedRounds.length },
         { key: 'open', label: '접수 중', value: openRounds.length, hot: true },
@@ -403,6 +411,22 @@ export default function ExamSchedulePage() {
                 <div>
                     <Title order={1} className={surface.title}>시험 일정 관리</Title>
                     <Text className={surface.subtitle}>자격 시험 일정과 접수 가능한 장소를 관리합니다.</Text>
+                    {rounds ? (
+                        <div className={surface.headMeta}>
+                            {nextDeadline ? (
+                                <span className={surface.metaChip} data-tone={daysUntil(nextDeadline.registration_deadline) <= 3 ? 'hot' : undefined}>
+                                    <i />접수 마감 <b>{dLabel(daysUntil(nextDeadline.registration_deadline))}</b> · {nextDeadline.round_label}
+                                </span>
+                            ) : (
+                                <span className={surface.metaChip}><i />접수 중인 회차 없음</span>
+                            )}
+                            {nextExam?.exam_date ? (
+                                <span className={surface.metaChip}>
+                                    <i />다음 시험 <b>{dayjs(nextExam.exam_date).format('MM.DD')}</b> ({dLabel(daysUntil(nextExam.exam_date))})
+                                </span>
+                            ) : null}
+                        </div>
+                    ) : null}
                 </div>
                 <div className={surface.actions}>
                     <SegmentedControl

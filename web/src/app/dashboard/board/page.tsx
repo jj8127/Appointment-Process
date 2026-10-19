@@ -1416,6 +1416,14 @@ function BoardContent() {
             <Text className={surface.subtitle}>
               본부장, 총무, 개발자가 공유하는 정보 공간
             </Text>
+            {posts.length ? (
+              <div className={surface.headMeta}>
+                <span className={surface.metaChip}><i />필독 <b>{posts.filter((post) => post.isPinned).length}</b></span>
+                <span className={surface.metaChip} data-tone="ok">
+                  <i />최근 글 <b>{new Date(Math.max(...posts.map((post) => Date.parse(post.createdAt)))).toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' })}</b>
+                </span>
+              </div>
+            ) : null}
           </div>
 
           {canWrite && (

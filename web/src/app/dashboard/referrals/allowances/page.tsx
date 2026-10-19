@@ -216,8 +216,12 @@ function AllowanceAdminWorkspace({ sessionKey }: { sessionKey: string }) {
     <div className={surface.page} style={{ maxWidth: 1200 }}>
       <Stack gap={14}>
         <div className={surface.head} style={{ '--i': 0 } as CSSProperties}>
-          <div><Title order={1} className={surface.title}>증원수당 월별 관리</Title><Text className={surface.subtitle}>대상자를 선택하고 월별 자료를 검토·게시합니다. 각 계정은 본인 수당만 조회합니다.</Text></div>
-          <Badge color="dark" variant="white" size="xl" radius="xl">등록 대상 {query.data ? `${query.data.recipients.length}명` : query.isPending ? '조회 중' : '확인 불가'}</Badge>
+          <div><Title order={1} className={surface.title}>증원수당 월별 관리</Title><Text className={surface.subtitle}>대상자를 선택하고 월별 자료를 검토·게시합니다. 각 계정은 본인 수당만 조회합니다.</Text>
+            <div className={surface.headMeta}>
+              <span className={surface.metaChip}><i />등록 대상 <b>{query.data ? `${query.data.recipients.length}명` : query.isPending ? '조회 중' : '확인 불가'}</b></span>
+              {query.data ? <span className={surface.metaChip} data-tone={query.data.imports.some((row) => row.status === 'draft') ? 'hot' : 'ok'}><i />검토 중 <b>{query.data.imports.filter((row) => row.status === 'draft').length}</b>건</span> : null}
+            </div></div>
+
         </div>
         <Alert color="orange" radius="lg" title="당월 신규 산정 내역">
           하위 FP별 최종 대상업적의 10%를 만원 단위로 절사하고 업로드한 계보 기준 상위 10단계에 반영합니다.

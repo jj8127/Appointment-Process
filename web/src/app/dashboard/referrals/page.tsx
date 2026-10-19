@@ -616,6 +616,16 @@ export default function ReferralDashboardPage() {
             <Text className={surface.subtitle}>
               기존 FC 추천코드 발급 현황을 조회하고 운영 이력을 확인합니다.
             </Text>
+            {summary ? (
+              <div className={surface.headMeta}>
+                <span className={surface.metaChip} data-tone={summary.missingCodeCount === 0 ? 'ok' : 'hot'}>
+                  <i />발급률 <b>{summary.eligibleCount ? Math.round((summary.activeCodeCount / summary.eligibleCount) * 100) : 0}%</b>
+                </span>
+                <span className={surface.metaChip} data-tone={summary.unresolvedLegacyCount > 0 ? 'hot' : 'ok'}>
+                  <i />검토 대기 <b>{summary.unresolvedLegacyCount}</b>건
+                </span>
+              </div>
+            ) : null}
           </div>
 
           <Group gap="xs">

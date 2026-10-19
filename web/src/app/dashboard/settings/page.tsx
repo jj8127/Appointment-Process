@@ -6,7 +6,6 @@ import { logger } from '@/lib/logger';
 import {
   Button,
   Checkbox,
-  Container,
   Divider,
   Group,
   Modal,
@@ -18,8 +17,8 @@ import {
 import { notifications } from '@mantine/notifications';
 import { IconAlertTriangle } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
-import { CHARCOAL } from '@/lib/brand-colors';
+import { useMemo, useState, type CSSProperties } from 'react';
+import surface from '../surface.module.css';
 
 type ConfirmStep = 1 | 2;
 
@@ -115,18 +114,21 @@ export default function SettingsPage() {
   };
 
   return (
-    <Container size="sm" py="lg">
-      <Stack gap="lg">
-        <Paper withBorder radius="md" p="lg">
-          <Stack gap="sm">
-            <Title order={2} c={CHARCOAL}>설정</Title>
-            <Text size="sm" c="dimmed">
+    <div className={surface.page} style={{ maxWidth: 720 }}>
+      <Stack gap={14}>
+        <div className={surface.head} style={{ '--i': 0 } as CSSProperties}>
+          <div>
+            <Title order={1} className={surface.title}>설정</Title>
+            <Text className={surface.subtitle}>
               계정 정보를 확인하고 필요한 설정을 관리하세요.
             </Text>
-          </Stack>
-        </Paper>
+            <div className={surface.headMeta}>
+              <span className={surface.metaChip} data-tone="ok"><i />{displayRole}</span>
+            </div>
+          </div>
+        </div>
 
-        <Paper withBorder radius="md" p="lg">
+        <Paper radius={24} p="lg" className={surface.card} style={{ '--i': 1 } as CSSProperties}>
           <Stack gap="md">
             <Title order={4}>계정</Title>
             <Stack gap={6}>
@@ -236,6 +238,6 @@ export default function SettingsPage() {
           </Stack>
         )}
       </Modal>
-    </Container>
+    </div>
   );
 }
