@@ -228,3 +228,10 @@ The user-designated SMS account was reset only after explicit approval, then Gar
 ## 2026-10-09 Local privileged mutation boundary
 
 The new UX mutation RPCs, creation receipts and document cleanup queue remain service-only with RLS enabled and PUBLIC/anon/authenticated access revoked. Signed Edge/web sessions supply actor identity; current active administrator or completed non-shadow own-FC facts are rechecked, including before FC cleanup reads/retries. Account-phone comparisons normalize punctuation. Cleanup status returns no raw paths or rows. Tests use synthetic loopback databases and no real login, storage, notifications or production records. These local changes require separately authorized migration and caller rollout.
+
+## 2026-10-13 Signup capability and diagnostic privacy
+
+- Signup completion requires a short-lived, one-time hashed capability. A request that omits the capability field receives only `upgrade_required`; a supplied invalid capability remains unauthorized.
+- Signup release observation may record only bounded platform, app version, build version, and protocol labels. These labels are operational telemetry and never authorization inputs.
+- SMS and password-sync diagnostics use fixed event/reason pairs and bounded provider state. Phone numbers, OTPs, passwords, hashes, tokens, provider payloads, and raw errors are forbidden in diagnostics and delivery ledgers.
+- Provider request IDs are stored only in the service-role delivery ledger and expire under the documented retention job. HTTP 202 is queue acceptance, not proof of handset delivery.

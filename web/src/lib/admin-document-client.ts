@@ -235,7 +235,7 @@ export async function signAdminDocument(fcId: string, path: string): Promise<str
     body: JSON.stringify({ action: 'signDoc', payload: { fcId, path } }),
   });
   const data = await response.json().catch(() => null) as { ok?: boolean; signedUrl?: string } | null;
-  if (!response.ok || !data?.ok || !isHttpsResponseUrl(data.signedUrl)) {
+  if (!response.ok || data?.ok !== true || !isHttpsResponseUrl(data.signedUrl)) {
     throw new Error(response.status === 401
       ? '파일을 보려면 다시 로그인해주세요.'
       : '파일을 불러오지 못했습니다. 다시 시도해주세요.');

@@ -72,7 +72,7 @@ export default function AppointmentScreen() {
 }
 
 function AppointmentScreenContent() {
-  const { role, residentId } = useSession();
+  const { role, residentId, appSessionToken } = useSession();
   const { notificationId, notificationTarget } = useLocalSearchParams<{
     notificationId?: string;
     notificationTarget?: string;
@@ -213,7 +213,10 @@ function AppointmentScreenContent() {
   };
 
   const submitDate = async (type: 'life' | 'nonlife') => {
-    if (!residentId) return;
+    if (!residentId || !appSessionToken) {
+      Alert.alert('로그인 정보 없음', '로그인 정보를 확인할 수 없습니다. 다시 로그인해주세요.');
+      return;
+    }
     const targetDate = type === 'life' ? displayLife : displayNonLife;
     if (!targetDate) {
       Alert.alert('날짜 선택', '완료일을 선택해주세요.');
@@ -237,8 +240,8 @@ function AppointmentScreenContent() {
         message?: string;
         error?: string;
       }>('fc-submit-appointment', {
+        headers: { 'x-app-session-token': appSessionToken },
         body: {
-          phone: cleanPhone,
           date_field: dateField,
           date_value: ymd,
           type,

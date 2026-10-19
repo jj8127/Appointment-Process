@@ -1,5 +1,9 @@
 # 작업 로그
 
+## 2026-10-19 운영 관리자 웹 계열 통합
+
+운영에 배포된 fix/admin-referrals-embed-20261016(6c19783)을 release 통합 브랜치에 합쳤다. 이 계열의 cba6593c는 같은 핫픽스를 release 계열에 옮긴 버전이고, 운영 DB와 Edge 함수가 이 계열과 일치한다. migration 이름은 운영 이력(20261013090024 등)을 따르고, 가입 가능 확인은 운영 서버 응답에 맞춰 residentId 수신 확인을 요구하지 않는다. get-referral-tree는 운영본을 유지했다.
+
 ## 2026-10-19 운영 핫픽스 통합
 
 운영 핫픽스(49de1c0a, 추천 그래프 좌표 c837f29d 포함)를 release 브랜치에 합쳤다. 29개 충돌은 핫픽스의 엄격한 응답 검증과 release의 화면·공유 모듈 변경을 함께 유지하도록 해결했고, get-referral-tree는 운영본에 release의 CORS 공유 모듈만 더했다. 새로 생긴 jest·웹·엣지 실패는 없다.
@@ -11,8 +15,14 @@
 ## 2026-10-15 복사 토스트·손 뗄 때 실행
 
 다섯 앱 인터랙션 조사에서 정리한 피드백 등급을 적용했다. 복사 결과를 차단형 Alert에서 토스트로 바꾸고, 미리보기 Modal 안의 복사는 버튼 상태로 표시한다. 단체방·요청게시판 뒤로가기와 메신저 탭은 손을 뗄 때 실행해 취소할 수 있다. 로그인 `submitOnPressIn` 예외는 유지한다. 실기기 확인·커밋·배포는 하지 않았다. [→ 상세](WORK_DETAIL.md#20261015-copy-toast-release-press)
+## 2026-10-13 가입·공통 조회 릴리스 재검토 수리
+
+통합 릴리스의 필수 governance 누락을 가장 가까운 owner map·handbook과 기존 검사에 맞췄다. native 가입 증표 저장 key, 본인정보 timeout, OTA production public 환경과 Node 회귀 발견을 담당자가 기존 코드로 수리한다. 적용된 migration 12개는 운영 이력과 SQL hash를 대조해 body를 유지하고 로컬 이름·schema·fixture 참조만 맞춘다. primary 사용자 로그는 보존하며 실제 수정·검증·배포 상태는 canonical 인증 harness가 관리한다. 이 기록만으로 새 배포나 실제 SMS 수신을 주장하지 않는다. [→ 상세](WORK_DETAIL.md#20261013-cutover-review-repair)
+
+추가로 legacy 가입 RPC 4개의 forward 퇴역 migration을 clean source `3b546af`에서 운영 적용했다. 반환된 이력 `20261013113212`에 로컬 파일명·schema·fixture 참조를 맞췄으며 SQL body는 유지했다. 활성 Edge 55개/457개 source의 참조, catalog·cron 의존과 legacy 상태는 적용 전 0이었고 적용 후 retired RPC도 0개다. 기존 컬럼·이력은 유지하며 실제 적용 영수증과 남은 앱/SMS acceptance는 canonical QA/handoff에서 구분한다.
 
 ## 2026-10-11 제휴병원 홈 시각 개선
+
 
 중복 제목·큰 지역 폼을 줄이고 헤더 지역 선택·한 줄 검색으로 바꿨다. 진료과별 의미가 있는 컬러 SVG와 사진·실제 소개 중심 카드, 간결한 일반 목록을 적용한다. 서로 다른 사진3장은 격리 화면 검증에만 사용하며 앱은 등록된 병원 사진을 표시한다. 기존 검색·지역·복귀·광고 집계와 시험 도구를 유지한다. [→ 상세](WORK_DETAIL.md#20261011-hospital-home-visual)
 

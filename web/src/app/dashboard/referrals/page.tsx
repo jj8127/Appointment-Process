@@ -23,7 +23,6 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconAlertCircle,
   IconInfoCircle,
   IconAlertTriangle,
   IconBan,

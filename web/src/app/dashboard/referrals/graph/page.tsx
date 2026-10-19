@@ -504,6 +504,18 @@ export default function ReferralGraphPage() {
         </Box>
       ) : null}
 
+      {graphQuery.isError ? (
+        <Box px="md" py="xs">
+          <QueryErrorAlert
+            error={graphQuery.error}
+            onRetry={graphQuery.refetch}
+            isFetching={graphQuery.isFetching}
+            hasData={Boolean(graphData)}
+            subject="추천인 그래프"
+          />
+        </Box>
+      ) : null}
+
       <Box
         ref={containerRef}
         style={{

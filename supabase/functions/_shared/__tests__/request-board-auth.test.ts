@@ -1,6 +1,7 @@
 import {
   buildAssistedPasswordChangeTokenPayload,
   buildRequestBoardPasswordSyncAssertionPayload,
+  buildRequestBoardPasswordSyncV2AssertionPayload,
   createAssistedPasswordChangeChallenge,
   createRequestBoardPasswordSyncAssertion,
   parseAssistedPasswordChangeTokenDetailed,
@@ -79,6 +80,30 @@ describe('request_board password-sync assertion contract', () => {
       phone: '00000000000',
       role: 'manager',
       nonce: 'nonce_value_1234567890',
+      iat: 1_800_000_000,
+      exp: 1_800_000_060,
+    });
+  });
+
+  it('uses an incompatible v2 kind and binds the opaque account, generation, and operation', () => {
+    expect(buildRequestBoardPasswordSyncV2AssertionPayload({
+      phone: '000-0000-0000',
+      role: 'fc',
+      nonce: 'nonce_value_1234567890',
+      upstreamAccountId: 'fc:11111111-1111-4111-8111-111111111111',
+      upstreamCredentialVersion: 1_800_000_000_123_456,
+      operationId: '22222222-2222-4222-8222-222222222222',
+      nowSec: 1_800_000_000,
+      ttlSec: 60,
+    })).toEqual({
+      kind: 'request_board_password_sync_v2',
+      purpose: 'password_sync_v2',
+      phone: '00000000000',
+      role: 'fc',
+      nonce: 'nonce_value_1234567890',
+      upstream_account_id: 'fc:11111111-1111-4111-8111-111111111111',
+      upstream_credential_version: 1_800_000_000_123_456,
+      operation_id: '22222222-2222-4222-8222-222222222222',
       iat: 1_800_000_000,
       exp: 1_800_000_060,
     });

@@ -6,7 +6,7 @@ const require = createRequire(import.meta.url);
 const { PGlite } = require(process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite');
 import { migration, actorMigration, fc, round, category, request, fixtureSql } from './ux-priority-one-fixture.mjs';
 const statusContractMigration = await readFile(
-  new URL('../migrations/20261013063143_enforce_fc_profile_status_contract.sql', import.meta.url),
+  new URL('../migrations/20261013090030_enforce_fc_profile_status_contract.sql', import.meta.url),
   'utf8',
 );
 async function fixture() {

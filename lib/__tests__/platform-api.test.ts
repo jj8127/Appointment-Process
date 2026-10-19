@@ -26,6 +26,7 @@ describe('common platform transport', () => {
     invoke.mockResolvedValue({ data: response, error: null });
     expect(await platformRequest('list_hospitals')).toEqual(response);
     expect(invoke.mock.calls[0][1].headers).toBeUndefined();
+    expect(invoke.mock.calls[0][1].timeout).toBeUndefined();
     expect(HOSPITAL_DEMO_ENABLED).toBe(false);
   });
   it.each([
@@ -56,6 +57,22 @@ describe('common platform transport', () => {
   it('preserves HTTP status and offers Korean recovery for expired authentication', async () => {
     invoke.mockResolvedValue({ data: null, error: { context: new Response(JSON.stringify({ ok: false, code: 'invalid_app_session' }), { status: 401 }) } });
     await expect(platformRequest('get_account', {}, 'expired')).rejects.toMatchObject({ status: 401, code: 'invalid_app_session', message: expect.stringContaining('다시 로그인') });
+  });
+  it.each([
+    ['already_exists', 409, '이미 가입'],
+    ['cooldown', 429, '60초'],
+    ['locked', 429, '10분'],
+  ])('preserves %s status and gives the matching OTP recovery', async (code, status, message) => {
+    invoke.mockResolvedValue({ data: null, error: { context: new Response(JSON.stringify({ ok: false, code }), { status }) } });
+    await expect(platformRequest('request_otp')).rejects.toMatchObject({ code, status, message: expect.stringContaining(message) });
+  });
+  it('maps aborted transport failures to a bounded timeout recovery without exposing raw details', async () => {
+    invoke.mockResolvedValue({ data: null, error: {
+      name: 'FunctionsFetchError', message: 'Failed to send a request to the Edge Function',
+      context: new DOMException('The operation was aborted by transport internals','AbortError'),
+    } });
+    await expect(platformRequest('request_otp')).rejects.toMatchObject({ code: 'request_timeout', message: expect.stringContaining('응답이 늦어') });
+    expect(invoke.mock.calls[0][1].timeout).toBe(12000);
   });
   it('does not pass raw transport errors or malformed account lists to screens', async () => {
     invoke.mockResolvedValueOnce({ data: null, error: { message: 'Failed to send a request to the Edge Function' } });

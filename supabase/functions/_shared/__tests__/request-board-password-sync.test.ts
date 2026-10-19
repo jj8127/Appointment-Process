@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  buildFcPasswordSyncUpstream,
   buildRequestBoardPasswordSyncBody,
   syncRequestBoardPasswordWithDeps,
 } from '../request-board-password-sync.ts';
@@ -104,6 +105,126 @@ test('omits blank optional request_board password-sync fields with current truth
       role: 'fc',
     },
   );
+});
+
+test('uses the monotonic FC credential session generation for password sync', () => {
+  assert.deepEqual(
+    buildFcPasswordSyncUpstream(
+      '11111111-1111-4111-8111-111111111111',
+      7,
+    ),
+    {
+      accountId: 'fc:11111111-1111-4111-8111-111111111111',
+      credentialVersion: 7,
+    },
+  );
+  assert.equal(buildFcPasswordSyncUpstream('not-a-uuid', 7), null);
+  assert.deepEqual(
+    buildFcPasswordSyncUpstream('11111111-1111-4111-8111-111111111111', 0),
+    {
+      accountId: 'fc:11111111-1111-4111-8111-111111111111',
+      credentialVersion: 0,
+    },
+  );
+  assert.equal(buildFcPasswordSyncUpstream('11111111-1111-4111-8111-111111111111', -1), null);
+  assert.equal(buildFcPasswordSyncUpstream('11111111-1111-4111-8111-111111111111', 1.5), null);
+});
+
+test('builds the v2 body with opaque upstream generation fields', () => {
+  assert.deepEqual(
+    buildRequestBoardPasswordSyncBody(
+      '01012345678',
+      'Pass!1234',
+      { role: 'fc', syncReason: 'login' },
+      'signed-v2-assertion',
+      {
+        upstream: {
+          accountId: 'fc:11111111-1111-4111-8111-111111111111',
+          credentialVersion: 7,
+        },
+        operationId: '22222222-2222-4222-8222-222222222222',
+      },
+    ),
+    {
+      phone: '01012345678',
+      password: 'Pass!1234',
+      role: 'fc',
+      syncReason: 'login',
+      upstream_account_id: 'fc:11111111-1111-4111-8111-111111111111',
+      upstream_credential_version: 7,
+      operation_id: '22222222-2222-4222-8222-222222222222',
+      authAssertion: 'signed-v2-assertion',
+    },
+  );
+});
+
+test('routes a generation-bound request only to the configured v2 endpoint', async () => {
+  const calls: Array<{ input: string; body: Record<string, unknown> }> = [];
+  await syncRequestBoardPasswordWithDeps({
+    syncUrl: 'https://request.example/api/auth/sync-password',
+    syncV2Url: 'https://request.example/api/auth/sync-password-v2',
+    syncToken: 'bridge-token',
+    timeoutMs: 1000,
+    logPrefix: 'login-with-password',
+    phone: '01012345678',
+    password: 'Pass!1234',
+    authAssertion: 'signed-v2-assertion',
+    operationId: '22222222-2222-4222-8222-222222222222',
+    upstream: {
+      accountId: 'fc:11111111-1111-4111-8111-111111111111',
+      credentialVersion: 7,
+    },
+    options: { role: 'fc', syncReason: 'login' },
+  }, {
+    fetchImpl: async (input, init) => {
+      calls.push({ input, body: JSON.parse(init.body) });
+      return { ok: true, status: 200, text: async () => '', json: async () => ({ success: true }) };
+    },
+    createAbortController: () => ({ signal: {} as AbortSignal, abort: () => {} }),
+    setTimeoutImpl: () => 'timeout',
+    clearTimeoutImpl: () => {},
+    diagnostic: () => {},
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.input, 'https://request.example/api/auth/sync-password-v2');
+  assert.equal(calls[0]?.body.upstream_credential_version, 7);
+});
+
+test('does not downgrade when v2 is required but its endpoint is unavailable', async () => {
+  let fetchCount = 0;
+  const diagnostics: EdgeDiagnosticInput[] = [];
+  await syncRequestBoardPasswordWithDeps({
+    syncUrl: 'https://request.example/api/auth/sync-password',
+    syncV2Url: '',
+    requireV2: true,
+    syncToken: 'bridge-token',
+    timeoutMs: 1000,
+    logPrefix: 'login-with-password',
+    phone: '01012345678',
+    password: 'Pass!1234',
+    authAssertion: 'signed-v1-assertion-must-not-be-used',
+    upstream: {
+      accountId: 'fc:11111111-1111-4111-8111-111111111111',
+      credentialVersion: 7,
+    },
+    options: { role: 'fc', syncReason: 'login' },
+  }, {
+    fetchImpl: async () => {
+      fetchCount += 1;
+      throw new Error('fetch should not run');
+    },
+    createAbortController: () => ({ signal: {} as AbortSignal, abort: () => {} }),
+    setTimeoutImpl: () => 'timeout',
+    clearTimeoutImpl: () => {},
+    diagnostic: (input) => diagnostics.push(input),
+  });
+  assert.equal(fetchCount, 0);
+  assert.deepEqual(diagnostics, [{
+    event: 'request_board.password_sync',
+    reason: 'request_failed',
+    retryable: false,
+    errorClass: 'authentication',
+  }]);
 });
 
 test('skips request_board password sync fetch when url or token is missing', async () => {

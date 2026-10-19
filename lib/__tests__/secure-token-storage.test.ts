@@ -1,5 +1,7 @@
 import fs from 'fs';
 import path from 'path';
+import * as ts from 'typescript';
+import { SIGNUP_COMPLETION_TOKEN_STORAGE_KEY } from '../signup-completion-capability';
 
 import {
   createMigratingSensitiveTokenStorage,
@@ -39,6 +41,47 @@ const createMemoryStorage = (
 };
 
 describe('sensitive token storage migration', () => {
+  it('can delete, save, read, and clear the signup capability through the actual SecureStore key contract', async () => {
+    const nativeValues = new Map<string, string>();
+    const nativeBacking = {
+      getValueWithKeyAsync: jest.fn(async (key: string) => nativeValues.get(key) ?? null),
+      setValueWithKeyAsync: jest.fn(async (value: string, key: string) => { nativeValues.set(key, value); }),
+      deleteValueWithKeyAsync: jest.fn(async (key: string) => { nativeValues.delete(key); }),
+    };
+    const sdkRoot = path.dirname(require.resolve('expo-secure-store/package.json'));
+    const byteCounter: Record<string, unknown> = {};
+    const sdk = {} as {
+      getItemAsync: (key: string) => Promise<string | null>;
+      setItemAsync: (key: string, value: string) => Promise<void>;
+      deleteItemAsync: (key: string) => Promise<void>;
+    };
+    // Execute the installed SDK validators; only the native backing is replaced.
+    const compile = (file: string) => ts.transpileModule(
+      fs.readFileSync(path.join(sdkRoot, 'src', file), 'utf8'),
+      { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS } },
+    ).outputText;
+    new Function('exports', compile('byteCounter.ts'))(byteCounter);
+    new Function('require', 'exports', compile('SecureStore.ts'))((name: string) => {
+      if (name === './ExpoSecureStore') return { default: nativeBacking };
+      if (name === './byteCounter') return byteCounter;
+      throw new Error('Unexpected SecureStore dependency');
+    }, sdk);
+    const storage = createMigratingSensitiveTokenStorage({
+      getItem: sdk.getItemAsync,
+      setItem: sdk.setItemAsync,
+      removeItem: sdk.deleteItemAsync,
+    }, createMemoryStorage());
+    const token = 'A'.repeat(43);
+    await storage.removeItem(SIGNUP_COMPLETION_TOKEN_STORAGE_KEY);
+    await storage.setItem(SIGNUP_COMPLETION_TOKEN_STORAGE_KEY, token);
+    await expect(storage.getItem(SIGNUP_COMPLETION_TOKEN_STORAGE_KEY)).resolves.toBe(token);
+    await storage.removeItem(SIGNUP_COMPLETION_TOKEN_STORAGE_KEY);
+    await expect(storage.getItem(SIGNUP_COMPLETION_TOKEN_STORAGE_KEY)).resolves.toBeNull();
+    expect(nativeBacking.setValueWithKeyAsync).toHaveBeenCalledWith(
+      token, SIGNUP_COMPLETION_TOKEN_STORAGE_KEY, {},
+    );
+  });
+
   it('moves a legacy plaintext token to primary storage and deletes the old copy', async () => {
     const primary = createMemoryStorage();
     const legacy = createMemoryStorage({ session: 'signed-token' });

@@ -7,6 +7,12 @@ source_of_truth: supabase/functions/docs-deadline-reminder/index.ts + supabase/f
 
 # Backend Runbook: Scheduled Jobs And Runtime
 
+## 2026-10-13 필수 target 조회와 presence 결과
+
+presence와 서류 마감 알림은 필수 actor/대상/상태 조회의 오류나 불완전한 페이지를 정상 없음·offline·전송 완료로 처리하지 않는다. 기존 presence-query contract는 actor 권한과 결과 행/count를 검증하고 필수 실패를 호출자에 전달한다. reminder의 대상 조회가 실패하면 당일 checkpoint를 앞당기지 않으며 provider 부분 실패의 기존 재시도 계약을 유지한다.
+
+가까운 `presence-query-contract_test.ts`, `presence-read-response.test.ts`, `docs-deadline-reminder-source.test.ts`와 Edge handler suite를 확장해 결과·호출·checkpoint를 확인한다. 로그는 고정 분류와 count만 사용하며 고객 대상이나 원문 응답을 보관하지 않는다.
+
 ## 2026-10-10 CORS 공통 처리
 
 docs-deadline-reminder·user-presence의 공통 serveWithConfiguredCors는 등록된 요청 origin을 반환하고 Vary를 보강한다. Origin 없는 서버/native 호출, 예약 시각, presence 정책과 알림 mutation은 유지한다. cron 전용 함수의 OPTIONS와 브라우저 직접 호출 장애를 구분한다. [공통 계약](./notifications-inbox-push.md#web-edge-cors-boundary-2026-10-10) 및 데이터 없는54개 함수 감사 기록을 따른다.

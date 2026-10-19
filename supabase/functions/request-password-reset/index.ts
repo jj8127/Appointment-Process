@@ -3,6 +3,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 import { findPasswordResetAccount } from '../_shared/password-reset-account.ts';
 import { processPasswordResetChallenge } from '../_shared/password-reset-challenge.ts';
+import { sendSignupSms } from '../_shared/signup-sms.ts';
+import {
+  beginSmsDeliveryAttempt,
+  finalizeSmsDeliveryAttempt,
+} from '../_shared/sms-delivery-attempt.ts';
 
 type Payload = {
   phone?: string;
@@ -27,10 +32,6 @@ const corsHeaders = {
 // Security: Validate required environment variables
 const supabaseUrl = getEnv('SUPABASE_URL');
 const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY');
-const ncpAccessKey = getEnv('NCP_SENS_ACCESS_KEY') ?? getEnv('NCP_ACCESS_KEY');
-const ncpSecretKey = getEnv('NCP_SENS_SECRET_KEY') ?? getEnv('NCP_SECRET_KEY');
-const ncpServiceId = getEnv('NCP_SENS_SERVICE_ID') ?? getEnv('NCP_SMS_SERVICE_ID');
-const ncpSmsFrom = getEnv('NCP_SENS_SMS_FROM') ?? getEnv('NCP_SMS_SENDER');
 
 export function resolvePasswordResetTestSmsConfig(env: Record<string, string | undefined>) {
   const enabled = (env.TEST_SMS_MODE ?? '').trim().toLowerCase() === 'true';
@@ -78,10 +79,6 @@ if (!supabaseUrl) {
 if (!serviceKey) {
   throw new Error('Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY');
 }
-if (!passwordResetTestSmsConfig.enabled && (!ncpAccessKey || !ncpSecretKey || !ncpServiceId || !ncpSmsFrom)) {
-  throw new Error('Missing required NCP SMS credentials (NCP_SENS_ACCESS_KEY, NCP_SENS_SECRET_KEY, NCP_SENS_SERVICE_ID, NCP_SENS_SMS_FROM)');
-}
-
 const supabase = createClient(supabaseUrl, serviceKey);
 const encoder = new TextEncoder();
 
@@ -113,54 +110,9 @@ async function sha256Base64(value: string) {
   return toBase64(hash);
 }
 
-async function hmacSignature(message: string, secretKey: string) {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(secretKey),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
-  return btoa(String.fromCharCode(...new Uint8Array(sig)));
-}
-
 async function sendResetSms(to: string, code: string) {
-  if (passwordResetTestSmsConfig.enabled) {
-    return { ok: true, status: 200 };
-  }
-  if (!ncpAccessKey || !ncpSecretKey || !ncpServiceId || !ncpSmsFrom) {
-    return { ok: false, status: 500, message: 'SMS 설정이 필요합니다.' };
-  }
-  const timestamp = Date.now().toString();
-  const path = `/sms/v2/services/${ncpServiceId}/messages`;
-  const message = `POST ${path}\n${timestamp}\n${ncpAccessKey}`;
-  const signature = await hmacSignature(message, ncpSecretKey);
-
-  const payload = {
-    type: 'SMS',
-    contentType: 'COMM',
-    countryCode: '82',
-    from: ncpSmsFrom,
-    content: `[가람in] 비밀번호 변경 코드: ${code} (15분 유효)`,
-    messages: [{ to }],
-  };
-
-  const res = await fetch(`https://sens.apigw.ntruss.com${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-ncp-apigw-timestamp': timestamp,
-      'x-ncp-iam-access-key': ncpAccessKey,
-      'x-ncp-apigw-signature-v2': signature,
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok) {
-    return { ok: false, status: 502, message: 'SMS 전송에 실패했습니다. 잠시 후 다시 시도해주세요.' };
-  }
-  return { ok: true, status: 200 };
+  return sendSignupSms(to, code, `[가람in] 비밀번호 변경 코드: ${code} (15분 유효)`,
+    passwordResetTestSmsConfig.enabled);
 }
 
 function generateResetCode() {
@@ -231,12 +183,37 @@ serve(async (req: Request) => {
     return json(failure, status);
   }
 
+  const tracking = await beginSmsDeliveryAttempt(supabase, 'password_reset');
+  if (!tracking.ok) {
+    const compensation = await processPasswordResetChallenge(supabase, account, { action: 'cancel', tokenHash });
+    return compensation.ok
+      ? json({ ok: false, code: 'sms_send_failed', message: 'SMS 전송에 실패했습니다. 바로 다시 요청해 주세요.' }, 503)
+      : json({ ok: false, code: 'sms_delivery_unknown', message: '문자 접수 상태를 확인하지 못했습니다. 문자가 오면 인증번호를 입력해 주세요.' }, 503);
+  }
+
   const smsResult = await sendResetSms(phone, code);
+  const finalized = await finalizeSmsDeliveryAttempt(supabase, 'password_reset', tracking.deliveryId, smsResult);
   if (!smsResult.ok) {
+    if (smsResult.deliveryState === 'rejected') {
+      const compensation = await processPasswordResetChallenge(supabase, account, { action: 'cancel', tokenHash });
+      if (compensation.ok === false) {
+        return json({ ok: false, code: 'sms_delivery_unknown', message: '문자 접수 상태를 확인하지 못했습니다. 문자가 오면 인증번호를 입력해 주세요.' }, 503);
+      }
+    }
+    if (!finalized) {
+      return json({ ok: false, code: 'sms_delivery_unknown', message: '문자 접수 상태를 확인하지 못했습니다. 문자가 오면 인증번호를 입력해 주세요.' }, 503);
+    }
     return json(
-      { ok: false, code: 'sms_send_failed', message: smsResult.message ?? 'SMS 전송에 실패했습니다.' },
-      smsResult.status ?? 500,
+      { ok: false, code: smsResult.deliveryState === 'unknown' ? 'sms_delivery_unknown' : 'sms_send_failed',
+        message: smsResult.deliveryState === 'unknown'
+          ? '문자 접수 상태를 확인하지 못했습니다. 문자가 오면 인증번호를 입력해 주세요.'
+          : 'SMS 전송에 실패했습니다. 바로 다시 요청해 주세요.' },
+      smsResult.status,
     );
+  }
+
+  if (!finalized) {
+    return json({ ok: false, code: 'sms_delivery_unknown', message: '문자 접수 상태를 확인하지 못했습니다. 문자가 오면 인증번호를 입력해 주세요.' }, 503);
   }
 
   return json({ ok: true, sent: true });

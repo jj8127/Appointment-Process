@@ -14,7 +14,10 @@ import {
 } from '../_shared/referral-code.ts';
 import { resolveManagerAffiliation } from '../_shared/manager-affiliation.ts';
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
-import { syncRequestBoardPassword } from '../_shared/request-board-password-sync.ts';
+import {
+  buildFcPasswordSyncUpstream,
+  syncRequestBoardPassword,
+} from '../_shared/request-board-password-sync.ts';
 import { hashPassword } from '../_shared/password-hash.ts';
 import { mutationRowReceiptMatches } from '../_shared/ux-mutation-contract.ts';
 
@@ -57,6 +60,8 @@ if (!serviceKey) {
 
 const supabase = createClient(supabaseUrl, serviceKey);
 const requestBoardPasswordSyncUrl = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_URL') ?? '').trim();
+const requestBoardPasswordSyncV2Url = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_V2_URL') ?? '').trim();
+const requestBoardPasswordSyncV2Required = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_V2_REQUIRED') ?? '').trim().toLowerCase() === 'true';
 const requestBoardPasswordSyncToken = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_TOKEN') ?? '').trim();
 const requestBoardPasswordSyncTimeoutRaw = Number((getEnv('REQUEST_BOARD_PASSWORD_SYNC_TIMEOUT_MS') ?? '5000').trim());
 const requestBoardPasswordSyncTimeoutMs =
@@ -136,7 +141,6 @@ async function processPasswordAttempt(params: {
   }
   return { ok: false, code: 'db_error' };
 }
-
 async function autoIssueReferralCodeOnLogin(params: {
   profile:
     | {
@@ -500,11 +504,14 @@ serve(async (req: Request) => {
 
   await syncRequestBoardPassword({
     syncUrl: requestBoardPasswordSyncUrl,
+    syncV2Url: requestBoardPasswordSyncV2Url,
+    requireV2: requestBoardPasswordSyncV2Required,
     syncToken: requestBoardPasswordSyncToken,
     timeoutMs: requestBoardPasswordSyncTimeoutMs,
     logPrefix: 'login-with-password',
     phone: profile.phone,
     password,
+    upstream: buildFcPasswordSyncUpstream(profile.id, creds.session_version),
     options: {
       role: requestBoardRole,
       name: profile.name ?? '',

@@ -11,10 +11,10 @@ import { createCreationRequestTracker } from './creation-request.ts';
 import {
   isNonEmptyResponseString,
   isHttpsResponseUrl,
-  isValidCareerType,
   isValidFcStatusResponse,
   isValidYmdResponse,
   requireCleanupMutationReceipt,
+  isValidCareerType,
   requireMutationSuccess,
   requireProfileMutationReceipt,
   shouldSubmitOnEnter,
@@ -63,6 +63,24 @@ function execute(code, values) {
   return vm.runInNewContext(output, { exports: {}, ...values, require: () => ({ jsx: () => null }) });
 }
 const noNotifications = { show() {} };
+
+test('appointment years include current and returned data years without hiding current-year FCs', () => {
+  const dayjs = require('dayjs');
+  const currentYear = dayjs().format('YYYY');
+  const fcs = [
+    { id: 'current', created_at: `${currentYear}-06-01T00:00:00Z` },
+    { id: 'older', created_at: '2023-06-01T00:00:00Z' },
+    { id: 'future', created_at: '2031-06-01T00:00:00Z' },
+    { id: 'invalid', created_at: 'invalid' },
+    { id: 'missing' },
+  ];
+  const values = { fcs, dayjs, useMemo: (compute) => compute() };
+  const years = execute(extract('app/dashboard/appointment/page.tsx', 'yearOptions'), values);
+  assert.deepEqual(Array.from(years), [...new Set([currentYear, '2025', '2024', '2023', '2031'])].sort((a, b) => Number(b) - Number(a)));
+  assert.deepEqual(Array.from(execute(extract('app/dashboard/appointment/page.tsx', 'processedFcs'), {
+    ...values, filterYear: currentYear, canManageInsuranceStage: () => true,
+  }), (fc) => fc.id), ['current']);
+});
 
 test('exam decision delivery requires the canonical persisted notification receipt', async () => {
   const registrationId = '00000000-0000-4000-8000-000000000001';
@@ -183,15 +201,76 @@ test('quick-filter tabs clear the KPI filter and reset the page like workflow ta
 test('bulk exam reception confirms each applicant and reports partial failures', async () => {
   const shown = []; let cache = [{ id: 'a', is_confirmed: false, status: 'applied' }, { id: 'b', is_confirmed: false, status: 'applied' }];
   const options = execute(extract('app/dashboard/exam/applicants/page.tsx', 'bulkConfirmMutation'), {
-    requestReception: async (item) => { if (item.id === 'b') throw new Error('synthetic failure'); return { ok: true }; },
+    requestReception: async (item) => { if (item.id === 'b') throw new Error('synthetic failure'); return { json: { ok: true }, transition: { isConfirmed: true, status: 'confirmed' } }; },
     getAdminNotificationWarning: () => null,
-    setReceptionInCache: (ids, isConfirmed) => { cache = cache.map((row) => ids.has(row.id) ? { ...row, is_confirmed: isConfirmed } : row); },
+    setReceptionInCache: (updates) => { cache = cache.map((row) => updates.has(row.id) ? { ...row, is_confirmed: updates.get(row.id).isConfirmed, status: updates.get(row.id).status } : row); },
     setBulkConfirmOpened() {}, notifications: { show: (item) => shown.push(item) },
   });
   const result = await options.mutationFn(cache);
-  assert.equal(result.confirmedIds.size, 1); assert.equal(result.failed, 1);
+  assert.equal(result.confirmed.size, 1); assert.equal(result.failed, 1);
   options.onSuccess(result);
-  assert.deepEqual(cache.map((row) => row.is_confirmed), [true, false]);
+  assert.deepEqual(cache.map((row) => [row.is_confirmed, row.status]), [[true, 'confirmed'], [false, 'applied']]);
+  assert.equal(shown[0].title, '일괄 접수 일부 실패'); assert.equal(shown[0].color, 'yellow');
+});
+
+test('appointment confirm saves the FC-submitted date shown in 확정일 and blocks a cleared date', async () => {
+  const page = 'app/dashboard/appointment/page.tsx';
+  const fc = { id: 'fc-1', appointment_date_life: null, appointment_date_life_sub: '2026-10-03' };
+  const shown = []; const calls = []; let confirmConfig = null;
+  const values = {
+    dayjs: require('dayjs'), canManageInsuranceStage: () => true, inputs: {},
+    resolveInsuranceDate: execute(extract(page, 'resolveInsuranceDate'), {}),
+    notifications: { show: (item) => shown.push(item.title) },
+    showConfirm: (config) => { confirmConfig = config; }, openRejectModal() {},
+    updateAppointmentAction: async (_state, input) => { calls.push(input); return { success: true, message: 'ok' }; },
+    showAdminNotificationWarning() {}, refetch() {},
+  };
+  execute(extract(page, 'executeAction'), values)(fc, 'confirm', 'life');
+  assert.deepEqual(shown, []);
+  await confirmConfig.onConfirm();
+  assert.equal(calls[0].value, '2026-10-03');
+
+  confirmConfig = null;
+  execute(extract(page, 'executeAction'), { ...values, inputs: { 'fc-1': { lifeDate: null } } })(fc, 'confirm', 'life');
+  assert.equal(confirmConfig, null);
+  assert.deepEqual(shown, ['성공', '입력 필요']);
+});
+
+test('dashboard list state round-trips through the URL and ignores unknown values', () => {
+  const page = 'app/dashboard/page.tsx';
+  const read = execute(extract(page, 'readDashboardListState'), { URLSearchParams });
+  const write = execute(extract(page, 'writeDashboardListState'), { URLSearchParams });
+  const tabs = ['all', 'g_done', 'step2'];
+  const state = { activeTab: 'step2', metricFilter: 'pendingDocs', keyword: '가상', currentPage: 3 };
+  const search = write('?fcId=keep', state);
+  assert.deepEqual({ ...read(search, tabs) }, state);
+  assert.equal(new URLSearchParams(search).get('fcId'), 'keep');
+  assert.equal(write(search, { activeTab: 'all', metricFilter: 'all', keyword: '', currentPage: 1 }), 'fcId=keep');
+  assert.deepEqual({ ...read('?tab=bogus&metric=bogus&page=-2', tabs) }, { activeTab: 'all', metricFilter: 'all', keyword: '', currentPage: 1 });
+});
+
+test('quick-filter tabs clear the KPI filter and reset the page like workflow tabs', () => {
+  const source = syntax('app/dashboard/page.tsx').getFullText();
+  assert.equal((source.match(/onChange=\{handleActiveTabChange\}/g) || []).length, 2);
+  const calls = [];
+  execute(extract('app/dashboard/page.tsx', 'handleActiveTabChange'), {
+    setActiveTab: (v) => calls.push(['tab', v]), setMetricFilter: (v) => calls.push(['metric', v]), setCurrentPage: (v) => calls.push(['page', v]),
+  })('g_done');
+  assert.deepEqual(calls, [['tab', 'g_done'], ['metric', 'all'], ['page', 1]]);
+});
+
+test('bulk exam reception confirms each applicant and reports partial failures', async () => {
+  const shown = []; let cache = [{ id: 'a', is_confirmed: false, status: 'applied' }, { id: 'b', is_confirmed: false, status: 'applied' }];
+  const options = execute(extract('app/dashboard/exam/applicants/page.tsx', 'bulkConfirmMutation'), {
+    requestReception: async (item) => { if (item.id === 'b') throw new Error('synthetic failure'); return { json: { ok: true }, transition: { isConfirmed: true, status: 'confirmed' } }; },
+    getAdminNotificationWarning: () => null,
+    setReceptionInCache: (updates) => { cache = cache.map((row) => updates.has(row.id) ? { ...row, is_confirmed: updates.get(row.id).isConfirmed, status: updates.get(row.id).status } : row); },
+    setBulkConfirmOpened() {}, notifications: { show: (item) => shown.push(item) },
+  });
+  const result = await options.mutationFn(cache);
+  assert.equal(result.confirmed.size, 1); assert.equal(result.failed, 1);
+  options.onSuccess(result);
+  assert.deepEqual(cache.map((row) => [row.is_confirmed, row.status]), [[true, 'confirmed'], [false, 'applied']]);
   assert.equal(shown[0].title, '일괄 접수 일부 실패'); assert.equal(shown[0].color, 'yellow');
 });
 

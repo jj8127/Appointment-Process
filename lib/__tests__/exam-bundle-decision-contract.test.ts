@@ -10,13 +10,13 @@ const migrationName =
 const typedNotificationMigrationName =
   '20260725004017_add_typed_notification_targets_and_receipts.sql';
 const accountDeleteLegacyChatPathMigrationName =
-  '20261013060002_filter_account_delete_legacy_chat_paths.sql';
+  '20261013090024_filter_account_delete_legacy_chat_paths.sql';
 const messengerAttachmentMigrationName =
   '20260725035711_add_private_messenger_attachments_v2.sql';
 
 const canonicalFunction = (source: string, functionName: string) => {
   const marker = `create or replace function public.${functionName}(`;
-  const start = source.indexOf(marker);
+  const start = source.lastIndexOf(marker);
   if (start < 0) return '';
   const end = source.indexOf('\n$$;', start);
   if (end < 0) return '';

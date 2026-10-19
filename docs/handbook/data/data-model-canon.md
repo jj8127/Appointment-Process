@@ -9,7 +9,7 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 ## 2026-10-11 공통 회원·제휴 데이터 (로컬)
 
-`20261011040816_platform_common_membership.sql`과 canonical schema에 공통 회원·회원 인증·가입 인증번호·제휴사·관심 등록·제휴 정산·혜택 테이블을 추가했다. 모든 테이블은 RLS를 사용하며 직접 anon/authenticated 접근과 관련 RPC 실행을 회수한다. Edge의 서비스 역할이 서명된 세션과 현재 계정/관리자 권한을 검증한 뒤 호출한다. 클라이언트가 역할을 지정하여 권한을 얻지 않는다.
+`20261012072525_platform_common_membership.sql`과 canonical schema에 공통 회원·회원 인증·가입 인증번호·제휴사·관심 등록·제휴 정산·혜택 테이블을 추가했다. 모든 테이블은 RLS를 사용하며 직접 anon/authenticated 접근과 관련 RPC 실행을 회수한다. Edge의 서비스 역할이 서명된 세션과 현재 계정/관리자 권한을 검증한 뒤 호출한다. 클라이언트가 역할을 지정하여 권한을 얻지 않는다.
 
 가입 추천인은 공통 관계로 유지하고 정산 시 직접 추천인·비율·계산 기준을 snapshot으로 보존한다. 제휴 설정은 revision을 비교하고 정산은 실제 거래/증빙·완료 시각·중복 요청을 검사한다. 기한은 제휴사 정산 완료 시각+7일이며 은행 이체를 실행하지 않는다. 병원은 광고 계약·한국 날짜 유효기간만 게시하고 환자 소개 수수료를 만들지 않는다. 기존 FC 삭제가 새 참조에 막히지 않게 신원 분리 계약을 유지한다. 상세는 [공통 서비스 계약](../mobile/platform-services.md), 검증은 기존 PGlite·Edge fixture 확장이다. 운영 DB 적용은 미실행이다.
 
@@ -213,4 +213,29 @@ The isolated PostgreSQL runner executes4 fixture files serially in one disposabl
 
 ## 2026-10-10 Notice creation actor provenance candidate
 
-`20261009163349_ux_notice_idempotent_actor.sql` is a local candidate after acceptance testing. The admin notice action uses the atomic creation RPC and keeps one request ID and identical uploaded payload for an unchanged retry. The RPC writes `notices.created_by` from the verified actor, ignores any author value in the notice payload, and returns the existing `{id}` result. Actor checks, invoker execution, service-role-only privileges, advisory transaction locking and atomic receipt insertion remain intact. A changed payload with the same key is rejected. The migration and final schema snapshot match; local PGlite and real PostgreSQL fixtures cover authorship, replay, rejection, rollback and concurrent creation. This candidate has not been applied to the operational database. Inbox delivery-key de-duplication does not prove exactly-once external push delivery.
+`20261013093016_ux_notice_idempotent_actor.sql` was applied to the operational database on 2026-10-13. The admin notice action uses the atomic creation RPC and keeps one request ID and identical uploaded payload for an unchanged retry. The RPC writes `notices.created_by` from the verified actor, ignores any author value in the notice payload, and returns the existing `{id}` result. Actor checks, invoker execution, service-role-only privileges, advisory transaction locking and atomic receipt insertion remain intact. A changed payload with the same key is rejected. The migration and final schema snapshot match. Local fixtures cover authorship, replay, rejection, rollback and concurrent creation; deployment receipts and any unexecuted acceptance gates remain in the canonical release harness. Inbox delivery-key de-duplication does not prove exactly-once external push delivery.
+
+## 2026-10-13 Applied migration identities
+
+The twelve operational history entries below were compared with the local migration SQL using MD5 after CR/LF and surrounding-whitespace normalization. All twelve bodies match. Following the existing 2026-10-09 reconciliation, only local filenames, schema markers and fixture/document references were aligned with the returned history IDs. No remote history was reverted and no applied SQL was rerun. Future additive migrations must follow this order; retired service-only RPCs remain until callers and forward cleanup are separately verified.
+
+| Operational version | Migration name |
+| --- | --- |
+| 20261013090024 | filter_account_delete_legacy_chat_paths |
+| 20261013090025 | atomic_onboarding_writes |
+| 20261013090028 | atomic_signup_otp_challenges |
+| 20261013090029 | atomic_password_login_attempts |
+| 20261013090030 | enforce_fc_profile_status_contract |
+| 20261013093016 | ux_notice_idempotent_actor |
+| 20261013094533 | moduon_signup_sms_delivery_state |
+| 20261013094535 | fc_signup_completion_capability_v1 |
+| 20261013094537 | cleanup_fc_signup_completion_challenges |
+| 20261013094539 | extend_sms_delivery_tracking |
+| 20261013094541 | atomic_fc_signup_otp_issue |
+| 20261013094543 | fc_password_sync_generation_results |
+
+## 2026-10-13 Legacy FC signup RPC retirement (applied)
+
+`20261013113212_retire_legacy_fc_signup_rpcs.sql` was applied on 2026-10-13 from clean source `3b546af03750f6db5810be37c0edc93a0f4a4e1c`. It is a forward migration, not a rewrite of the applied migrations above. It retires the exact signatures of `issue_signup_otp_challenge_v1`, `process_signup_otp_challenge_v1`, `validate_signup_verification_proof_v1` and `complete_fc_signup_atomic_v1` with `DROP FUNCTION ... RESTRICT`. It keeps historical SQL and profile columns intact. A nonempty legacy challenge/proof state aborts the migration; unexpected dependencies prevent the DROP rather than being removed with CASCADE. The local filename, schema marker and fixture path now use the returned operational history version without changing the SQL body.
+
+Read-only preflight found zero catalog/cron dependencies and zero legacy challenge/proof state. The active source closures of all 55 Edge Functions, covering 457 files, contained zero references to the four retired RPCs. The closest capability SQL fixture covers historical → current → retirement lifecycle, the nonempty-state guard and dependency restriction. Supabase migration application succeeded with history version `20261013113212`; the post-application catalog contained zero retired RPCs. The exact source and post-application evidence are recorded in the canonical QA/handoff. This database receipt does not establish mobile installation adoption, real-device SMS delivery or authenticated admin UI acceptance.

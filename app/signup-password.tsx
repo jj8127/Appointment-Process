@@ -16,14 +16,16 @@ import { FormInput } from '@/components/FormInput';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { logger } from '@/lib/logger';
-import {
-  clearPendingSignupVerification,
-  getPendingSignupVerification,
-} from '@/lib/pending-signup-verification';
 import { safeStorage } from '@/lib/safe-storage';
+import { sensitiveTokenStorage } from '@/lib/secure-token-storage';
+import {
+  isSignupCompletionToken,
+  SIGNUP_COMPLETION_TOKEN_STORAGE_KEY,
+} from '@/lib/signup-completion-capability';
 import { hasValidStoredSignupReferral } from '@/lib/signup-referral';
-import { requireSignupCompletionReceipt } from '@/lib/signup-otp-response';
 import { supabase } from '@/lib/supabase';
+import { signupClientHeaders } from '@/lib/signup-client-metadata';
+import { readSupabaseFunctionErrorCode } from '@/lib/supabase-function-error';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { validatePassword } from '@/lib/validation';
 import type { CommissionCompletionStatus, LicenseStatus } from '@/types/fc';
@@ -46,17 +48,46 @@ type SignupPayload = {
   referralInviterFcId?: string;
 };
 
+function completionErrorMessage(code: unknown) {
+  switch (code) {
+    case 'verification_required':
+    case 'verification_invalid':
+    case 'verification_expired':
+      return '휴대폰 인증이 만료되었거나 올바르지 않습니다. 다시 인증해주세요.';
+    case 'request_conflict':
+      return '가입 정보가 변경되었습니다. 휴대폰 인증부터 다시 진행해주세요.';
+    case 'referral_invalid':
+      return '추천인 정보를 다시 확인해주세요.';
+    case 'invalid_request':
+      return '가입 정보를 다시 확인해주세요.';
+    case 'weak_password':
+      return '비밀번호 조건을 다시 확인해주세요.';
+    default:
+      return '회원가입 처리에 실패했습니다. 잠시 후 다시 시도해주세요.';
+  }
+}
+
+function requiresVerificationRestart(code: unknown) {
+  return code === 'verification_required'
+    || code === 'verification_invalid'
+    || code === 'verification_expired'
+    || code === 'request_conflict';
+}
+
 export default function SignupPasswordScreen() {
   const [payload, setPayload] = useState<SignupPayload | null>(null);
+  const [completionToken, setCompletionToken] = useState<string | null>(null);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
-  const [verificationProof, setVerificationProof] = useState<string | null>(null);
   const keyboardPadding = useKeyboardPadding();
 
   useEffect(() => {
     const load = async () => {
-      const raw = await safeStorage.getItem(STORAGE_KEY);
+      const [raw, storedCompletionToken] = await Promise.all([
+        safeStorage.getItem(STORAGE_KEY),
+        sensitiveTokenStorage.getItem(SIGNUP_COMPLETION_TOKEN_STORAGE_KEY),
+      ]);
       if (!raw) {
         Alert.alert('알림', '회원가입 정보를 먼저 입력해주세요.');
         router.replace('/signup');
@@ -72,9 +103,8 @@ export default function SignupPasswordScreen() {
           router.replace('/signup-verify');
           return;
         }
-        const pendingProof = getPendingSignupVerification(parsed.phone);
-        if (!pendingProof) {
-          Alert.alert('알림', '휴대폰 인증을 다시 진행해주세요.');
+        if (!isSignupCompletionToken(storedCompletionToken)) {
+          Alert.alert('알림', '휴대폰 인증을 다시 완료해주세요.');
           router.replace('/signup-verify');
           return;
         }
@@ -84,9 +114,12 @@ export default function SignupPasswordScreen() {
           return;
         }
         setPayload(parsed);
-        setVerificationProof(pendingProof);
+        setCompletionToken(storedCompletionToken);
       } catch {
-        await safeStorage.removeItem(STORAGE_KEY);
+        await Promise.allSettled([
+          safeStorage.removeItem(STORAGE_KEY),
+          sensitiveTokenStorage.removeItem(SIGNUP_COMPLETION_TOKEN_STORAGE_KEY),
+        ]);
         router.replace('/signup');
       }
     };
@@ -110,7 +143,12 @@ export default function SignupPasswordScreen() {
 
   const handleComplete = async () => {
     Keyboard.dismiss();
-    if (!payload || !verificationProof) return;
+    if (!payload) return;
+    if (!isSignupCompletionToken(completionToken)) {
+      Alert.alert('알림', '휴대폰 인증을 다시 완료해주세요.');
+      router.replace('/signup-verify');
+      return;
+    }
     if (!hasValidStoredSignupReferral(payload)) {
       Alert.alert('알림', '유효한 추천인을 먼저 선택해주세요.');
       router.replace('/signup');
@@ -139,6 +177,7 @@ export default function SignupPasswordScreen() {
         body: {
           phone: payload.phone,
           password: trimmedPassword,
+          completionToken,
           name: payload.name,
           affiliation: payload.affiliation,
           recommender: payload.recommender,
@@ -148,44 +187,44 @@ export default function SignupPasswordScreen() {
           commissionStatus: payload.commissionStatus ?? 'none',
           referralCode: payload.referralCode || undefined,
           referralInviterFcId: payload.referralInviterFcId || undefined,
-          verificationProof,
         },
+        headers: signupClientHeaders(),
       });
-      if (error) {
-        let detail = error.message;
-        const context = (error as any)?.context as Response | undefined;
-        if (context?.text) {
-          try {
-            detail = await context.text();
-          } catch {
-            // ignore parse failures
-          }
+      if (error || !data?.ok) {
+        const failureCode = error
+          ? await readSupabaseFunctionErrorCode(error)
+          : data?.code;
+        if (error) {
+          logger.warn('signup failed', { reason: 'request_failed' });
         }
-        throw new Error(detail || error.message);
-      }
-      if (!data?.ok) {
-        if (data?.code === 'already_set') {
+        if (failureCode === 'already_set') {
+          await Promise.allSettled([
+            safeStorage.removeItem(STORAGE_KEY),
+            sensitiveTokenStorage.removeItem(SIGNUP_COMPLETION_TOKEN_STORAGE_KEY),
+          ]);
           Alert.alert('안내', '이미 가입된 계정입니다. 로그인해주세요.');
           router.replace('/login');
           return;
         }
-        Alert.alert('오류', data?.message ?? '비밀번호 설정에 실패했습니다.');
+        if (requiresVerificationRestart(failureCode)) {
+          await sensitiveTokenStorage.removeItem(SIGNUP_COMPLETION_TOKEN_STORAGE_KEY).catch(() => undefined);
+        }
+        Alert.alert('오류', completionErrorMessage(failureCode));
+        if (requiresVerificationRestart(failureCode)) {
+          router.replace('/signup-verify');
+        }
         return;
       }
-      requireSignupCompletionReceipt(data, payload.phone);
 
-      await safeStorage.removeItem(STORAGE_KEY);
-      clearPendingSignupVerification();
+      await Promise.allSettled([
+        safeStorage.removeItem(STORAGE_KEY),
+        sensitiveTokenStorage.removeItem(SIGNUP_COMPLETION_TOKEN_STORAGE_KEY),
+      ]);
       Alert.alert('완료', '회원가입이 완료되었습니다. 로그인해주세요.');
       router.replace('/login');
-    } catch (err: any) {
-      logger.warn('signup failed', { error: err });
-      const message =
-        err?.message ||
-        err?.details ||
-        err?.error ||
-        '회원가입 처리에 실패했습니다.';
-      Alert.alert('오류', message);
+    } catch {
+      logger.warn('signup failed', { reason: 'unexpected_error' });
+      Alert.alert('오류', '회원가입 처리에 실패했습니다. 잠시 후 다시 시도해주세요.');
     } finally {
       setLoading(false);
     }

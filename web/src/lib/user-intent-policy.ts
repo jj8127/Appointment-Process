@@ -1,4 +1,4 @@
-import { FC_STATUSES } from '../types/fc.ts';
+import { isFcStatus } from '../../../lib/fc-status.ts';
 import { isValidIsoDate } from './calendar-date.ts';
 
 /** Enter confirms a composing character; it must not also submit the message. */
@@ -158,11 +158,7 @@ export function isNonEmptyResponseString(value: unknown): value is string {
 
 export const isValidYmdResponse = isValidIsoDate;
 
-const FC_STATUS_VALUES = new Set<string>(FC_STATUSES);
-
-export function isValidFcStatusResponse(value: unknown): boolean {
-  return typeof value === 'string' && FC_STATUS_VALUES.has(value);
-}
+export const isValidFcStatusResponse = isFcStatus;
 
 export function isHttpsResponseUrl(value: unknown): value is string {
   if (!isNonEmptyResponseString(value)) return false;

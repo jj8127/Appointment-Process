@@ -21,9 +21,9 @@ import {
 } from '@/lib/notification-open-authorization';
 import { markNotificationNavigationIdle } from '@/lib/notification-navigation-coordinator';
 import { clearPendingNotificationNavigation } from '@/lib/pending-notification-navigation';
+import { COLORS, RADIUS, SHADOWS, SPACING, TOUCH_TARGET, TYPOGRAPHY } from '@/lib/theme';
 import { invokeStoreIdentity } from '@/lib/store-identity-api';
 import { extractFunctionErrorMessage, mapStoreIdentityErrorMessage, requireStoreIdentityReceipt, toResidentInputAlertMessage } from '@/lib/store-identity-error';
-import { COLORS, RADIUS, SHADOWS, SPACING, TOUCH_TARGET, TYPOGRAPHY } from '@/lib/theme';
 import { toUserFacingAlertMessage } from '@/lib/user-facing-error';
 import { validateResidentId } from '@/lib/validation';
 

@@ -60,29 +60,10 @@ test('admin referral loading uses bounded chunks instead of one unbounded FC-id 
   assert.doesNotMatch(source, /fcIds\.join\(','\)/);
 });
 
-test('large referral-code reads reuse bounded chunks and merge duplicate rows newest-first', () => {
-  const fcIds = [
-    ...Array.from({ length: 444 }, (_, index) => `fc-${index}`),
-    'fc-0',
-    ' ',
-  ];
-  const chunks = chunkReferralEventFcIds(fcIds);
+test('referral code summary counts name the owner relationship to fc_profiles', () => {
+  const source = readFileSync(new URL('./admin-referrals.ts', import.meta.url), 'utf8');
 
-  assert.equal(chunks.length, Math.ceil(444 / REFERRAL_EVENT_FC_ID_CHUNK_SIZE));
-  assert.ok(chunks.every((chunk) => chunk.length <= REFERRAL_EVENT_FC_ID_CHUNK_SIZE));
-  assert.equal(chunks.flat().length, 444);
-
-  const duplicate = { id: 'code-2', created_at: '2026-07-30T02:00:00.000Z' };
-  const merged = mergeReferralEventChunks([
-    [
-      { id: 'code-1', created_at: '2026-07-30T01:00:00.000Z' },
-      duplicate,
-    ],
-    [
-      { id: 'code-3', created_at: '2026-07-30T03:00:00.000Z' },
-      duplicate,
-    ],
-  ]);
-
-  assert.deepEqual(merged.map((row) => row.id), ['code-3', 'code-2', 'code-1']);
+  // fc_profiles.recommender_code_id also references referral_codes; an unnamed embed is ambiguous.
+  assert.doesNotMatch(source, /fc_profiles!inner\(/);
+  assert.equal(source.match(/fc_profiles!referral_codes_fc_id_fkey!inner\(id\)/g)?.length, 2);
 });

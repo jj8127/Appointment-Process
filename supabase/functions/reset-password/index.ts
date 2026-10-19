@@ -5,7 +5,10 @@ import {
   buildRequestBoardPasswordSyncOptions,
   findPasswordResetAccount,
 } from '../_shared/password-reset-account.ts';
-import { syncRequestBoardPassword } from '../_shared/request-board-password-sync.ts';
+import {
+  buildFcPasswordSyncUpstream,
+  syncRequestBoardPassword,
+} from '../_shared/request-board-password-sync.ts';
 import { processPasswordResetChallenge } from '../_shared/password-reset-challenge.ts';
 
 type Payload = {
@@ -87,6 +90,9 @@ const smsBypassConfig = resolveSmsBypassConfig({
   VERCEL_ENV: getEnv('VERCEL_ENV'),
 });
 const requestBoardPasswordSyncUrl = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_URL') ?? '').trim();
+const requestBoardPasswordSyncV2Url = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_V2_URL') ?? '').trim();
+const requestBoardPasswordSyncV2Required =
+  (getEnv('REQUEST_BOARD_PASSWORD_SYNC_V2_REQUIRED') ?? '').trim().toLowerCase() === 'true';
 const requestBoardPasswordSyncToken = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_TOKEN') ?? '').trim();
 const requestBoardPasswordSyncTimeoutRaw = Number((getEnv('REQUEST_BOARD_PASSWORD_SYNC_TIMEOUT_MS') ?? '5000').trim());
 const requestBoardPasswordSyncTimeoutMs =
@@ -217,11 +223,23 @@ serve(async (req: Request) => {
   if (requestBoardSyncOptions) {
     await syncRequestBoardPassword({
       syncUrl: requestBoardPasswordSyncUrl,
+      ...(account.kind === 'fc'
+        ? {
+            syncV2Url: requestBoardPasswordSyncV2Url,
+            requireV2: requestBoardPasswordSyncV2Required,
+          }
+        : {}),
       syncToken: requestBoardPasswordSyncToken,
       timeoutMs: requestBoardPasswordSyncTimeoutMs,
       logPrefix: 'reset-password',
       phone,
       password: newPassword,
+      upstream: account.kind === 'fc'
+        ? buildFcPasswordSyncUpstream(
+            account.id,
+            challengeResult.sessionVersion ?? null,
+          )
+        : null,
       options: {
         ...requestBoardSyncOptions,
         initiatorRole: account.kind === 'manager' ? 'manager' : 'self',

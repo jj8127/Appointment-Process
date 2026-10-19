@@ -731,6 +731,7 @@ describe('mobile route regressions moved from the Edge fixture', () => {
     const router = { replace: jest.fn() };
     await routeHandler('app/consent.tsx', 'submit', {
       tempId: 'synthetic', selectedDate: new Date('2026-10-10T00:00:00Z'), ymd: '2026-10-10', residentId: '00000000002', setLoading: jest.fn(),
+      appSessionToken: 'synthetic-session',
       supabase: { functions: { invoke: async () => ({ data: { ok: true, profile: { id: 'synthetic-profile' } }, error: null }) } }, invokeFcNotifyForDelivery: jest.fn(),
       presentPostCommitNotificationDelivery: ({ onDone }: { onDone: () => void }) => onDone(), router, INSURANCE_HOME_ROUTE, Alert: { alert: jest.fn() }, logger: { warn: jest.fn() },
     })();
@@ -828,13 +829,17 @@ it('draft navigation preserves cancellation and busy exits; explicit discard and
 
 describe('common member signup and login use isolated verified authentication', () => {
   const PLATFORM_TERMS_VERSION = '2026-10-12';
+  class TestPlatformApiError extends Error {
+    constructor(message: string, public readonly code: string) { super(message); }
+  }
   const authContext = (overrides: Record<string, unknown> = {}) => ({
     pending: { current: false }, cooldown: 0, phone: '01000000000', name: '가상 회원', code: '123456',
     password: 'Synthetic1!', confirmation: 'Synthetic1!', termsAccepted: true, referralCode: ' testcode ',
     PLATFORM_TERMS_VERSION,
     validatePhone, validateRequired, validatePassword, normalizePhone,
     resolvePlatformAuthRoute, service: undefined,
-    Keyboard: { dismiss: jest.fn() }, setError: jest.fn(), setNotice: jest.fn(), setLoading: jest.fn(), setCooldown: jest.fn(),
+    Keyboard: { dismiss: jest.fn() }, setError: jest.fn(), setOtpError: jest.fn(), setNotice: jest.fn(), setLoading: jest.fn(), setCooldown: jest.fn(),
+    PlatformApiError: TestPlatformApiError,
     beginAttempt: () => () => true, allowCompletedExit: jest.fn(), loginPlatformMember: jest.fn(async () => undefined),
     captureAppSessionOwner: () => () => true,
     acceptLoginResponse: jest.fn(async () => 'fc'),
@@ -858,6 +863,16 @@ describe('common member signup and login use isolated verified authentication', 
     expect(context.platformRequest).toHaveBeenCalledWith('request_otp', { phone: '01000000000' });
     expect(context.setCooldown).toHaveBeenCalledWith(60);
     expect(context.loginPlatformMember).not.toHaveBeenCalled();
+  });
+
+  it.each(['request_timeout','sms_delivery_unknown'])('keeps an ambiguous %s issuance on cooldown while allowing an arriving code', async code => {
+    const context = authContext({ platformRequest: jest.fn(async () => {
+      throw new TestPlatformApiError('synthetic private transport detail',code);
+    }) });
+    await routeHandler('app/services/signup.tsx','submit',context)('otp');
+    expect(context.setCooldown).toHaveBeenCalledWith(60);
+    expect(context.setOtpError).toHaveBeenCalledWith(expect.stringContaining('문자가 오면 인증번호를 입력'));
+    expect(context.setOtpError).not.toHaveBeenCalledWith(expect.stringContaining('synthetic private'));
   });
 
   it.each([{ termsAccepted: false }, { code: '123' }, { confirmation: 'different' }])('rejects incomplete signup before a network mutation (%j)', async override => {

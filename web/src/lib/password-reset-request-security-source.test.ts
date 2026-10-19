@@ -15,6 +15,15 @@ const requestResetSource = readFileSync(
   ),
   'utf8',
 );
+const signupSmsSource = readFileSync(
+  fileURLToPath(
+    new URL(
+      '../../../supabase/functions/_shared/signup-sms.ts',
+      import.meta.url,
+    ),
+  ),
+  'utf8',
+);
 
 type TestSmsConfig = {
   enabled: boolean;
@@ -122,7 +131,7 @@ describe('request-password-reset production test-mode boundary', () => {
     );
   });
 
-  it('preserves lookup, cooldown, expiry, random code, hash-only persistence, and provider delivery', () => {
+  it('preserves lookup, cooldown, expiry, random code, hash-only persistence, and bounded provider delivery', () => {
     assert.match(
       requestResetSource,
       /findPasswordResetAccount\(supabase, phone\)[\s\S]*?processPasswordResetChallenge\(supabase, account, \{ action: 'issue'/,
@@ -137,8 +146,11 @@ describe('request-password-reset production test-mode boundary', () => {
     );
     assert.match(
       requestResetSource,
-      /async function sendResetSms[\s\S]*?passwordResetTestSmsConfig\.enabled[\s\S]*?fetch\(`https:\/\/sens\.apigw\.ntruss\.com/,
+      /async function sendResetSms[\s\S]*?sendSignupSms\(to, code,[\s\S]*?passwordResetTestSmsConfig\.enabled/,
     );
+    assert.match(signupSmsSource, /https:\/\/sens\.apigw\.ntruss\.com/);
+    assert.match(signupSmsSource, /deliveryState:\s*'unknown'/);
+    assert.doesNotMatch(requestResetSource, /fetch\(`https:\/\/sens\.apigw\.ntruss\.com/);
     assert.doesNotMatch(
       requestResetSource,
       /reset_token_(?:code|plain|otp)\s*:/,
@@ -147,5 +159,27 @@ describe('request-password-reset production test-mode boundary', () => {
       requestResetSource,
       /console\.(?:log|info|warn|error|debug)\([^)]*(?:phone|code|secret)/,
     );
+  });
+
+  it('creates and finalizes the privacy-safe delivery attempt around every reset SMS send', () => {
+    const issue = requestResetSource.indexOf("action: 'issue'");
+    const begin = requestResetSource.indexOf("beginSmsDeliveryAttempt(supabase, 'password_reset')", issue);
+    const send = requestResetSource.indexOf('sendResetSms(phone, code)', begin);
+    const finalize = requestResetSource.indexOf(
+      "finalizeSmsDeliveryAttempt(supabase, 'password_reset', tracking.deliveryId, smsResult)",
+      send,
+    );
+    const success = requestResetSource.indexOf('return json({ ok: true, sent: true });', finalize);
+
+    assert.ok(issue >= 0, 'reset challenge must be issued first');
+    assert.ok(begin > issue, 'a durable delivery attempt must exist before send');
+    assert.ok(send > begin, 'SMS must not be sent before tracking starts');
+    assert.ok(finalize > send, 'provider acceptance must be finalized after the send');
+    assert.ok(success > finalize, 'success must require durable provider result tracking');
+    assert.match(
+      requestResetSource.slice(begin, send),
+      /action: 'cancel', tokenHash/,
+    );
+    assert.doesNotMatch(requestResetSource, /providerRequestId\s*[:=][^\n]*(?:phone|code)/i);
   });
 });

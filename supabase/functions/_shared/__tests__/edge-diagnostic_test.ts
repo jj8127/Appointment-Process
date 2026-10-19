@@ -53,6 +53,32 @@ test('preserves only reviewed diagnostic fields', () => {
   );
 });
 
+test('keeps only bounded signup release observation fields', () => {
+  assert.deepEqual(buildEdgeDiagnosticRecord({
+    event: 'signup.client_protocol',
+    reason: 'capability_v1',
+    platform: 'android',
+    appVersion: '4.2.19',
+    buildNumber: '4219',
+  }), {
+    event: 'signup.client_protocol',
+    reason: 'capability_v1',
+    platform: 'android',
+    appVersion: '4.2.19',
+    buildNumber: '4219',
+  });
+  assert.deepEqual(buildEdgeDiagnosticRecord({
+    event: 'signup.client_protocol',
+    reason: 'invalid',
+    platform: 'private-device',
+    appVersion: '4.2.19 private',
+    buildNumber: 'x'.repeat(33),
+  } as unknown as EdgeDiagnosticInput), {
+    event: 'signup.client_protocol',
+    reason: 'invalid',
+  });
+});
+
 test('accepts every reviewed residual-closure event and reason pair', () => {
   const reviewedPairs: EdgeDiagnosticInput[] = [
     { event: 'set_password.referral_resolution', reason: 'code_lookup_failed' },
@@ -65,6 +91,9 @@ test('accepts every reviewed residual-closure event and reason pair', () => {
     { event: 'complete_assisted_password.credential_lookup', reason: 'invalid_credential_material' },
     { event: 'complete_assisted_password.rpc', reason: 'challenge_rejected' },
     { event: 'complete_assisted_password.rpc', reason: 'completion_failed' },
+    { event: 'signup.client_protocol', reason: 'capability_v1' },
+    { event: 'signup.client_protocol', reason: 'legacy' },
+    { event: 'signup.client_protocol', reason: 'invalid' },
     { event: 'fc_notify.admin_web_push', reason: 'request_failed' },
     { event: 'fc_notify.notification_insert', reason: 'insert_failed' },
     { event: 'fc_notify.device_token_load', reason: 'query_failed' },

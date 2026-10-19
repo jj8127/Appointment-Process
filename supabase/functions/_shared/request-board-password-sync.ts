@@ -3,7 +3,10 @@ import {
   type EdgeDiagnosticInput,
   type EdgeDiagnosticWriter,
 } from './edge-diagnostic.ts';
-import { createRequestBoardPasswordSyncAssertion } from './request-board-auth.ts';
+import {
+  createRequestBoardPasswordSyncAssertion,
+  createRequestBoardPasswordSyncV2Assertion,
+} from './request-board-auth.ts';
 
 export type RequestBoardPasswordSyncRole = 'fc' | 'designer' | 'manager';
 export type RequestBoardPasswordSyncInitiatorRole = 'self' | 'admin' | 'manager' | 'system';
@@ -18,14 +21,23 @@ export type RequestBoardPasswordSyncOptions = {
   affiliation?: string | null;
 };
 
+export type RequestBoardPasswordSyncUpstream = Readonly<{
+  accountId: string;
+  credentialVersion: number;
+}>;
+
 type SyncRequestParams = {
   syncUrl: string;
+  syncV2Url?: string;
+  requireV2?: boolean;
   syncToken: string;
   timeoutMs: number;
   logPrefix: string;
   phone: string;
   password: string;
   authAssertion?: string | null;
+  operationId?: string | null;
+  upstream?: RequestBoardPasswordSyncUpstream | null;
   options: RequestBoardPasswordSyncOptions;
 };
 
@@ -66,6 +78,10 @@ export const buildRequestBoardPasswordSyncBody = (
   password: string,
   options: RequestBoardPasswordSyncOptions,
   authAssertion?: string | null,
+  v2?: {
+    upstream: RequestBoardPasswordSyncUpstream;
+    operationId: string;
+  } | null,
 ) => ({
   phone,
   // Manager identity is bridge-only; do not forward its canonical password
@@ -81,16 +97,40 @@ export const buildRequestBoardPasswordSyncBody = (
   ),
   ...(options.initiatorRole ? { initiatorRole: options.initiatorRole } : {}),
   ...(options.syncReason ? { syncReason: options.syncReason } : {}),
+  ...(v2 ? {
+    upstream_account_id: v2.upstream.accountId,
+    upstream_credential_version: v2.upstream.credentialVersion,
+    operation_id: v2.operationId,
+  } : {}),
   ...(authAssertion ? { authAssertion } : {}),
 });
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function buildFcPasswordSyncUpstream(
+  fcId: string | null | undefined,
+  sessionVersion: number | null | undefined,
+): RequestBoardPasswordSyncUpstream | null {
+  const normalizedId = String(fcId ?? '').trim().toLowerCase();
+  if (
+    !UUID.test(normalizedId)
+    || !Number.isSafeInteger(sessionVersion)
+    || Number(sessionVersion) < 0
+  ) return null;
+  return { accountId: `fc:${normalizedId}`, credentialVersion: Number(sessionVersion) };
+}
+
 export async function syncRequestBoardPasswordWithDeps({
   syncUrl,
+  syncV2Url,
+  requireV2,
   syncToken,
   timeoutMs,
   phone,
   password,
   authAssertion,
+  operationId,
+  upstream,
   options,
 }: SyncRequestParams, {
   fetchImpl,
@@ -99,8 +139,6 @@ export async function syncRequestBoardPasswordWithDeps({
   clearTimeoutImpl,
   diagnostic,
 }: PasswordSyncDeps) {
-  if (!syncUrl || !syncToken) return;
-
   const emitDiagnostic = (input: EdgeDiagnosticInput) => {
     try {
       diagnostic(input);
@@ -108,6 +146,28 @@ export async function syncRequestBoardPasswordWithDeps({
       // A diagnostic sink must not alter this best-effort bridge operation.
     }
   };
+
+  const useV2 = Boolean(upstream && syncV2Url);
+  const targetUrl = useV2 ? String(syncV2Url) : syncUrl;
+  if (requireV2 === true && !useV2) {
+    emitDiagnostic({
+      event: 'request_board.password_sync',
+      reason: 'request_failed',
+      retryable: false,
+      errorClass: 'authentication',
+    });
+    return;
+  }
+  if (!targetUrl || !syncToken) return;
+  if (useV2 && (!operationId || !UUID.test(operationId))) {
+    emitDiagnostic({
+      event: 'request_board.password_sync',
+      reason: 'request_failed',
+      retryable: false,
+      errorClass: 'authentication',
+    });
+    return;
+  }
 
   if (!authAssertion) {
     emitDiagnostic({
@@ -122,14 +182,20 @@ export async function syncRequestBoardPasswordWithDeps({
   const controller = createAbortController();
   const timeout = setTimeoutImpl(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetchImpl(syncUrl, {
+    const response = await fetchImpl(targetUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-request-bridge-token': syncToken,
       },
       body: JSON.stringify(
-        buildRequestBoardPasswordSyncBody(phone, password, options, authAssertion),
+        buildRequestBoardPasswordSyncBody(
+          phone,
+          password,
+          options,
+          authAssertion,
+          useV2 && upstream && operationId ? { upstream, operationId } : null,
+        ),
       ),
       signal: controller.signal,
     });
@@ -167,13 +233,26 @@ export async function syncRequestBoardPasswordWithDeps({
 }
 
 export async function syncRequestBoardPassword(params: SyncRequestParams) {
-  const authAssertion = await createRequestBoardPasswordSyncAssertion(
-    params.phone,
-    params.options.role,
-  );
+  const useV2 = Boolean(params.upstream && params.syncV2Url);
+  const operationId = useV2 ? crypto.randomUUID() : null;
+  const authAssertion = useV2 && params.upstream && operationId
+    ? await createRequestBoardPasswordSyncV2Assertion(
+        params.phone,
+        params.options.role,
+        params.upstream.accountId,
+        params.upstream.credentialVersion,
+        operationId,
+      )
+    : params.requireV2 === true
+      ? null
+      : await createRequestBoardPasswordSyncAssertion(
+          params.phone,
+          params.options.role,
+        );
   return syncRequestBoardPasswordWithDeps({
     ...params,
     authAssertion,
+    operationId,
   }, {
     fetchImpl: (input, init) => fetch(input, init),
     createAbortController: () => new AbortController(),

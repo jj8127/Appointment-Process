@@ -43,8 +43,8 @@ import {
   toggleLicenseStatus,
 } from '@/lib/license-statuses';
 import { supabase } from '@/lib/supabase';
+import { signupClientHeaders } from '@/lib/signup-client-metadata';
 import { SIGNUP_AFFILIATION_OPTIONS, SIGNUP_CARRIER_OPTIONS } from '@/lib/signup-profile-options';
-import { requireSignupAvailabilityReceipt } from '@/lib/signup-otp-response';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 import { validatePhone, validateEmail, validateRequired, normalizePhone } from '@/lib/validation';
 import type { LicenseStatus } from '@/types/fc';
@@ -186,13 +186,13 @@ export default function SignupScreen() {
     try {
       const { data, error } = await supabase.functions.invoke('request-signup-otp', {
         body: { phone: digits, checkOnly: true },
+        headers: signupClientHeaders(),
       });
       if (error) throw error;
       if (!data?.ok) {
         Alert.alert('가입 불가', data?.message ?? '이미 가입된 번호입니다.');
         return;
       }
-      requireSignupAvailabilityReceipt(data, digits);
     } catch (err: any) {
       Alert.alert('오류', err?.message ?? '번호 확인 중 문제가 발생했습니다.');
       return;

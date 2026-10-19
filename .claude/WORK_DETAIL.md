@@ -1,5 +1,13 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261019-admin-web-prod-line-integration"></a>
+## 2026-10-19 운영 관리자 웹 계열 통합
+
+- 대상: fix/admin-referrals-embed-20261016(6c19783: cba6593c 핫픽스 이식, 3b546af0 계약 수리·미사용 가입 RPC 정리, 6b72d99a migration 이력 정렬, 관리자 웹 수정 4건, 추천 코드 집계 fkey 지정).
+- 근거: 운영 DB list_migrations가 20261013090024~20261013113212 이름을 갖고, 운영 request-signup-otp(v47)가 sms-delivery-attempt·signup-client-observation을 쓴다. 그래서 핫픽스 이름의 중복 migration 5개(20261013060002, 20261013063140~063143)를 지우고 schema.sql은 6c19783 판을 썼다.
+- 충돌 50개는 핫픽스(49de1c0a)를 기준으로 다시 3-way 병합해 28개를 자동 해결했고, 나머지는 release 화면·테스트 결정을 유지했다. 자동 병합 파일도 같은 기준으로 대조해, 운영 서버가 보내지 않는 residentId를 가입 가능 확인에서 요구하던 app/signup.tsx를 고쳤다.
+- 검증: 앱·웹 tsc, deno check 8개 함수, jest(새 실패 0, 실패 24건은 모두 기준선 실패), web node 799/800(기존 범례 시험 1건), edge node 120/120, SQL PGlite 113/113.
+
 <a id="20261019-hotfix-integration"></a>
 ## 2026-10-19 운영 핫픽스 통합
 
@@ -7,6 +15,15 @@
 - 요청 게시판·로그인·관리자 목록·시험 신청자·FC 상세·그룹채팅은 핫픽스의 행 검증(collectSupabaseRows, 수신 확인, parseLoginSuccessResponse)과 release의 화면 구조(acceptLoginResponse, 일괄 접수, FC 홈 개편, admin-route-auth)를 함께 유지했다. schema.sql은 서로 겹치지 않는 두 migration 묶음을 날짜순으로 이었다.
 - release가 Edge fixture에서 mobile-acceptance-runtime으로 옮긴 시험 대기 수·서류 재진입 시험은 핫픽스 fixture를 반영해 옮긴 쪽에 두고, 핸들러 시험의 중복본과 release가 지운 메시지 초안 시험은 다시 넣지 않았다. release 소스 추출 시험에는 핫픽스의 새 의존성을 주입했다.
 - 검증: 앱·웹 tsc, deno check(get-referral-tree, login-with-password, request-signup-otp), jest, web node, edge node를 release·핫픽스 기준선과 비교해 새 실패 0건. 핫픽스 커밋에서 이미 실패하던 소스 문자열 시험 15건과 referral-graph-responsive 범례 시험 1건은 그대로 남아 있다.
+<a id="20261013-cutover-review-repair"></a>
+## 2026-10-13 가입·공통 조회 릴리스 재검토 수리
+
+- `49de1c0` 핫픽스와 `cba6593` 통합 소스를 재검토했다. 기존 SecureStore·세션·조회 계약을 재사용하고 mocked native storage가 놓친 key 제한, 본인정보 제한시간과 OTA profile/public 환경 차이를 수정한다. 신규 runner나 일반 프레임워크를 추가하지 않는다.
+- cumulative `b0bf872` 이후 범위에서 누락된 작업 로그, 11개 helper/test의 path-owner, Board·messenger·exam·presence·admin chat 소유 문서와 exam/logout 계약 근거를 갱신한다. 기존 요구사항을 완화하거나 예외로 숨기지 않는다.
+- Supabase plugin의 운영 migration list와 statement hash를 읽어 12개 SQL을 CR/LF·양끝 공백만 정규화한 MD5로 대조했다. SQL 12/12가 동일하여 파일명·schema marker·기존 fixture 참조만 실제 운영 timestamp로 맞춘다. 원격 이력 repair/revert나 SQL 재적용은 하지 않는다. 기존 `4586194`의 reconciliation 방식을 따른다.
+- main 및 4.2.17/4.2.18 clean lane에서 필요한 로그·코드만 수정하고 primary의 dirty `.claude` 파일을 건드리지 않는다. focused tests, cumulative governance, `db push --dry-run --skip-vault`, 최종 exact clean source와 외부 성공 여부는 canonical harness의 QA/handoff에 기록한다. 관측·전용 단말·인증 운영자 화면 gate는 게시/readback과 구분한다.
+
+- 새 `20261013113212_retire_legacy_fc_signup_rpcs.sql`은 legacy 가입 RPC 4개의 정확한 signature만 `DROP ... RESTRICT`로 제거하는 forward migration이다. 기존 적용 SQL·컬럼은 유지한다. read-only catalog/cron 의존·legacy challenge/proof 상태 0과 모든 활성 Edge 55개의 457개 source 참조 0을 확인했다. closest capability fixture의 historical/current/retirement·nonempty-state·dependency guard 검증 후 clean commit `3b546af03750f6db5810be37c0edc93a0f4a4e1c`에서 운영 적용했다. Supabase의 반환 history version은 `20261013113212`, 적용 후 catalog의 retired RPC는 0개다. 로컬 이름·marker·fixture 참조만 이력에 맞추고 SQL body는 변경하지 않았다. 실제 적용 영수증과 모바일·SMS acceptance는 canonical QA/handoff가 구분한다.
 
 <a id="20261011-hospital-home-visual"></a>
 ## 2026-10-11 제휴병원 홈 시각 개선

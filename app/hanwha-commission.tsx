@@ -125,7 +125,7 @@ export default function HanwhaCommissionScreen() {
 }
 
 function HanwhaCommissionScreenContent() {
-  const { role, residentId } = useSession();
+  const { role, residentId, appSessionToken } = useSession();
   const { notificationId, notificationTarget } = useLocalSearchParams<{
     notificationId?: string;
     notificationTarget?: string;
@@ -280,7 +280,10 @@ function HanwhaCommissionScreenContent() {
   }, []);
 
   const submitDate = useCallback(async () => {
-    if (!residentId) return;
+    if (!residentId || !appSessionToken) {
+      Alert.alert('로그인 정보 없음', '로그인 정보를 확인할 수 없습니다. 다시 로그인해주세요.');
+      return;
+    }
     if (!profile?.id) {
       Alert.alert('저장 실패', '현재 프로필을 확인할 수 없습니다. 새로고침 후 다시 시도해주세요.');
       return;
@@ -306,8 +309,8 @@ function HanwhaCommissionScreenContent() {
         message?: string;
         error?: string;
       }>('fc-submit-hanwha-commission', {
+        headers: { 'x-app-session-token': appSessionToken },
         body: {
-          phone: cleanPhone,
           hanwha_commission_date_sub: ymd,
         },
       });
@@ -352,7 +355,7 @@ function HanwhaCommissionScreenContent() {
     } finally {
       setSaving(false);
     }
-  }, [displayDate, load, profile?.id, residentId]);
+  }, [appSessionToken, displayDate, load, profile?.id, residentId]);
 
   const resolvePdfUrl = useCallback(async () => {
     if (!pdfPath) {

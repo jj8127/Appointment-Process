@@ -8,7 +8,10 @@ import {
   parseAssistedPasswordChangeTokenDetailed,
   parseDesignerCompanyNameFromAffiliation,
 } from '../_shared/request-board-auth.ts';
-import { syncRequestBoardPassword } from '../_shared/request-board-password-sync.ts';
+import {
+  buildFcPasswordSyncUpstream,
+  syncRequestBoardPassword,
+} from '../_shared/request-board-password-sync.ts';
 
 type Payload = {
   token?: string;
@@ -22,6 +25,7 @@ type CompletionResult = {
   phone?: string;
   name?: string;
   affiliation?: string;
+  sessionVersion?: number;
 };
 
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '')
@@ -55,6 +59,9 @@ if (!serviceKey) throw new Error('Missing required environment variable: SUPABAS
 const supabase = createClient(supabaseUrl, serviceKey);
 const encoder = new TextEncoder();
 const requestBoardPasswordSyncUrl = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_URL') ?? '').trim();
+const requestBoardPasswordSyncV2Url = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_V2_URL') ?? '').trim();
+const requestBoardPasswordSyncV2Required =
+  (getEnv('REQUEST_BOARD_PASSWORD_SYNC_V2_REQUIRED') ?? '').trim().toLowerCase() === 'true';
 const requestBoardPasswordSyncToken = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_TOKEN') ?? '').trim();
 const requestBoardPasswordSyncTimeoutRaw = Number(
   (getEnv('REQUEST_BOARD_PASSWORD_SYNC_TIMEOUT_MS') ?? '5000').trim(),
@@ -196,7 +203,7 @@ serve(async (req: Request) => {
   const nonceHash = await hashAssistedPasswordChangeNonce(nonce);
 
   const { data, error } = await supabase.rpc(
-    'complete_admin_assisted_password_change_v1',
+    'complete_admin_assisted_password_change_v2',
     {
       p_fc_id: fcId,
       p_phone: phone,
@@ -232,14 +239,25 @@ serve(async (req: Request) => {
     return fail('password_change_failed', '비밀번호 변경 결과를 확인하지 못했습니다.', 500, origin);
   }
 
+  const completedSessionVersion = typeof result.sessionVersion === 'number'
+    && Number.isSafeInteger(result.sessionVersion)
+    && result.sessionVersion >= 0
+    ? result.sessionVersion
+    : null;
   const designerCompanyName = parseDesignerCompanyNameFromAffiliation(result.affiliation);
   await syncRequestBoardPassword({
     syncUrl: requestBoardPasswordSyncUrl,
+    syncV2Url: requestBoardPasswordSyncV2Url,
+    requireV2: requestBoardPasswordSyncV2Required,
     syncToken: requestBoardPasswordSyncToken,
     timeoutMs: requestBoardPasswordSyncTimeoutMs,
     logPrefix: 'complete-assisted-password',
     phone,
     password: newPassword,
+    upstream: buildFcPasswordSyncUpstream(
+      fcId,
+      completedSessionVersion,
+    ),
     options: {
       role: designerCompanyName ? 'designer' : 'fc',
       name: result.name ?? '',

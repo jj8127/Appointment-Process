@@ -6,9 +6,11 @@ import {randomUUID} from 'node:crypto';
 import { fixtureSql, fc } from './ux-priority-one-fixture.mjs';
 const require=createRequire(import.meta.url);
 const {PGlite}=require(process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite');
-const migration=await readFile(new URL('../migrations/20261011040816_platform_common_membership.sql',import.meta.url),'utf8');
-const hospitalMigration=await readFile(new URL('../migrations/20261011130830_hospital_directory_ad_performance.sql',import.meta.url),'utf8');
-const recoveryMigration=await readFile(new URL('../migrations/20261012065343_platform_membership_recovery_consent.sql',import.meta.url),'utf8');
+const migration=await readFile(new URL('../migrations/20261012072525_platform_common_membership.sql',import.meta.url),'utf8');
+const hospitalMigration=await readFile(new URL('../migrations/20261012072611_hospital_directory_ad_performance.sql',import.meta.url),'utf8');
+const recoveryMigration=await readFile(new URL('../migrations/20261012072614_platform_membership_recovery_consent.sql',import.meta.url),'utf8');
+const smsDeliveryMigration=await readFile(new URL('../migrations/20261013094533_moduon_signup_sms_delivery_state.sql',import.meta.url),'utf8');
+const extendedSmsDeliveryMigration=await readFile(new URL('../migrations/20261013094539_extend_sms_delivery_tracking.sql',import.meta.url),'utf8');
 const generations=await readFile(new URL('../migrations/20261004133155_credential_session_generations.sql',import.meta.url),'utf8');
 const admin='90000000-0000-4000-8000-000000000001';
 const hash=Buffer.alloc(32,3).toString('base64'), salt=Buffer.alloc(16,4).toString('base64');
@@ -27,7 +29,8 @@ async function fixture() {
   `);
   await db.exec(generations.slice(generations.indexOf('create or replace function public.advance_credential_session_version()'),
     generations.indexOf('-- The service verifies')));
-  try {await db.exec(migration);await db.exec(hospitalMigration);await db.exec(recoveryMigration);} catch(error) {await db.close();throw new Error(error.message);}
+  try {await db.exec(migration);await db.exec(hospitalMigration);await db.exec(recoveryMigration);await db.exec(smsDeliveryMigration);await db.exec(extendedSmsDeliveryMigration);}
+  catch(error) {await db.close();throw new Error(error.message);}
   return db;
 }
 async function rpc(db,sql,args=[]) {
@@ -151,8 +154,100 @@ test('minimal signup consumes OTP atomically, locks attempts, and has no FC or d
     await assert.rejects(db.query('select issue_platform_signup_otp($1,$2)',['00000000013',hash]),/permission denied/);
     await db.exec('reset role');
     const rls=(await db.query("select relname,relrowsecurity from pg_class where relname like 'platform_%' and relkind='r'")).rows;
-    assert.equal(rls.length,8);assert.ok(rls.every(row=>row.relrowsecurity));
+    assert.equal(rls.length,9);assert.ok(rls.every(row=>row.relrowsecurity));
   }finally{await db.close();}
+});
+
+test('SMS delivery finalization tracks NCP acceptance and compensates only the current rejected OTP generation',async()=>{
+  const db=await fixture();try {
+    const phone='00000000031';
+    const first=await rpc(db,'select issue_platform_signup_otp($1,$2) result',[phone,hash]);
+    assert.equal(first.ok,true);assert.match(first.deliveryId,/^[0-9a-f-]{36}$/);
+    const accepted=await rpc(db,'select finalize_platform_signup_otp_delivery($1,$2,$3,$4,$5,$6) result',
+      [phone,first.deliveryId,'accepted','synthetic-ncp-request-1','202',null]);
+    assert.deepEqual(accepted,{ok:true,current:true});
+    const attempt=(await db.query('select purpose,state,provider_request_id,provider_status_code,failure_reason from platform_sms_delivery_attempts where id=$1',[first.deliveryId])).rows[0];
+    assert.deepEqual(attempt,{purpose:'signup',state:'accepted',provider_request_id:'synthetic-ncp-request-1',provider_status_code:'202',failure_reason:null});
+    assert.equal((await db.query('select delivery_id from platform_signup_challenges where phone=$1',[phone])).rows[0].delivery_id,first.deliveryId);
+
+    const rejectedPhone='00000000032';
+    const rejectedIssue=await rpc(db,'select issue_platform_signup_otp($1,$2) result',[rejectedPhone,hash]);
+    assert.equal((await rpc(db,'select finalize_platform_signup_otp_delivery($1,$2,$3,$4,$5,$6) result',
+      [rejectedPhone,rejectedIssue.deliveryId,'rejected',null,'400','provider_rejected'])).ok,true);
+    assert.equal(Number((await db.query('select count(*) n from platform_signup_challenges where phone=$1',[rejectedPhone])).rows[0].n),0);
+    assert.equal((await rpc(db,'select issue_platform_signup_otp($1,$2) result',[rejectedPhone,hash])).ok,true);
+
+    const stalePhone='00000000033';
+    const stale=await rpc(db,'select issue_platform_signup_otp($1,$2) result',[stalePhone,hash]);
+    await db.query("update platform_signup_challenges set sent_at=clock_timestamp()-interval '61 seconds' where phone=$1",[stalePhone]);
+    const current=await rpc(db,'select issue_platform_signup_otp($1,$2) result',[stalePhone,Buffer.alloc(32,5).toString('base64')]);
+    assert.notEqual(current.deliveryId,stale.deliveryId);
+    assert.equal((await rpc(db,'select finalize_platform_signup_otp_delivery($1,$2,$3,$4,$5,$6) result',
+      [stalePhone,stale.deliveryId,'rejected',null,'400','provider_rejected'])).code,'stale_delivery');
+    assert.equal((await db.query('select delivery_id from platform_signup_challenges where phone=$1',[stalePhone])).rows[0].delivery_id,current.deliveryId);
+
+    const unknownPhone='00000000034';
+    const unknown=await rpc(db,'select issue_platform_signup_otp($1,$2) result',[unknownPhone,hash]);
+    assert.equal((await rpc(db,'select finalize_platform_signup_otp_delivery($1,$2,$3,$4,$5,$6) result',
+      [unknownPhone,unknown.deliveryId,'unknown',null,null,'timeout'])).ok,true);
+    assert.equal((await rpc(db,'select issue_platform_signup_otp($1,$2) result',[unknownPhone,hash])).code,'cooldown');
+    assert.equal((await rpc(db,'select register_platform_member($1,$2,$3,$4,$5,$6) result',
+      [unknownPhone,hash,'Synthetic Unknown',hash,salt,null])).ok,true);
+    assert.equal((await rpc(db,'select finalize_platform_signup_otp_delivery($1,$2,$3,$4,$5,$6) result',
+      [unknownPhone,unknown.deliveryId,'rejected',null,'400','provider_rejected'])).code,'already_consumed');
+    assert.equal(Number((await db.query('select count(*) n from platform_signup_challenges where phone=$1',[unknownPhone])).rows[0].n),1);
+
+    for(const role of ['anon','authenticated']) {
+      await db.exec(`set role ${role}`);
+      await assert.rejects(db.query('select * from platform_sms_delivery_attempts'),/permission denied/);
+      await assert.rejects(db.query('select finalize_platform_signup_otp_delivery($1,$2,$3,$4,$5,$6)',
+        [phone,first.deliveryId,'accepted',null,'202',null]),/permission denied/);
+      await db.exec('reset role');
+    }
+  }finally{await db.close();}
+});
+
+test('FC signup and password reset share a PII-free, service-only SMS delivery ledger',async()=>{
+  const db=await fixture();try {
+    const fc=await rpc(db,'select begin_platform_sms_delivery_attempt($1) result',['fc_signup']);
+    const reset=await rpc(db,'select begin_platform_sms_delivery_attempt($1) result',['password_reset']);
+    assert.match(fc.deliveryId,/^[0-9a-f-]{36}$/);assert.match(reset.deliveryId,/^[0-9a-f-]{36}$/);
+
+    assert.deepEqual(await rpc(db,'select finalize_platform_sms_delivery_attempt($1,$2,$3,$4,$5,$6) result',
+      [fc.deliveryId,'fc_signup','accepted','synthetic-fc-request','202',null]),{ok:true});
+    assert.deepEqual(await rpc(db,'select finalize_platform_sms_delivery_attempt($1,$2,$3,$4,$5,$6) result',
+      [reset.deliveryId,'password_reset','unknown',null,null,'timeout']),{ok:true});
+
+    const rows=(await db.query(`select purpose,state,provider_request_id,provider_status_code,failure_reason,
+      completed_at is not null completed from platform_sms_delivery_attempts
+      where id in ($1,$2) order by purpose`,[fc.deliveryId,reset.deliveryId])).rows;
+    assert.deepEqual(rows,[
+      {purpose:'fc_signup',state:'accepted',provider_request_id:'synthetic-fc-request',provider_status_code:'202',failure_reason:null,completed:true},
+      {purpose:'password_reset',state:'unknown',provider_request_id:null,provider_status_code:null,failure_reason:'timeout',completed:false},
+    ]);
+    assert.equal((await rpc(db,'select finalize_platform_sms_delivery_attempt($1,$2,$3,$4,$5,$6) result',
+      [fc.deliveryId,'fc_signup','accepted','synthetic-fc-request','202',null])).code,'delivery_not_pending');
+    assert.equal((await rpc(db,'select finalize_platform_sms_delivery_attempt($1,$2,$3,$4,$5,$6) result',
+      [reset.deliveryId,'fc_signup','rejected',null,'400','provider_rejected'])).code,'delivery_not_pending');
+    await assert.rejects(rpc(db,'select begin_platform_sms_delivery_attempt($1) result',['signup']),/invalid_input/);
+    await assert.rejects(rpc(db,'select finalize_platform_sms_delivery_attempt($1,$2,$3,$4,$5,$6) result',
+      [reset.deliveryId,'password_reset','accepted',null,'202',null]),/invalid_input/);
+
+    const columns=(await db.query(`select column_name from information_schema.columns
+      where table_schema='public' and table_name='platform_sms_delivery_attempts' order by column_name`)).rows.map(row=>row.column_name);
+    assert.equal(columns.some(name=>/phone|message|code_hash|token/i.test(name)),false);
+
+    for(const role of ['anon','authenticated']) {
+      await db.exec(`set role ${role}`);
+      await assert.rejects(db.query('select begin_platform_sms_delivery_attempt($1)',['fc_signup']),/permission denied/);
+      await assert.rejects(db.query('select finalize_platform_sms_delivery_attempt($1,$2,$3,$4,$5,$6)',
+        [reset.deliveryId,'password_reset','unknown',null,null,'timeout']),/permission denied/);
+      await db.exec('reset role');
+    }
+  }finally{await db.close();}
+
+  const schema=(await readFile(new URL('../schema.sql',import.meta.url),'utf8')).replaceAll('\r\n','\n');
+  assert.ok(schema.includes(`-- Migration: extended SMS delivery tracking (20261013094539).\n${extendedSmsDeliveryMigration.replaceAll('\r\n','\n')}`));
 });
 
 test('one shared referral code spans service interests; snapshots and idempotency survive later graph changes',async()=>{
@@ -186,6 +281,11 @@ test('consumer password recovery is single use, expires, locks guesses, revokes 
     const reset=(action,token=hash)=>rpc(db,'select process_password_reset_challenge($1,$2,$3,$4,$5,$6,$7) result',
       [action,'member',created.memberId,'00000000011',token,changedHash,changedSalt]);
     assert.equal((await reset('consume')).code,'invalid_token');
+    assert.equal((await reset('issue')).ok,true);
+    assert.equal((await rpc(db,'select cancel_password_reset_challenge($1,$2,$3,$4) result',
+      ['member',created.memberId,'00000000011',changedHash])).code,'stale_challenge');
+    assert.equal((await rpc(db,'select cancel_password_reset_challenge($1,$2,$3,$4) result',
+      ['member',created.memberId,'00000000011',hash])).ok,true);
     assert.equal((await reset('issue')).ok,true);
     assert.equal((await reset('issue')).code,'cooldown');
     for(let i=0;i<5;i++) assert.equal((await reset('consume',changedHash)).code,i===4 ? 'attempts_exhausted' : 'invalid_token');
@@ -236,7 +336,8 @@ test('auth cleanup removes expired receipts while preserving live codes and acti
     }
     const canonical=await readFile(new URL('../schema.sql',import.meta.url),'utf8');
     assert.ok(canonical.replaceAll('\r\n','\n').includes(recoveryMigration.replaceAll('\r\n','\n')));
-    const schedule=await readFile(new URL('../migrations/20261012070403_platform_auth_cleanup_schedule.sql',import.meta.url),'utf8');
+    assert.ok(canonical.replaceAll('\r\n','\n').includes(smsDeliveryMigration.replaceAll('\r\n','\n')));
+    const schedule=await readFile(new URL('../migrations/20261012072615_platform_auth_cleanup_schedule.sql',import.meta.url),'utf8');
     assert.match(schedule,/create extension if not exists pg_cron with schema pg_catalog/);
     assert.match(schedule,/cron\.schedule\('platform-auth-challenge-cleanup','\*\/5 \* \* \* \*'/);
     assert.ok(canonical.replaceAll('\r\n','\n').includes(schedule.replaceAll('\r\n','\n')));

@@ -9,6 +9,7 @@ import { FormInput } from '@/components/FormInput';
 import { DepartmentIcon } from '@/components/hospitals/DepartmentIcon';
 import HospitalScreen, { hospitalStyles as styles } from '@/components/hospitals/HospitalScreen';
 import { useHospitalExposure } from '@/hooks/use-hospital-exposure';
+import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { platformRequest, type PlatformHospital, type PlatformHospitalList, type PlatformHospitalRegions } from '@/lib/platform-api';
 import { COLORS } from '@/lib/theme';
 import { useReadAttempt } from '@/lib/use-read-attempt';
@@ -18,6 +19,7 @@ const ALL: Filters = { provinceCode: '', district: '', search: '', specialty: ''
 
 export default function ServiceHospitals() {
   const insets = useSafeAreaInsets();
+  const keyboardPadding = useKeyboardPadding();
   const [regions, setRegions] = useState<PlatformHospitalRegions | null>(null);
   const [regionsError, setRegionsError] = useState(false);
   const [filters, setFilters] = useState(ALL);
@@ -98,8 +100,8 @@ export default function ServiceHospitals() {
   return <HospitalScreen headerActions={<Pressable accessibilityRole="button" accessibilityLabel={`시·도 선택, ${province?.provinceName ?? '전국'}`} onPress={() => setPicker('province')} style={local.region}>
     <Feather name="map-pin" size={16} color={COLORS.text.secondary} accessible={false} /><Text style={local.regionName} numberOfLines={1}>{province?.provinceName ?? '전국'}</Text><Feather name="chevron-down" size={14} color={COLORS.text.secondary} accessible={false} />
   </Pressable>}>
-    <FlatList ref={list} data={rows} keyExtractor={(item) => `list:${item.id}`} keyboardShouldPersistTaps="handled"
-      contentContainerStyle={{ paddingBottom: 24 + insets.bottom }}
+    <FlatList ref={list} data={rows} keyExtractor={(item) => `list:${item.id}`} keyboardShouldPersistTaps="handled" keyboardDismissMode="none"
+      contentContainerStyle={{ paddingBottom: 24 + insets.bottom + keyboardPadding }}
       onLayout={({ nativeEvent }) => setViewport({ width: nativeEvent.layout.width, height: nativeEvent.layout.height })}
       onScroll={({ nativeEvent }) => setScrollY(nativeEvent.contentOffset.y)} scrollEventThrottle={32}
       onViewableItemsChanged={viewableChanged.current} viewabilityConfig={viewability.current}

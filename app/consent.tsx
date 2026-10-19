@@ -70,7 +70,7 @@ export default function AllowanceConsentScreen() {
 }
 
 function AllowanceConsentScreenContent() {
-  const { residentId } = useSession();
+  const { residentId, appSessionToken } = useSession();
   const { notificationId, notificationTarget } = useLocalSearchParams<{
     notificationId?: string;
     notificationTarget?: string;
@@ -170,8 +170,7 @@ function AllowanceConsentScreenContent() {
       Alert.alert('입력 확인', '보증보험 조회 동의일을 선택해주세요.');
       return;
     }
-    const phone = (residentId ?? '').replace(/[^0-9]/g, '');
-    if (!phone) {
+    if (!appSessionToken) {
       Alert.alert('로그인 정보 없음', '로그인 정보를 확인할 수 없습니다. 다시 로그인해주세요.');
       return;
     }
@@ -179,7 +178,8 @@ function AllowanceConsentScreenContent() {
 
     try {
       const { data, error } = await supabase.functions.invoke('fc-consent', {
-        body: { phone, allowance_date: ymd },
+        headers: { 'x-app-session-token': appSessionToken },
+        body: { allowance_date: ymd },
       });
       if (error) {
         logger.warn('[consent] fc-consent invoke failed');
@@ -424,6 +424,7 @@ function AllowanceConsentScreenContent() {
               {showPicker && Platform.OS !== 'ios' && (
                 <DateTimePicker
                   value={selectedDate ?? new Date()}
+                  maximumDate={new Date()}
                   mode="date"
                   display="default"
                   locale="ko-KR"
@@ -467,6 +468,7 @@ function AllowanceConsentScreenContent() {
               <View style={styles.pickerCard}>
                 <DateTimePicker
                   value={tempDate ?? selectedDate ?? new Date()}
+                  maximumDate={new Date()}
                   mode="date"
                   display="inline"
                   locale="ko-KR"

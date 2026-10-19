@@ -17,46 +17,11 @@
     "web/src/app/dashboard/settings/page.tsx"
   ],
   "expectedCounts": {
-    "fixed-non-sensitive": 7,
+    "fixed-non-sensitive": 2,
     "unproven": 0,
-    "total": 7
+    "total": 2
   },
   "sinks": [
-    {
-      "path": "supabase/functions/set-password/index.ts",
-      "method": "warn",
-      "call": "console.warn('[set-password] resolveReferralDetails: inviter profile not found or missing phone')",
-      "classification": "fixed-non-sensitive",
-      "anchor": "inviter-profile-missing"
-    },
-    {
-      "path": "supabase/functions/set-password/index.ts",
-      "method": "warn",
-      "call": "console.warn('[set-password] resolveReferralDetails: inviter profile is neither signup completed nor manager shadow')",
-      "classification": "fixed-non-sensitive",
-      "anchor": "inviter-profile-ineligible"
-    },
-    {
-      "path": "supabase/functions/set-password/index.ts",
-      "method": "warn",
-      "call": "console.warn('[set-password] resolveReferralDetails: inviter profile is request-board designer')",
-      "classification": "fixed-non-sensitive",
-      "anchor": "inviter-profile-designer"
-    },
-    {
-      "path": "supabase/functions/set-password/index.ts",
-      "method": "warn",
-      "call": "console.warn('[set-password] resolveReferralDetails: inviter phone is not normalized')",
-      "classification": "fixed-non-sensitive",
-      "anchor": "inviter-phone-not-normalized"
-    },
-    {
-      "path": "supabase/functions/set-password/index.ts",
-      "method": "warn",
-      "call": "console.warn('[set-password] resolveReferralDetails: self-referral detected, skipping')",
-      "classification": "fixed-non-sensitive",
-      "anchor": "self-referral"
-    },
     {
       "path": "supabase/functions/board-create/index.ts",
       "method": "warn",

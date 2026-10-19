@@ -10,7 +10,7 @@ import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import ModuonBrand from '@/components/ModuonBrand';
 import { useSession } from '@/hooks/use-session';
 import { useDraftExitGuard } from '@/hooks/use-draft-exit-guard';
-import { PLATFORM_CONSENT_TEXT, PLATFORM_PRIVACY_POLICY_URL, PLATFORM_TERMS_VERSION, platformRequest, type PlatformAuthResponse } from '@/lib/platform-api';
+import { PLATFORM_CONSENT_TEXT, PLATFORM_PRIVACY_POLICY_URL, PLATFORM_TERMS_VERSION, PlatformApiError, platformRequest, type PlatformAuthResponse } from '@/lib/platform-api';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { consumePendingReferralCode } from '@/lib/referral-deeplink';
 import { captureAppSessionOwner } from '@/lib/request-board-api';
@@ -32,6 +32,7 @@ export default function PlatformSignup() {
   const [showConsent, setShowConsent] = useState(false);
   const [loading, setLoading] = useState<'otp' | 'signup' | null>(null);
   const [cooldown, setCooldown] = useState(0);
+  const [otpError, setOtpError] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const pending = useRef(false);
@@ -62,7 +63,11 @@ export default function PlatformSignup() {
     const validations = [validatePhone(phone), ...(action === 'signup'
       ? [validateRequired(name, '이름'), validatePassword(password)] : [])];
     const invalid = validations.find(value => !value.isValid);
-    if (invalid) { setError(invalid.error ?? '입력 내용을 확인해주세요.'); return; }
+    if (invalid) {
+      const message = invalid.error ?? '입력 내용을 확인해주세요.';
+      if (action === 'otp') setOtpError(message); else setError(message);
+      return;
+    }
     if (action === 'signup') {
       if (!/^\d{6}$/.test(code.trim())) { setError('문자로 받은 6자리 인증 코드를 입력해주세요.'); return; }
       if (password.trim() !== confirmation.trim()) { setError('비밀번호가 일치하지 않습니다.'); return; }
@@ -71,7 +76,7 @@ export default function PlatformSignup() {
     Keyboard.dismiss();
     pending.current = true;
     setLoading(action);
-    setError('');
+    if (action === 'otp') setOtpError(''); else setError('');
     setNotice('');
     const isCurrent = beginAttempt();
     const ownsSession = captureAppSessionOwner();
@@ -80,7 +85,7 @@ export default function PlatformSignup() {
         await platformRequest('request_otp', { phone: normalizePhone(phone) });
         if (!isCurrent() || !ownsSession()) return;
         setCooldown(60);
-        setNotice('인증 코드를 문자로 보냈습니다.');
+        setNotice('인증 문자 발송 요청이 접수되었습니다.');
       } else {
         const result = await platformRequest<PlatformAuthResponse>('signup', {
           phone: normalizePhone(phone), code: code.trim(), name: name.trim(), password: password.trim(),
@@ -93,7 +98,22 @@ export default function PlatformSignup() {
         if (isCurrent()) router.replace(resolvePlatformAuthRoute(service));
       }
     } catch (failure) {
-      if (isCurrent()) setError(failure instanceof Error ? failure.message : '처리하지 못했습니다. 입력 내용을 유지했으니 다시 시도해주세요.');
+      if (isCurrent()) {
+        const message = failure instanceof Error ? failure.message : '처리하지 못했습니다. 입력 내용을 유지했으니 다시 시도해주세요.';
+        if (action === 'otp') {
+          const ambiguousDelivery = failure instanceof PlatformApiError
+            && ['request_timeout','sms_delivery_unknown'].includes(failure.code);
+          const throttleSeconds = failure instanceof PlatformApiError && failure.code === 'locked'
+            ? 600
+            : failure instanceof PlatformApiError && failure.code === 'cooldown'
+              ? 60
+              : ambiguousDelivery ? 60 : 0;
+          if (throttleSeconds > 0) setCooldown(throttleSeconds);
+          setOtpError(ambiguousDelivery
+            ? '요청 결과를 확인하지 못했습니다. 문자가 오면 인증번호를 입력하고, 오지 않으면 60초 후 다시 요청해 주세요.'
+            : message);
+        } else setError(message);
+      }
     } finally {
       if (isCurrent()) { pending.current = false; setLoading(null); }
     }
@@ -117,13 +137,14 @@ export default function PlatformSignup() {
         <FormInput label="이름" accessibilityLabel="이름" value={name} onChangeText={setName}
           editable={!loading} autoComplete="name" maxLength={50} containerStyle={styles.field} />
         <FormInput label="휴대폰 번호" accessibilityLabel="휴대폰 번호" value={phone}
-          onChangeText={value => { setPhone(value); setCode(''); }} keyboardType="phone-pad" autoComplete="tel"
+          onChangeText={value => { setPhone(value); setCode(''); setCooldown(0); setNotice(''); setOtpError(''); }} keyboardType="phone-pad" autoComplete="tel"
           placeholder="010으로 시작하는 11자리" editable={!loading} containerStyle={styles.field} />
         <Button onPress={() => submit('otp')} variant="outline" loading={loading === 'otp'}
           disabled={Boolean(loading) || cooldown > 0 || !hydrated} fullWidth>
           {cooldown ? `${cooldown}초 후 다시 받기` : '인증 코드 받기'}
         </Button>
         {notice ? <Text accessibilityLiveRegion="polite" style={styles.notice}>{notice}</Text> : null}
+        {otpError ? <Text accessibilityRole="alert" style={styles.otpError}>{otpError}</Text> : null}
         <FormInput label="인증 코드" accessibilityLabel="인증 코드" value={code} onChangeText={setCode}
           keyboardType="number-pad" autoComplete="sms-otp" maxLength={6} placeholder="문자로 받은 6자리"
           editable={!loading} containerStyle={styles.codeField} />
@@ -172,6 +193,7 @@ const styles = StyleSheet.create({
   field: { marginBottom: SPACING.lg },
   codeField: { marginTop: SPACING.lg, marginBottom: SPACING.lg },
   notice: { color: COLORS.text.secondary, fontSize: TYPOGRAPHY.fontSize.sm, marginTop: SPACING.sm },
+  otpError: { color: COLORS.error, fontSize: TYPOGRAPHY.fontSize.sm, lineHeight: 20, marginTop: SPACING.sm },
   detail: { color: COLORS.text.secondary, fontSize: TYPOGRAPHY.fontSize.sm, lineHeight: 20, marginBottom: SPACING.lg },
   detailLink: { color: COLORS.text.secondary, fontSize: TYPOGRAPHY.fontSize.sm, textDecorationLine: 'underline' },
   consent: { flexDirection: 'row', gap: SPACING.sm, alignItems: 'center', minHeight: 44, marginBottom: SPACING.sm },

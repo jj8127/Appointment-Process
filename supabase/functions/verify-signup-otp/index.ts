@@ -1,11 +1,15 @@
 import { serveWithConfiguredCors as serve } from '../_shared/serve-with-cors.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
-import { mutationRowReceiptMatches } from '../_shared/ux-mutation-contract.ts';
+import { SIGNUP_CLIENT_HEADERS } from '../_shared/signup-client-observation.ts';
 
 type Payload = {
   phone?: string;
   code?: string;
-  challengeId?: string;
+};
+
+type VerifyResult = {
+  ok?: boolean;
+  code?: string;
 };
 
 function getEnv(name: string): string | undefined {
@@ -15,16 +19,14 @@ function getEnv(name: string): string | undefined {
   return undefined;
 }
 
-// Security: Restrict CORS to specific origins
-const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
+const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map((origin) => origin.trim()).filter(Boolean);
 const corsHeaders = {
   'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
+  'Access-Control-Allow-Headers': `Content-Type, Authorization, x-client-info, apikey, ${Object.values(SIGNUP_CLIENT_HEADERS).join(', ')}`,
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Credentials': 'true',
 };
 
-// Security: Validate required environment variables
 const supabaseUrl = getEnv('SUPABASE_URL');
 const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY');
 
@@ -94,20 +96,56 @@ function cleanPhone(input: string) {
   return (input ?? '').replace(/[^0-9]/g, '');
 }
 
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function toBase64(bytes: Uint8Array) {
   let binary = '';
-  bytes.forEach((b) => (binary += String.fromCharCode(b)));
+  bytes.forEach((byte) => (binary += String.fromCharCode(byte)));
   return btoa(binary);
 }
 
 function toBase64Url(bytes: Uint8Array) {
-  return toBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return toBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
 async function sha256Base64(value: string) {
-  const bytes = textEncoder.encode(value);
-  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', textEncoder.encode(value)));
   return toBase64(hash);
+}
+
+async function sha256Hex(value: string) {
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', textEncoder.encode(value)));
+  return bytesToHex(hash);
+}
+
+function readRpcResult(value: unknown): VerifyResult {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  return candidate && typeof candidate === 'object' ? candidate as VerifyResult : {};
+}
+
+function rpcFailure(code: string | undefined) {
+  switch (code) {
+    case 'not_found':
+      return fail('not_found', '등록된 계정을 찾을 수 없습니다.', 404);
+    case 'no_code':
+      return fail('no_code', '먼저 인증 코드를 요청해주세요.');
+    case 'expired_code':
+      return fail('expired_code', '인증 코드가 만료되었습니다. 다시 요청해주세요.');
+    case 'locked':
+      return fail('locked', '인증 시도가 너무 많아 잠시 후 다시 시도해주세요.', 429);
+    case 'invalid_code':
+      return fail('invalid_code', '인증 코드가 올바르지 않습니다.');
+    case 'already_completed':
+    case 'already_set':
+    case 'already_exists':
+      return fail('already_completed', '이미 가입이 완료된 계정입니다.', 409);
+    case 'invalid_request':
+      return fail('invalid_code', '인증 정보를 다시 확인해주세요.');
+    default:
+      return fail('db_error', '인증을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.', 500);
+  }
 }
 
 serve(async (req: Request) => {
@@ -117,74 +155,42 @@ serve(async (req: Request) => {
   if (req.method !== 'POST') {
     return json({ ok: false, code: 'method_not_allowed', message: 'Method not allowed' }, 405);
   }
-  if (!supabaseUrl || !serviceKey) {
-    return json({ ok: false, code: 'server_misconfigured', message: 'Missing Supabase credentials' }, 500);
-  }
 
   let body: Payload;
   try {
     body = await req.json();
   } catch {
-    return fail('invalid_json', 'Invalid JSON');
+    return fail('invalid_json', '요청 형식이 올바르지 않습니다.');
   }
 
   const phone = cleanPhone(body.phone ?? '');
   const code = (body.code ?? '').trim();
-  const challengeId = (body.challengeId ?? '').trim();
   if (!phone) return fail('phone_required', '휴대폰 번호를 입력해주세요.');
   if (phone.length !== 11) return fail('invalid_phone', '휴대폰 번호는 숫자 11자리로 입력해주세요.');
   if (!/^\d{6}$/.test(code)) return fail('invalid_code', '인증 코드는 6자리 숫자여야 합니다.');
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(challengeId)) {
-    return fail('invalid_challenge', '인증 코드를 다시 요청해주세요.');
-  }
 
-  const submittedHash = await sha256Base64(`${code}:${phone}`);
-  const verificationProof = toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
-  const verificationProofHash = await sha256Base64(verificationProof);
-  const allowTestBypass = signupSmsBypassConfig.enabled && code === signupSmsBypassConfig.code;
-  const { data: receipt, error } = await supabase.rpc('process_signup_otp_challenge_v1', {
-    p_expected_phone: phone,
-    p_challenge_id: challengeId,
-    p_submitted_hash: submittedHash,
-    p_verification_proof_hash: verificationProofHash,
-    p_allow_test_bypass: allowTestBypass,
+  const completionToken = toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+  const [codeHash, completionTokenHash] = await Promise.all([
+    sha256Base64(`${code}:${phone}`),
+    sha256Hex(`fc-signup-completion-v1:${phone}:${completionToken}`),
+  ]);
+  const isTestBypass = signupSmsBypassConfig.enabled && code === signupSmsBypassConfig.code;
+
+  const { data, error } = await supabase.rpc('verify_fc_signup_otp_v1', {
+    p_phone: phone,
+    p_code_hash: codeHash,
+    p_completion_token_hash: completionTokenHash,
+    p_test_bypass: isTestBypass,
   });
 
-  if (error || !receipt || typeof receipt !== 'object' || Array.isArray(receipt)) {
-    return json({ ok: false, code: 'db_error', message: '휴대폰 인증 상태를 저장하지 못했습니다.' }, 500);
-  }
-  if (receipt.ok !== true) {
-    const receiptCode = typeof receipt.code === 'string' ? receipt.code : 'db_error';
-    const failures: Record<string, { message: string; status: number }> = {
-      not_found: { message: '등록된 계정을 찾을 수 없습니다.', status: 400 },
-      no_code: { message: '인증 코드가 없습니다.', status: 400 },
-      stale_challenge: { message: '새로 발급된 인증 코드를 입력해주세요.', status: 400 },
-      expired_code: { message: '인증 코드가 만료되었습니다.', status: 400 },
-      invalid_code: { message: '인증 코드가 올바르지 않습니다.', status: 400 },
-      locked: { message: '인증 시도가 너무 많아 잠시 후 다시 시도해주세요.', status: 429 },
-      account_exists: { message: '이미 가입이 완료된 계정입니다.', status: 409 },
-    };
-    const failure = failures[receiptCode];
-    if (!failure) {
-      return json({ ok: false, code: 'db_error', message: '휴대폰 인증 상태를 확인하지 못했습니다.' }, 500);
-    }
-    return fail(receiptCode, failure.message, failure.status);
-  }
-  if (typeof receipt.profileId !== 'string' || !mutationRowReceiptMatches(receipt, {
-    ok: true,
-    code: 'verified',
-    verified: true,
-    residentId: phone,
-    challengeId,
-  })) {
-    return json({ ok: false, code: 'otp_verification_unverified', message: '휴대폰 인증 결과를 확인하지 못했습니다.' }, 500);
+  if (error) {
+    return fail('db_error', '인증을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.', 500);
   }
 
-  return json({
-    ok: true,
-    verified: true,
-    residentId: phone,
-    profileId: receipt.profileId,
-    verificationProof,
-  });
+  const result = readRpcResult(data);
+  if (result.ok !== true) {
+    return rpcFailure(result.code);
+  }
+
+  return json({ ok: true, completionToken });
 });

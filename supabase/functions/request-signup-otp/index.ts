@@ -1,8 +1,11 @@
 import { serveWithConfiguredCors as serve } from '../_shared/serve-with-cors.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
-import { buildWorkflowResetPayload } from '../_shared/commission.ts';
 import { sendSignupSms } from '../_shared/signup-sms.ts';
-import { mutationRowReceiptMatches } from '../_shared/ux-mutation-contract.ts';
+import { finalizeFcSignupDeliveryAttempt } from '../_shared/sms-delivery-attempt.ts';
+import {
+  reportSignupClientObservation,
+  SIGNUP_CLIENT_HEADERS,
+} from '../_shared/signup-client-observation.ts';
 
 type Payload = {
   phone?: string;
@@ -20,7 +23,7 @@ function getEnv(name: string): string | undefined {
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
 const corsHeaders = {
   'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
+  'Access-Control-Allow-Headers': `Content-Type, Authorization, x-client-info, apikey, ${Object.values(SIGNUP_CLIENT_HEADERS).join(', ')}`,
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Credentials': 'true',
 };
@@ -85,6 +88,7 @@ if (!signupTestSmsConfig.enabled && (!ncpAccessKey || !ncpSecretKey || !ncpServi
 
 const supabase = createClient(supabaseUrl, serviceKey);
 const textEncoder = new TextEncoder();
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -99,6 +103,18 @@ function fail(code: string, message: string, status = 400) {
 
 function cleanPhone(input: string) {
   return (input ?? '').replace(/[^0-9]/g, '');
+}
+
+async function cleanupLinkedAuthUsers(linkedProfileIds: string[]) {
+  for (const profileId of linkedProfileIds) {
+    const { error: authDeleteError } = await supabase.auth.admin.deleteUser(profileId);
+    if (authDeleteError) {
+      console.warn('[request-signup-otp] auth cleanup failed', {
+        reason: 'auth_cleanup_failed',
+        status: authDeleteError.status ?? 'unknown',
+      });
+    }
+  }
 }
 
 function toBase64(bytes: Uint8Array) {
@@ -136,6 +152,7 @@ serve(async (req: Request) => {
   if (!supabaseUrl || !serviceKey) {
     return json({ ok: false, code: 'server_misconfigured', message: 'Missing Supabase credentials' }, 500);
   }
+  reportSignupClientObservation(req);
 
   let body: Payload;
   try {
@@ -157,7 +174,7 @@ serve(async (req: Request) => {
     .eq('phone', phone)
     .maybeSingle();
   if (adminError) {
-    return json({ ok: false, code: 'db_error', message: adminError.message }, 500);
+    return json({ ok: false, code: 'db_error', message: '가입 정보를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.' }, 500);
   }
   if (adminAccount) {
     return json({ ok: false, code: 'already_exists', message: '해당 번호로 총무 계정이 이미 있습니다.' });
@@ -170,7 +187,7 @@ serve(async (req: Request) => {
     .eq('phone', phone)
     .maybeSingle();
   if (managerError) {
-    return json({ ok: false, code: 'db_error', message: managerError.message }, 500);
+    return json({ ok: false, code: 'db_error', message: '가입 정보를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.' }, 500);
   }
   if (managerAccount) {
     return json({ ok: false, code: 'already_exists', message: '해당 번호로 본부장 계정이 이미 있습니다.' });
@@ -183,7 +200,7 @@ serve(async (req: Request) => {
     .maybeSingle();
 
   if (profileError) {
-    return json({ ok: false, code: 'db_error', message: profileError.message }, 500);
+    return json({ ok: false, code: 'db_error', message: '가입 정보를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.' }, 500);
   }
 
   let hasPasswordSet = false;
@@ -196,7 +213,7 @@ serve(async (req: Request) => {
       .maybeSingle();
 
     if (credentialsError) {
-      return json({ ok: false, code: 'db_error', message: credentialsError.message }, 500);
+      return json({ ok: false, code: 'db_error', message: '가입 정보를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.' }, 500);
     }
 
     hasPasswordSet = Boolean(credentials?.password_set_at);
@@ -210,92 +227,70 @@ serve(async (req: Request) => {
 
   // checkOnly: 중복 없음 확인만 하고 OTP 발송 없이 반환
   if (checkOnly) {
-    return json({ ok: true, available: true, residentId: phone });
+    return json({ ok: true, available: true });
   }
 
   const code = generateOtpCode();
   const hash = await sha256Base64(`${code}:${phone}`);
-  let profileId = profile?.id ?? null;
-
-  if (!profileId) {
-    const insertPayload = {
-      phone,
-      name: '',
-      affiliation: '',
-      recommender: '',
-      recommender_code_id: null,
-      recommender_code: null,
-      recommender_linked_at: null,
-      recommender_link_source: null,
-      email: '',
-      address: '',
-      status: 'draft',
-      identity_completed: false,
-      phone_verified: false,
-    } as const;
-    const { data: insertReceipt, error: insertError } = await supabase
-      .from('fc_profiles')
-      .insert(insertPayload)
-      .select('id,phone,name,affiliation,recommender,recommender_code_id,recommender_code,recommender_linked_at,recommender_link_source,email,address,status,identity_completed,phone_verified')
-      .maybeSingle();
-    if (insertError) {
-      return json({ ok: false, code: 'db_error', message: insertError.message }, 500);
-    }
-    if (!insertReceipt || !mutationRowReceiptMatches(insertReceipt, insertPayload)) {
-      return json({ ok: false, code: 'otp_write_unverified', message: '인증 코드 저장 결과를 확인하지 못했습니다.' }, 500);
-    }
-    profileId = insertReceipt.id;
+  const { data: issued, error: issueError } = await supabase.rpc('issue_fc_signup_otp_v1', {
+    p_phone: phone,
+    p_code_hash: hash,
+  });
+  if (issueError || !issued || typeof issued !== 'object' || Array.isArray(issued)) {
+    return json({ ok: false, code: 'db_error', message: '인증 요청을 저장하지 못했습니다. 잠시 후 다시 시도해주세요.' }, 500);
   }
-
-  const challengeId = crypto.randomUUID();
-  const { data: issueReceipt, error: issueError } = await supabase.rpc(
-    'issue_signup_otp_challenge_v1',
-    {
-      p_fc_id: profileId,
-      p_expected_phone: phone,
-      p_challenge_id: challengeId,
-      p_otp_hash: hash,
-    },
-  );
-  if (issueError || !issueReceipt || typeof issueReceipt !== 'object' || Array.isArray(issueReceipt)) {
-    return json({ ok: false, code: 'db_error', message: '인증 코드 발급 상태를 저장하지 못했습니다.' }, 500);
-  }
-  if (issueReceipt.ok !== true) {
-    const issueCode = typeof issueReceipt.code === 'string' ? issueReceipt.code : 'db_error';
-    if (issueCode === 'locked') {
+  if (issued.ok !== true) {
+    if (issued.code === 'already_exists') {
+      return json({ ok: false, code: 'already_exists', message: '해당 번호로 계정이 이미 있습니다.' });
+    }
+    if (issued.code === 'locked') {
       return json({ ok: false, code: 'locked', message: '인증 시도가 너무 많아 잠시 후 다시 시도해주세요.' }, 429);
     }
-    if (issueCode === 'cooldown') {
+    if (issued.code === 'cooldown') {
       return json({ ok: false, code: 'cooldown', message: '잠시 후 다시 시도해주세요.' }, 429);
     }
-    if (issueCode === 'account_exists') {
-      return json({ ok: false, code: 'already_exists', message: '해당 번호로 FC 계정이 이미 있습니다.' });
-    }
-    return json({ ok: false, code: issueCode, message: '인증 코드 발급 상태를 저장하지 못했습니다.' }, 500);
-  }
-  if (!mutationRowReceiptMatches(issueReceipt, {
-    ok: true,
-    code: 'issued',
-    profileId,
-    residentId: phone,
-    challengeId,
-  })) {
-    return json({ ok: false, code: 'otp_write_unverified', message: '인증 코드 저장 결과를 확인하지 못했습니다.' }, 500);
+    return json({ ok: false, code: 'db_error', message: '인증 요청을 저장하지 못했습니다. 잠시 후 다시 시도해주세요.' }, 500);
   }
 
+  const deliveryId = typeof issued.deliveryId === 'string' && UUID.test(issued.deliveryId)
+    ? issued.deliveryId
+    : null;
+  const authProfileIds = Array.isArray(issued.authProfileIds)
+    && issued.authProfileIds.every((value: unknown) => typeof value === 'string' && UUID.test(value))
+    ? issued.authProfileIds as string[]
+    : null;
+  if (!deliveryId || !authProfileIds) {
+    return json({ ok: false, code: 'db_error', message: '인증 요청을 저장하지 못했습니다. 잠시 후 다시 시도해주세요.' }, 500);
+  }
+
+  await cleanupLinkedAuthUsers(authProfileIds);
+
   const smsResult = await sendOtpSms(phone, code);
+  const finalized = await finalizeFcSignupDeliveryAttempt(supabase, phone, deliveryId, smsResult);
   if (!smsResult.ok) {
+    if (!finalized) {
+      return json({ ok: false, code: 'sms_delivery_unknown',
+        message: '문자 접수 상태를 확인하지 못했습니다. 문자가 오면 인증번호를 입력해 주세요.' }, 503);
+    }
     return json(
-      { ok: false, code: 'sms_send_failed', message: smsResult.message ?? 'SMS 전송에 실패했습니다.' },
-      smsResult.status ?? 500,
+      { ok: false, code: smsResult.deliveryState === 'unknown' ? 'sms_delivery_unknown' : 'sms_send_failed',
+        message: smsResult.deliveryState === 'unknown'
+          ? '문자 접수 상태를 확인하지 못했습니다. 문자가 오면 인증번호를 입력해 주세요.'
+          : 'SMS 전송에 실패했습니다. 바로 다시 요청해 주세요.' },
+      smsResult.status,
     );
+  }
+
+  if (!finalized) {
+    return json({ ok: false, code: 'sms_delivery_unknown',
+      message: '문자 접수 상태를 확인하지 못했습니다. 문자가 오면 인증번호를 입력해 주세요.' }, 503);
   }
 
   if (signupTestSmsConfig.enabled) {
     // Security: Never expose OTP code in response, even in test mode
     // Keep diagnostics useful without disclosing the phone number or OTP.
     console.info('[request-signup-otp] test delivery simulated');
-    return json({ ok: true, sent: true, residentId: phone, challengeId, test_mode: true });
+    return json({ ok: true, sent: true, test_mode: true });
   }
-  return json({ ok: true, sent: true, residentId: phone, challengeId });
+  return json({ ok: true, sent: true });
 });

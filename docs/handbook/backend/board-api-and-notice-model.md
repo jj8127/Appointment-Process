@@ -9,11 +9,11 @@ contract_guard_2026_07_03: mobile board/notice screens, admin board/notification
 
 # Backend Runbook: Board API And Notice Model
 
-## 2026-10-19 읽기 행 검증과 저장 수신 확인 (핫픽스 통합)
+## 2026-10-13 필수 조회와 저장 receipt
 
-- 게시판 Edge 읽기는 `_shared/board-read-contract.ts`의 행 검사로 카테고리·목록·상세·첨부·반응·댓글 행의 UUID, 작성자 역할, 반응 종류, 중복 ID를 확인한다. 형식이 맞지 않는 행이나 서명되지 않은 첨부 URL은 빈 목록이나 부분 성공으로 바꾸지 않고 조회 실패로 반환한다.
-- 상세 조회는 관계 행을 안정 정렬로 끝까지 페이지 조회하고, 댓글·작성자 ID는 Data API in-filter 전에 나눠 조회한다. 저장 계열은 삭제·첨부 확정·댓글 좋아요의 실제 행 수와 경로 집합을 확인한 뒤에만 성공을 반환하며, null 개수를 0건 성공으로 만들지 않는다.
-- 근거 시험은 `board-read-contract_test.ts`, `board-detail-query-contract.test.node.ts`, `board-mutation-receipts.test.node.ts`다. 운영 핫픽스(49de1c0a)와 같은 동작을 release에 합친 기록이며 새 배포를 뜻하지 않는다.
+Board/공지/댓글/첨부의 필수 쿼리는 query-result와 board-read contract로 결과 배열·행·count를 검증한다. DB 오류, 잘못된 행, 빠진 필수 관계를 빈 성공 응답으로 바꾸지 않는다. 모든 페이지를 확인하지 못한 목록·수신자 계산은 완료로 표시하지 않는다. 정상 GET 배열에 mutation의 `ok: true` 검사를 적용하지 않는다.
+
+저장·삭제는 각각의 명시적 receipt로 성공을 확인하고, 저장 후 첨부·알림의 일부 실패는 이미 성공한 원래 저장을 재실행하지 않는 복구 경로로 처리한다. signed actor/role과 service-only RPC 경계는 유지한다. 기존 `board-read-contract_test.ts`, `board-detail-query-contract.test.node.ts`, `board-mutation-receipts.test.node.ts`, web board-read runtime suite가 읽기·저장·후속 실패를 나누어 검증한다.
 
 ## 2026-10-06 게시판 이전 글 조회 (로컬 수정)
 

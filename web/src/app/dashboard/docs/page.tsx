@@ -214,7 +214,11 @@ export default function DocumentsPage() {
         onSettled: () => { statusSubmitting.current = false; },
     });
 
-    const submitDocumentStatus = (values: { doc: DocumentRow; status: 'pending' | 'approved' | 'rejected'; reason?: string }) => {
+    const submitDocumentStatus = (values: {
+        doc: DocumentRow;
+        status: 'pending' | 'approved' | 'rejected';
+        reason?: string;
+    }) => {
         if (isReadOnly || statusSubmitting.current || updateStatusMutation.isPending) return;
         statusSubmitting.current = true;
         updateStatusMutation.mutate(values);

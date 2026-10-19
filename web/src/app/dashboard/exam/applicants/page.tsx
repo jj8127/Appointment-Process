@@ -515,27 +515,28 @@ export default function ExamApplicantsPage() {
                         : '시험 신청 상태 변경에 실패했습니다.';
                 throw new Error(message);
             }
-            requireExamTransitionSuccess(json, { action, registrationId: item.id });
-            return json;
+            const transition = requireExamTransitionSuccess(json, { action, registrationId: item.id });
+            return { json, transition };
     };
 
-    const setReceptionInCache = (ids: Set<string>, isConfirmed: boolean) => {
-        const nextStatus = isConfirmed ? 'confirmed' : 'applied';
+    const setReceptionInCache = (updates: Map<string, { isConfirmed: boolean; status: string }>) => {
         queryClient.setQueryData(['exam-applicants-all-recent', role], (old: unknown) => {
             if (!Array.isArray(old)) return old;
-            return (old as Applicant[]).map((row) =>
-                ids.has(row.id) ? { ...row, is_confirmed: isConfirmed, status: nextStatus } : row,
-            );
+            return (old as Applicant[]).map((row) => {
+                const update = updates.get(row.id);
+                return update ? { ...row, is_confirmed: update.isConfirmed, status: update.status } : row;
+            });
         });
     };
 
     const updateStatusMutation = useMutation({
         mutationFn: async ({ item, isConfirmed }: { item: Applicant; isConfirmed: boolean }) => {
-            showAdminNotificationWarning(await requestReception(item, isConfirmed));
-            return { item, isConfirmed };
+            const { json, transition } = await requestReception(item, isConfirmed);
+            showAdminNotificationWarning(json);
+            return { item, isConfirmed: transition.isConfirmed, nextStatus: transition.status };
         },
-        onSuccess: ({ item, isConfirmed }) => {
-            setReceptionInCache(new Set([item.id]), isConfirmed);
+        onSuccess: ({ item, isConfirmed, nextStatus }) => {
+            setReceptionInCache(new Map([[item.id, { isConfirmed, status: nextStatus }]]));
             notifications.show({
                 title: '상태 변경 완료',
                 message: isConfirmed ? '접수 완료 상태로 변경되었습니다.' : '미접수 상태로 변경되었습니다.',
@@ -554,26 +555,26 @@ export default function ExamApplicantsPage() {
     // Sequential so each registration keeps the single-row API's validation and audit path.
     const bulkConfirmMutation = useMutation({
         mutationFn: async (items: Applicant[]) => {
-            const confirmedIds = new Set<string>();
+            const confirmed = new Map<string, { isConfirmed: boolean; status: string }>();
             let failed = 0;
             let warnings = 0;
             for (const item of items) {
                 try {
-                    const json = await requestReception(item, true);
-                    confirmedIds.add(item.id);
+                    const { json, transition } = await requestReception(item, true);
+                    confirmed.set(item.id, { isConfirmed: transition.isConfirmed, status: transition.status });
                     if (getAdminNotificationWarning(json)) warnings += 1;
                 } catch {
                     failed += 1;
                 }
             }
-            return { confirmedIds, failed, warnings };
+            return { confirmed, failed, warnings };
         },
-        onSuccess: ({ confirmedIds, failed, warnings }) => {
-            setReceptionInCache(confirmedIds, true);
+        onSuccess: ({ confirmed, failed, warnings }) => {
+            setReceptionInCache(confirmed);
             setBulkConfirmOpened(false);
             notifications.show({
                 title: failed ? '일괄 접수 일부 실패' : '일괄 접수 완료',
-                message: [`${confirmedIds.size}명 접수 완료`, failed ? `${failed}명 실패` : '', warnings ? `알림 확인 필요 ${warnings}건` : '']
+                message: [`${confirmed.size}명 접수 완료`, failed ? `${failed}명 실패` : '', warnings ? `알림 확인 필요 ${warnings}건` : '']
                     .filter(Boolean).join(' · '),
                 color: failed || warnings ? 'yellow' : 'green',
             });

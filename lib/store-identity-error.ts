@@ -1,10 +1,4 @@
-type FunctionErrorLike = {
-  message?: string;
-  context?: {
-    response?: Response;
-    body?: unknown;
-  };
-};
+import { getSupabaseFunctionErrorResponse } from './supabase-function-error';
 
 const INVALID_RESIDENT_INPUT_MESSAGE = '주민번호를 잘못 입력했습니다. 다시 확인해주세요.';
 const INVALID_IDENTITY_INPUT_MESSAGE = '입력한 주민번호 또는 주소를 다시 확인해주세요.';
@@ -41,27 +35,23 @@ export async function extractFunctionErrorMessage(
   err: unknown,
   fallback = STORE_IDENTITY_GENERIC_MESSAGE,
 ): Promise<string> {
-  const functionError = err as FunctionErrorLike | null | undefined;
-  if (!functionError) return fallback;
-
-  const context = functionError.context ?? {};
-  const response = context.response;
-  if (response) {
+  const response = getSupabaseFunctionErrorResponse(err);
+  if (response?.status === 401 || response?.status === 403 || response?.status === 404) {
+    return INVALID_LOGIN_STATE_MESSAGE;
+  }
+  if (typeof response?.status === 'number' && response.status >= 500) {
+    return fallback;
+  }
+  if (typeof response?.text === 'function') {
     try {
-      const text = await response.text();
-      if (text) return text;
+      const reader = response.clone?.() ?? response;
+      const text = await reader.text?.();
+      if (text) return mapStoreIdentityErrorMessage(text);
     } catch {
-      // Ignore response body parsing failures and continue with other fallbacks.
+      // An unreadable error body is not evidence of invalid resident input.
     }
   }
-
-  const body = context.body;
-  if (typeof body === 'string' && body) return body;
-  if (body && typeof body === 'object' && 'message' in body) {
-    return String((body as { message?: unknown }).message ?? fallback);
-  }
-
-  return functionError.message ?? fallback;
+  return fallback;
 }
 
 export function mapStoreIdentityErrorMessage(rawMessage: string | null | undefined): string {
@@ -82,15 +72,18 @@ export function mapStoreIdentityErrorMessage(rawMessage: string | null | undefin
     return INVALID_LOGIN_STATE_MESSAGE;
   }
 
-  if (lower.includes('non-2xx') || lower.includes('edge function')) {
-    return INVALID_RESIDENT_INPUT_MESSAGE;
+  if (normalized === INVALID_LOGIN_STATE_MESSAGE) {
+    return INVALID_LOGIN_STATE_MESSAGE;
   }
 
   if (lower.includes('missing required environment variable')) {
     return STORE_IDENTITY_GENERIC_MESSAGE;
   }
 
-  return normalized;
+  if (normalized === INVALID_RESIDENT_INPUT_MESSAGE || normalized === INVALID_IDENTITY_INPUT_MESSAGE) {
+    return normalized;
+  }
+  return STORE_IDENTITY_GENERIC_MESSAGE;
 }
 
 export function toResidentInputAlertMessage(errorMessage?: string | null): string {

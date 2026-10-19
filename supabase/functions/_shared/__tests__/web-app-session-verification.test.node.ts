@@ -4,7 +4,7 @@ import test from 'node:test';
 import { createWebAppSessionVerificationHandler } from '../web-app-session-verification.ts';
 import { createPlatformMemberToken, parsePlatformMemberToken, parseAppSessionTokenDetailed, parseRequestBoardBridgeTokenDetailed } from '../request-board-auth.ts';
 import { checkSessionGeneration } from '../session-generation.ts';
-import { sendSignupSms } from '../signup-sms.ts';
+import { classifyNcpSendResponse, sendSignupSms } from '../signup-sms.ts';
 
 const service = 'synthetic-service-role-transport';
 const currentKey = 'synthetic-current-app-session-key';
@@ -131,5 +131,63 @@ test('the shared signup SMS test transport cannot bypass delivery in hosted or p
     process.env[name]=name==='VERCEL_ENV' ? 'production' : 'synthetic-hosted-deployment';
     try {await assert.rejects(sendSignupSms('00000000011','123456','synthetic message',true),/Unsafe test SMS mode/);}
     finally {if(previous===undefined) delete process.env[name];else process.env[name]=previous;}
+  }
+});
+
+test('NCP send acceptance requires the documented HTTP/body result and a constrained request id',()=>{
+  assert.deepEqual(classifyNcpSendResponse(202,{statusCode:'202',statusName:'success',requestId:'synthetic-request:1'}),{
+    ok:true,deliveryState:'accepted',status:200,providerRequestId:'synthetic-request:1',providerStatusCode:'202',
+  });
+  assert.deepEqual(classifyNcpSendResponse(400,{statusCode:'400',statusName:'fail'}),{
+    ok:false,deliveryState:'rejected',status:502,reason:'provider_rejected',
+    providerRequestId:null,providerStatusCode:'400',message:'SMS 전송에 실패했습니다.',
+  });
+  for(const body of [
+    {statusCode:'202',statusName:'fail',requestId:'synthetic-request:2'},
+    {statusCode:'500',statusName:'success',requestId:'synthetic-request:3'},
+  ]) {
+    const rejected=classifyNcpSendResponse(202,body);
+    assert.equal(rejected.ok,false);
+    if(!rejected.ok) {
+      assert.equal(rejected.deliveryState,'rejected');
+      assert.equal(rejected.reason,'provider_rejected');
+      assert.equal(rejected.providerRequestId,null);
+    }
+  }
+  for(const status of [200,204,302,500]) {
+    const ambiguous=classifyNcpSendResponse(status,{statusCode:String(status),statusName:'unexpected'});
+    assert.equal(ambiguous.ok,false);
+    if(!ambiguous.ok) assert.equal(ambiguous.deliveryState,'unknown');
+  }
+  const malformed=classifyNcpSendResponse(202,{statusCode:'202',statusName:'success',requestId:'invalid request id'});
+  assert.equal(malformed.ok,false);
+  if(!malformed.ok) {
+    assert.equal(malformed.deliveryState,'unknown');
+    assert.equal(malformed.reason,'invalid_provider_response');
+    assert.equal(malformed.providerRequestId,null);
+  }
+});
+
+test('NCP timeouts remain unknown while local configuration rejection is definite',async()=>{
+  const names=['NCP_SENS_ACCESS_KEY','NCP_SENS_SECRET_KEY','NCP_SENS_SERVICE_ID','NCP_SENS_SMS_FROM'];
+  const previous=names.map(name=>process.env[name]);
+  const originalFetch=globalThis.fetch;
+  try {
+    names.forEach(name=>delete process.env[name]);
+    const missing=await sendSignupSms('00000000011','123456','synthetic message');
+    assert.equal(missing.ok,false);
+    if(!missing.ok) assert.equal(missing.deliveryState,'rejected');
+
+    names.forEach((name,index)=>{process.env[name]=`synthetic-${index}`;});
+    globalThis.fetch=async()=>{throw new DOMException('synthetic timeout','TimeoutError');};
+    const timeout=await sendSignupSms('00000000011','123456','synthetic message');
+    assert.equal(timeout.ok,false);
+    if(!timeout.ok) {
+      assert.equal(timeout.deliveryState,'unknown');
+      assert.equal(timeout.reason,'timeout');
+    }
+  } finally {
+    globalThis.fetch=originalFetch;
+    names.forEach((name,index)=>{if(previous[index]===undefined) delete process.env[name];else process.env[name]=previous[index];});
   }
 });

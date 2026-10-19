@@ -2,7 +2,7 @@ doc_id: FC-HANDBOOK-DEVELOPER-ONBOARDING
 owner_repo: fc-onboarding-app
 owner_area: handbook
 audience: developer
-last_verified: 2026-07-23
+last_verified: 2026-10-13
 source_of_truth: package.json + web/package.json + .env.example + web/.env.example
 
 ## 2026-07-23 Dependency security gate
@@ -92,11 +92,16 @@ Pop-Location
 - `SUPABASE_URL`
 - `REQUEST_BOARD_AUTH_BRIDGE_SECRET`
 - `REQUEST_BOARD_PASSWORD_SYNC_URL`
+- `REQUEST_BOARD_PASSWORD_SYNC_V2_URL`
+- `REQUEST_BOARD_PASSWORD_SYNC_V2_REQUIRED`
 - `REQUEST_BOARD_PASSWORD_SYNC_TOKEN`
+- `REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_SECRET`
 - `BOARD_AUTOMATION_TOKEN`
 - `BOARD_AUTOMATION_ACTOR_PHONE`
 - `BOARD_AUTOMATION_ACTOR_NAME`
 - `ADMIN_WEB_URL`
+
+`REQUEST_BOARD_PASSWORD_SYNC_V2_URL`은 소유한 HTTPS origin의 `/api/auth/sync-password-v2`만 가리킵니다. receiver migration·server smoke 전에는 주입하지 않습니다. 채택 관측을 마치고 `REQUEST_BOARD_PASSWORD_SYNC_V2_REQUIRED=true`로 전환한 환경은 v1 fallback으로 되돌리지 않습니다.
 
 ### Sentry
 

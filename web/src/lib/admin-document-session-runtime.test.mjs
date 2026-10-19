@@ -179,7 +179,10 @@ function harness(options = {}) {
       }
       return response;
     }
-    if (url === '/api/admin/fc') return callFc(JSON.parse(init.body));
+    if (url === '/api/admin/fc') {
+      if (Object.hasOwn(options, 'signReceipt')) return Response.json(options.signReceipt);
+      return callFc(JSON.parse(init.body));
+    }
     throw new Error('Unexpected browser URL');
   }
 
@@ -355,6 +358,12 @@ test('signed document previews accept only credential-free HTTPS URLs', async ()
       client.signAdminDocument(FC_ID, DOC_PATH),
       /파일을 불러오지 못했습니다/,
     );
+  }
+  for (const ok of ['false', 'true', 1, null, false]) {
+    const client = harness({
+      signReceipt: { ok, signedUrl: 'https://storage.example.test/signed-document' },
+    }).load('lib/admin-document-client.ts');
+    await assert.rejects(client.signAdminDocument(FC_ID, DOC_PATH), /파일을 불러오지 못했습니다/);
   }
 });
 

@@ -196,8 +196,10 @@ describe('board write notification callers', () => {
     expect(webSource).toContain('setPendingAttachmentRetry({');
     expect(webSource).toContain('pendingAttachmentRetry.manifest');
     expect(webSource).toContain('manifest: attachmentResult.manifest');
-    expect(webSource).toContain('closeOnClickOutside={!pendingAttachmentRetry && !createPostMutation.isPending && !updatePostMutation.isPending}');
-    expect(webSource).toContain('closeOnEscape={!pendingAttachmentRetry && !createPostMutation.isPending && !updatePostMutation.isPending}');
+    expect(webSource).toContain('const postSaving = createPostMutation.isPending || updatePostMutation.isPending;');
+    expect(webSource).toContain('const composerLocked = !!pendingAttachmentRetry || postSaving;');
+    expect(webSource).toContain('closeOnClickOutside={!composerLocked}');
+    expect(webSource).toContain('closeOnEscape={!composerLocked}');
     expect(webSource.indexOf('const createResult = await createBoardPost('))
       .toBeLessThan(webSource.indexOf('await uploadAttachments(createResult.id, null)'));
     expect(webSource).toContain('게시글은 이미 저장되었습니다.');

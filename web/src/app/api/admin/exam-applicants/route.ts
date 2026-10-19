@@ -16,8 +16,8 @@ import {
   type ExamRegistrationRow,
 } from '@/lib/exam-applicant-resident-number-enrichment';
 import { logger } from '@/lib/logger';
+import { buildPhoneCandidates } from '@/lib/phone-candidates';
 import { readResidentNumbersWithFallback } from '@/lib/server-resident-numbers';
-import { buildPhoneCandidates } from '@/lib/server-session';
 import { requireAdminRoute, requireAdminOrManagerReadRoute } from '@/lib/admin-route-auth';
 import { collectSupabaseRows } from '@/lib/supabase-query-contract';
 import { classifyFcNotifyDeliveryResult } from '@shared/lib/fc-notify-delivery-result';
@@ -88,7 +88,6 @@ function knownExamTransitionErrorResponse(error: unknown) {
     ? NextResponse.json({ error: details.message }, { status: details.status, headers: SECURITY_HEADERS })
     : null;
 }
-
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EXAM_REGISTRATION_SELECT = `
   id, status, created_at, round_id, resident_id, is_confirmed, includes_primary_exam, is_third_exam, fee_paid_date, payment_proof_attached, rejection_reason, rejected_at,

@@ -7,6 +7,14 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 
 # Mobile Playbook: Auth And Gates
 
+## 2026-10-13 가입 증표 저장과 홈 조회 오류
+
+가입 OTP 검증 뒤의 completion capability는 기존 민감 저장소에서 native SecureStore가 허용하는 key로 저장한다. mocked storage가 임의 key를 받았다는 사실만으로 실제 단말 저장을 검증하지 않는다. 성공·취소·재인증 시 증표 정리와 단기 만료를 유지한다. 본인정보 mutation은 현재 서명 app-session과 확인 가능한 저장 receipt를 요구한다.
+
+공개 홈·보험 홈·Request Board 조회의 필수 실패를 자료 없음으로 바꾸지 않는다. 일시 조회 실패는 중앙 세션을 로그아웃시키지 않으며 실제 인증 거부의 복구 동선과 명시적 local-first 로그아웃을 구분한다. 기존 `app-logout-navigation.test.js`, `logout-source-contract.test.ts`, mobile read-contract와 signup completion suite를 재사용한다. OTA 게시/readback은 설치 채택이나 전용 단말 SMS 수신 증거가 아니다.
+
+레거시 proof RPC 4개를 퇴역하는 `20261013113212_retire_legacy_fc_signup_rpcs.sql`은 2026-10-13에 clean source `3b546af`에서 운영 적용을 완료했고 post-catalog의 retired RPC는 0개다. 현재 앱/Edge는 completion capability 계약을 사용한다. 적용 전 모든 활성 Edge 55개의 457개 source 파일 참조와 catalog/cron 의존·legacy challenge/proof 상태가 각각 0인지 확인했다. forward migration은 기존 이력·컬럼을 유지하며 nonempty state나 예상 밖 의존이 있으면 guard 또는 `DROP ... RESTRICT`로 중단한다. 상세 schema 계약은 [data-model canon](../data/data-model-canon.md#2026-10-13-legacy-fc-signup-rpc-retirement-applied)을 따른다. DB 적용 완료는 앱 설치 채택이나 실제 단말 SMS 수신을 뜻하지 않는다.
+
 ## 2026-10-11 공통 회원과 보험 업무 권한
 
 공통 가입/로그인은 `app/services/login.tsx`, `signup.tsx`와 `platform-service`를 사용한다. 일반 회원은 기존 `role=fc`로 표현하지 않고 별도 회원·토큰으로 복구한다. 이 토큰은 FC 업무 API에서 거부한다. 기존 FC/관리자 로그인은 원래 보험 세션과 권한 gate를 재사용한다. 공통 회원 전환·로그아웃은 기존 저장 직렬 큐와 세션 owner를 사용하여 이전 복원·응답을 무효화한다. 일시 복구 실패는 캐시된 계정 표시를 보존하고, 인증 거부는 토큰을 정리한다. 로그인 실패를 가입 완료·자료 없음으로 바꾸지 않는다.

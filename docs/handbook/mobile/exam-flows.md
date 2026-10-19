@@ -7,6 +7,12 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 
 # Mobile Playbook: Exam Flows
 
+## 2026-10-13 전체 조회와 세션 범위
+
+모바일 신청·등록·관리와 관리자 신청자 목록은 필수 회차/신청 페이지의 오류나 잘못된 응답을 빈 결과로 처리하지 않는다. 추가 조회 실패는 이미 확인한 목록과 재시도 동선을 보존하며 검색·회차·계정 변경 뒤 이전 결과는 격리한다. `exam-read-query-contract`와 `exam-admin-applicant-query-contract`의 기존 페이지·필터 검사를 재사용한다.
+
+관리 화면의 Realtime 구독은 기존 `exam-realtime-channel` 소유권을 유지한다. 조회 검증을 강화해도 화면 effect별 고유 topic, cleanup 뒤 callback 무시, 계정/서명 세션 변경 시 폐기 동작을 바꾸지 않는다. 기존 `exam-realtime-channel.test.js`, `exam-read-pagination-contract.test.js`, 취소 user-flow suite가 각 구독·조회·취소 경계를 맡는다. source/type/fixture 검증은 실운영 계정의 신청·승인을 대신하지 않는다.
+
 ## 2026-10-12 시험 화면 아이콘 조작
 
 기존 Feather와 공용 증빙 구성요소를 재사용한다. 제목의 장식 이모지를 기존 의미 기호로 정리하고 검색·상세·증빙 열기/닫기·파일 제거·회차/지역 선택 버튼에 동작 이름과 선택/비활성 상태를 전달한다. 그림은 작은 크기를 유지해도 모바일 조작 영역은44px를 확보한다. 응시료·마감·취소·확정·권한·실시간 채널 계약은 이번 아이콘 수정으로 바꾸지 않았다. 구형 관리자 시험 검색은 기존 FilterHeader를 같은 파일의 모듈 범위에서 사용해 부모 재렌더 때 검색창과 포커스를 유지한다. 실제 검색 지우기와 팝오버 유지는 합성 UI로 확인했다.

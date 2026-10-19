@@ -8,8 +8,8 @@
         "supabase/functions/platform-service/",
         "supabase/functions/_shared/password-hash.ts",
         "supabase/functions/_shared/signup-sms.ts",
-        "supabase/migrations/20261011040816_platform_common_membership.sql",
-        "supabase/migrations/20261011130830_hospital_directory_ad_performance.sql",
+        "supabase/migrations/20261012072525_platform_common_membership.sql",
+        "supabase/migrations/20261012072611_hospital_directory_ad_performance.sql",
         "supabase/tests/platform-membership-sql.test.mjs",
         "lib/platform-api.ts",
         "hooks/use-platform-account.ts",
@@ -290,6 +290,7 @@
       "prefixes": [
         "supabase/functions/_shared/commission.ts",
         "supabase/functions/admin-action/",
+        "supabase/functions/__tests__/admin-action-appointment-update.contract.test.js",
         "supabase/functions/__tests__/admin-action-fc-self-profile.contract.test.ts",
         "supabase/functions/fc-consent/",
         "supabase/functions/fc-submit-hanwha-commission/",
@@ -297,8 +298,7 @@
         "web/src/app/api/fc-delete/route.ts",
         "web/src/app/api/admin/resident-numbers/route.ts",
         "lib/staff-identity.ts",
-        "web/src/lib/staff-identity.ts",
-        "supabase/functions/__tests__/admin-action-appointment-update.contract.test.js"
+        "web/src/lib/staff-identity.ts"
       ],
       "requires_any": [
         "docs/handbook/backend/admin-operations-api.md",
@@ -344,6 +344,13 @@
         "supabase/functions/set-admin-password/",
         "supabase/functions/request-signup-otp/",
         "supabase/functions/verify-signup-otp/",
+        "supabase/functions/__tests__/fc-self-service-auth-boundary.test.mjs",
+        "supabase/functions/__tests__/request-signup-otp-handler.test.mjs",
+        "supabase/functions/_shared/fc-self-service-auth.ts",
+        "supabase/functions/_shared/signup-client-observation.ts",
+        "supabase/functions/_shared/sms-delivery-attempt.ts",
+        "supabase/functions/_shared/__tests__/signup-client-observation_test.ts",
+        "supabase/functions/_shared/__tests__/sms-delivery-attempt.test.node.ts",
         "supabase/functions/sync-request-board-session/",
         "supabase/functions/refresh-app-session/",
         "supabase/functions/delete-account/",
@@ -454,8 +461,8 @@
         "supabase/functions/_shared/group-chat-data-api-batching.ts",
         "supabase/functions/_shared/__tests__/group-chat-notification-event_test.ts",
         "supabase/functions/__tests__/group-chat-notification-retry.contract.test.ts",
-        "supabase/functions/group-chat/",
-        "supabase/functions/__tests__/group-chat-query-contract.test.node.ts"
+        "supabase/functions/__tests__/group-chat-query-contract.test.node.ts",
+        "supabase/functions/group-chat/"
       ],
       "requires_any": [
         "docs/handbook/mobile/messenger-and-content.md",
@@ -469,15 +476,15 @@
       "prefixes": [
         "supabase/functions/board-",
         "supabase/functions/_shared/board.ts",
+        "supabase/functions/_shared/board-read-contract.ts",
+        "supabase/functions/_shared/__tests__/board-read-contract_test.ts",
         "supabase/functions/_shared/board-actor-policy.ts",
         "supabase/functions/_shared/board-categories.ts",
         "supabase/functions/_shared/board-list-policy.ts",
         "supabase/functions/_shared/board-list-pagination.ts",
         "supabase/functions/_shared/board-notification-event.ts",
         "supabase/functions/_shared/__tests__/board-notification-event_test.ts",
-        "supabase/functions/__tests__/board-",
-        "supabase/functions/_shared/board-read-contract.ts",
-        "supabase/functions/_shared/__tests__/board-read-contract_test.ts"
+        "supabase/functions/__tests__/board-"
       ],
       "requires_any": [
         "docs/handbook/backend/board-api-and-notice-model.md",
@@ -493,16 +500,16 @@
         "supabase/functions/_shared/referral-graph-cluster-core.ts",
         "supabase/functions/_shared/referral-graph-cluster-layout.ts",
         "supabase/functions/_shared/referral-graph-mobile-cluster.ts",
+        "supabase/functions/_shared/referral-tree-query-contract.ts",
+        "supabase/functions/_shared/__tests__/referral-tree-query-contract_test.ts",
+        "supabase/functions/__tests__/referral-read-query-contract.test.node.ts",
         "supabase/functions/get-my-referral-code/",
         "supabase/functions/get-fc-referral-code/",
         "supabase/functions/get-my-invitees/",
         "supabase/functions/get-referral-tree/",
         "supabase/functions/search-fc-for-referral/",
         "supabase/functions/refresh-app-session/",
-        "supabase/functions/update-my-recommender/",
-        "supabase/functions/_shared/referral-tree-query-contract.ts",
-        "supabase/functions/_shared/__tests__/referral-tree-query-contract_test.ts",
-        "supabase/functions/__tests__/referral-read-query-contract.test.node.ts"
+        "supabase/functions/update-my-recommender/"
       ],
       "requires_any": [
         "docs/handbook/data/referral-schema-and-admin-rpcs.md",
@@ -562,15 +569,27 @@
       "prefixes": [
         "supabase/functions/docs-deadline-reminder/",
         "supabase/functions/user-presence/",
+        "supabase/functions/_shared/presence-query-contract.ts",
+        "supabase/functions/_shared/__tests__/presence-query-contract_test.ts",
         "lib/presence.ts",
         "lib/user-presence-api.ts",
-        "web/src/app/api/presence/route.ts",
-        "supabase/functions/_shared/presence-query-contract.ts",
-        "supabase/functions/_shared/__tests__/presence-query-contract_test.ts"
+        "web/src/app/api/presence/route.ts"
       ],
       "requires_any": [
         "docs/handbook/backend/scheduled-jobs-and-runtime.md",
         "docs/handbook/data/presence-rpc-fallback.md"
+      ]
+    },
+    {
+      "id": "backend-query-results",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/_shared/query-result-contract.ts",
+        "supabase/functions/_shared/__tests__/query-result-contract_test.ts"
+      ],
+      "requires_any": [
+        "docs/handbook/data/data-model-canon.md",
+        "docs/handbook/backend/admin-operations-api.md"
       ]
     },
     {

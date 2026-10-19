@@ -9,11 +9,11 @@ const { PGlite } = createRequire(import.meta.url)(
   process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite',
 );
 const baseMigration = await readFile(
-  new URL('../migrations/20261013063140_atomic_onboarding_writes.sql', import.meta.url),
+  new URL('../migrations/20261013090025_atomic_onboarding_writes.sql', import.meta.url),
   'utf8',
 );
 const migration = await readFile(
-  new URL('../migrations/20261013063141_atomic_signup_otp_challenges.sql', import.meta.url),
+  new URL('../migrations/20261013090028_atomic_signup_otp_challenges.sql', import.meta.url),
   'utf8',
 );
 const schema = await readFile(new URL('../schema.sql', import.meta.url), 'utf8');
