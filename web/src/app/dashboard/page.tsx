@@ -403,6 +403,32 @@ const FC_MODAL_STEPS = [
   { value: 'appointment', label: '생명/손해 위촉' },
 ] as const;
 
+type StepSummaryItem = { label: string; value: string; done?: boolean; warn?: boolean };
+
+// Summary row on top of each modal step: finished items are ink, the first open item is the orange tile.
+function StepSummary({ items }: { items: StepSummaryItem[] }) {
+  const hotIndex = items.findIndex((item) => !item.done && !item.warn);
+  return (
+    <div className={fcm.summary} style={{ '--cols': items.length } as CSSProperties}>
+      {items.map((item, index) => (
+        <div
+          key={item.label}
+          className={fcm.summaryTile}
+          data-state={item.warn ? 'warn' : item.done ? 'done' : index === hotIndex ? 'hot' : 'todo'}
+        >
+          <span className={fcm.summaryLabel}>
+            {item.label}
+            {item.done ? <IconCheck size={13} stroke={2.6} /> : null}
+          </span>
+          <span className={fcm.summaryValue}>{item.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const shortDate = (value?: string | null) => (value ? dayjs(value).format('MM.DD') : null);
+
 const getDefaultModalTab = (profile: FCProfileWithDocuments): string => {
   const workflowStep = calcStep(profile);
   if (workflowStep === 2) return 'docs';
@@ -1921,6 +1947,44 @@ export default function DashboardPage() {
           ? 'blue'
           : 'gray';
 
+  const getStepSummary = (tab: string | null): StepSummaryItem[] => {
+    if (!selectedFc) return [];
+    if (tab === 'docs') {
+      const docs = selectedFc.fc_documents ?? [];
+      const submitted = docs.filter((doc: FCDocument) => doc.storage_path && doc.storage_path !== 'deleted').length;
+      const approved = docs.filter((doc: FCDocument) => doc.status === 'approved').length;
+      const rejected = docs.filter((doc: FCDocument) => doc.status === 'rejected').length;
+      return [
+        { label: '요청', value: `${docs.length}건`, done: docs.length > 0 },
+        { label: '제출', value: `${submitted}/${docs.length}`, done: docs.length > 0 && submitted === docs.length },
+        { label: '승인', value: `${approved}/${docs.length}`, done: docs.length > 0 && approved === docs.length },
+        { label: '반려', value: `${rejected}건`, done: rejected === 0 && docs.length > 0, warn: rejected > 0 },
+      ];
+    }
+    if (tab === 'hanwha') {
+      return [
+        { label: '완료일', value: shortDate(selectedFc.hanwha_commission_date_sub) ?? '미입력', done: Boolean(selectedFc.hanwha_commission_date_sub) },
+        { label: 'URL 발송', value: shortDate(selectedFc.dawichok_url_sent_at) ?? '미발송', done: Boolean(selectedFc.dawichok_url_sent_at) },
+        { label: 'PDF 승인', value: hasHanwhaApprovedPdf(selectedFc) ? '완료' : '대기', done: hasHanwhaApprovedPdf(selectedFc) },
+      ];
+    }
+    if (tab === 'appointment') {
+      const category = (confirmed?: string | null, submitted?: string | null) =>
+        confirmed ? `${shortDate(confirmed)} 확정` : submitted ? `${shortDate(submitted)} 제출` : '미입력';
+      return [
+        { label: '생명 위촉', value: category(selectedFc.appointment_date_life, selectedFc.appointment_date_life_sub), done: Boolean(selectedFc.appointment_date_life) },
+        { label: '손해 위촉', value: category(selectedFc.appointment_date_nonlife, selectedFc.appointment_date_nonlife_sub), done: Boolean(selectedFc.appointment_date_nonlife) },
+        { label: '최종 완료', value: commissionSummaryLabel, done: commissionSummaryLabel !== '미완료' },
+      ];
+    }
+    const allowanceKey = getAllowanceDisplayState(selectedFc).key;
+    return [
+      { label: '임시사번', value: selectedFc.temp_id || '미발급', done: Boolean(selectedFc.temp_id) },
+      { label: '동의일', value: shortDate(selectedFc.allowance_date) ?? '미입력', done: Boolean(selectedFc.allowance_date) },
+      { label: '사전 심사', value: shortDate(selectedFc.allowance_prescreen_requested_at) ?? '대기', done: Boolean(selectedFc.allowance_prescreen_requested_at) || allowanceKey === 'approved' },
+      { label: '승인', value: allowanceKey === 'approved' ? '완료' : allowanceKey === 'rejected' ? '반려' : '대기', done: allowanceKey === 'approved', warn: allowanceKey === 'rejected' },
+    ];
+  };
   const handleCommissionToggle = (category: 'life' | 'nonlife') => {
     if (isReadOnly) return;
 
@@ -2590,7 +2654,7 @@ export default function DashboardPage() {
                   <span className={fcm.avatar}>{selectedFc.name?.slice(0, 1) || '?'}</span>
                   <div>
                     <Group gap="xs" align="center">
-                      <Text className={fcm.name}>{selectedFc.name}</Text>
+                      <Text className={fcm.name} c="white">{selectedFc.name}</Text>
                       <Badge variant="white" radius="xl" color={!selectedFc.career_type ? 'gray' : 'dark'}>
                         {selectedFc.career_type || '조회중'}
                       </Badge>
@@ -2611,6 +2675,15 @@ export default function DashboardPage() {
                         생년월일: {selectedBirthDateDisplay}
                       </Text>
                     </Stack>
+                  </div>
+                </div>
+                <div className={fcm.progress}>
+                  <div className={fcm.progressHead}>
+                    <span>진행률</span>
+                    <b>{Math.round((Math.max(currentStepIndex, 0) / FC_MODAL_STEPS.length) * 100)}%</b>
+                  </div>
+                  <div className={fcm.progressTrack}>
+                    <i style={{ width: `${Math.max(6, Math.round((Math.max(currentStepIndex, 0) / FC_MODAL_STEPS.length) * 100))}%` }} />
                   </div>
                 </div>
                 <Tabs.List aria-label="FC 진행 단계">
@@ -2638,6 +2711,7 @@ export default function DashboardPage() {
                     ) : null;
                   })() : null}
                 </div>
+                <StepSummary items={getStepSummary(modalTab)} />
               <Tabs.Panel value="info">
                 <Stack gap="md">
                   <section className={fcm.section}>

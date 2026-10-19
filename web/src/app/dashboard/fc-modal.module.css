@@ -23,7 +23,10 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  background: var(--dashboard-panel);
+  background:
+    radial-gradient(120% 60% at 0% 0%, rgba(243, 111, 33, 0.18) 0%, rgba(243, 111, 33, 0) 60%),
+    var(--dashboard-ink);
+  color: #f4f4f3;
   border-radius: 22px;
   padding: 18px;
 }
@@ -83,6 +86,42 @@
   word-break: keep-all;
 }
 
+/* Overall progress (hatched, like the dashboard bars) */
+.progress {
+  display: grid;
+  gap: 8px;
+}
+
+.progressHead {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: rgba(244, 244, 243, 0.6);
+}
+
+.progressHead b {
+  font-size: 15px;
+  font-weight: 650;
+  color: #fff;
+}
+
+.progressTrack {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.progressTrack i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.32) 0 3px, transparent 3px 7px),
+    linear-gradient(90deg, #ff9a52, var(--primary-color));
+  transition: width 900ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 /* Vertical step navigation */
 .stepList {
   position: relative;
@@ -98,7 +137,7 @@
   top: 26px;
   bottom: 26px;
   width: 2px;
-  background: #e4e4e1;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .stepTab {
@@ -112,7 +151,7 @@
   border-radius: 16px;
   padding: 10px 12px;
   background: transparent;
-  color: var(--dashboard-ink);
+  color: #f4f4f3;
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -128,12 +167,12 @@
 }
 
 .stepTab:hover {
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .stepTab[data-active] {
-  background: #fff;
-  box-shadow: 0 10px 24px rgba(30, 29, 24, 0.06);
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .stepTab:focus-visible {
@@ -152,14 +191,14 @@
   flex-shrink: 0;
   font-size: 13px;
   font-weight: 600;
-  background: #fff;
+  background: var(--dashboard-ink);
   color: #8a8984;
-  box-shadow: inset 0 0 0 1.5px #e4e4e1;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.22);
 }
 
 .stepTab[data-state='done'] .stepDot {
-  background: var(--dashboard-ink);
-  color: #fff;
+  background: #fff;
+  color: var(--dashboard-ink);
   box-shadow: none;
 }
 
@@ -184,11 +223,11 @@
 
 .stepState {
   font-size: 12px;
-  color: #8a8984;
+  color: rgba(244, 244, 243, 0.5);
 }
 
 .stepTab[data-state='current'] .stepState {
-  color: #c2470d;
+  color: #ff9a52;
   font-weight: 600;
 }
 
@@ -227,9 +266,20 @@
 }
 
 .sectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 15px;
   font-weight: 650;
   color: var(--dashboard-ink);
+}
+
+.sectionTitle::before {
+  content: '';
+  width: 4px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--primary-color);
 }
 
 .section [class*='Input-input'] {
@@ -267,6 +317,10 @@
   box-shadow: inset 0 0 0 1.5px #e4e4e1;
 }
 
+.flowRow[data-done] {
+  box-shadow: inset 3px 0 0 var(--dashboard-ink);
+}
+
 .flowRow[data-done] .flowNo {
   background: var(--dashboard-ink);
   color: #fff;
@@ -297,6 +351,85 @@
   flex-wrap: wrap;
   padding-top: 14px;
   border-top: 1px solid #f0f0ee;
+}
+
+/* Step summary tiles */
+.summary {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 860px) {
+  .summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.summaryTile {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 82px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: var(--dashboard-panel);
+  color: var(--dashboard-ink);
+  animation: tileIn 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.summaryTile:nth-child(2) { animation-delay: 60ms; }
+.summaryTile:nth-child(3) { animation-delay: 120ms; }
+.summaryTile:nth-child(4) { animation-delay: 180ms; }
+
+.summaryTile[data-state='done'] {
+  background: var(--dashboard-ink);
+  color: #fff;
+}
+
+.summaryTile[data-state='hot'] {
+  color: #fff;
+  background:
+    radial-gradient(120% 80% at 20% 0%, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 55%),
+    linear-gradient(180deg, #ff9a52 0%, var(--primary-color) 46%, #c2470d 100%);
+  box-shadow: 0 12px 26px rgba(243, 111, 33, 0.28);
+}
+
+.summaryTile[data-state='warn'] {
+  background: #fdeeee;
+  color: #c0392b;
+}
+
+.summaryLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.75;
+}
+
+.summaryValue {
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@keyframes tileIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* Right column */
@@ -400,11 +533,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .stepTab {
+  .stepTab,
+  .progressTrack i {
     transition: none;
   }
 
-  .panel {
+  .panel,
+  .summaryTile {
     animation: none;
   }
 }
