@@ -1,5 +1,21 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261019-admin-redesign"></a>
+## 2026-10-19 관리자 웹 재설계
+
+- 기준·위치: `f32fd9cd`에서 갈라진 `feature/admin-redesign-shell-home-20261019`, worktree `D:/hanhwa/.codex-tmp/admin-redesign-20261019`(node_modules는 메인 체크아웃 junction). 커밋 `4efe612b`~`0b32a2c6`(32개), 109파일. push·배포 없음.
+- 공통 골격(`dashboard/layout.tsx`): 캔버스 위 둥근 패널, 홈·업무·사람·소통·관리 그룹 탭(선택 표시 슬라이드, 마우스 올리면 세부 메뉴가 순차 등장), 아이콘 레일, 모바일 Drawer. 메뉴의 공지사항·게시판은 `공지·게시판` 하나로 합쳤고 `/dashboard/board`는 같은 메뉴로 활성 표시한다.
+- 공통 surface(`dashboard/surface.module.css`): 헤더·흰 카드·알약 버튼·표 머리·상태 타일·헤더 상태 칩(`headMeta`/`metaChip`, 주황=처리 필요)·폼 행·선택 카드. 시험 일정·신청자 상세·서면확인 가입·추천인 3종·게시판·메신저·1:1·단톡방·처리 이력·설정·알림 열기에 적용.
+- 홈: 처리 대기열(`lib/dashboard-work-queue.ts`)에 발생 시각 열 추가. 규칙 `getDashboardWorkOccurredAt`: 보증 보험 동의=사전 심사 요청 시각(없으면 동의일), 서류=검토 대기 제출 서류의 최신 등록 시각, 다위촉=FC 완료일 제출일, 위촉=생명·손해 제출일 중 최신. 3일 이상이면 주황.
+- FC 상세 관리 모달(`dashboard/page.tsx`, `fc-modal.module.css`): 왼쪽 신원 카드+세로 단계(완료/현재/대기는 `getDefaultModalTab` 기준), 오른쪽 단계 내용. 단계마다 요약 타일(완료=연한 회색+초록 체크, 첫 미완료=주황). 버튼 배치 규칙: 필드 저장은 필드 옆 아이콘, 목록 항목 결정은 행 끝 아이콘, 단계 결정은 하단 고정 바(오른쪽 주 행동=주황). 승인/반려 토글은 같은 상태 전이를 쓰는 명시 버튼으로 바꿨다. 필드 라벨에 종류 아이콘, 경력 구분은 SegmentedControl, 최종 완료는 생명·손해 배너 토글. 기타 서류는 Enter로 추가(IME 조합 Enter 무시, `+` 버튼과 같은 `handleAddCustomDoc`).
+- 서류 관리: 3분할, 단계 표시, 실제 요청 서류명, PDF는 기존 60초 서명 URL(다운로드 옵션 없음)로 iframe 미리보기.
+- 시험: 시험 일정은 리스트 옆 월 캘린더(`dayjs/locale/ko`로 한국어 요일), 마감 회차 회색, 접수 중 회차를 마감 임박순으로 위에, 일정 모달은 종류 카드·아이콘 행·시험일 옆 `미정` 스위치·마감 D-day, 달력 스타일은 `MODAL_CALENDAR_STYLES` 하나로. 시험 신청자 고정 열에 엑셀식 구분선.
+- 공지·게시판(`dashboard/notifications/page.tsx`): 공지(`fetchAdminNotices`)와 게시글(`fetchBoardList` limit 50)을 한 목록으로 최신순 표시, 전체/공지/게시글·게시글 카테고리 필터, 공지 목록에 이미 들어온 `board_notice:` 항목은 게시글로 한 번만. `새 글 쓰기`는 먼저 받는 사람·알림 방식을 고른다(FC 공지: FC 전체, 푸시+알림함 / 게시판 글: FC·본부장·총무, 푸시+알림함, 댓글·반응). 게시판 글 선택은 `/dashboard/board?compose=1`로 작성 창을 바로 연다. 게시글 첨부는 사용자가 클릭한 글만 상세를 불러와(상세 조회마다 `board_post_views` 1건 기록) 이미지·PDF를 미리 보여 준다.
+- 삭제: 에이전트 룸(페이지, `/api/agent-room`, 장면 컴포넌트, 서버 스냅샷, 타입, `public/agent-room-assets`, 테스트, `next.config.ts`의 추적 제외, `contract-test-map.json` 규칙, 메뉴).
+- 운영 DB: 사용자 승인으로 `fc_documents`의 깨진 서류명 1행(U+FFFD 포함)을 `제3보험 수료증(경력)`으로 고쳤다. 정확히 1행일 때만 적용, 같은 이름 중복 없음 확인, 이후 깨진 행 0건.
+- 검증: 합성 데이터 fixture(포트 4320, scratchpad, 파일별 CSS module 스코프 로더)로 화면 캡처, 실제 데이터는 worktree에 `.env.local`을 복사해 `next dev --webpack`(포트 3201)로 사용자가 확인. tsc·eslint 통과, web node 814개 중 813 통과(실패 1건은 기준선부터 있던 referral-graph 범례 시험). 테스트 mock 정리: `board-read-state-runtime`·`chat-session-runtime`·`agent-room`(삭제)에 CSS module 일반 처리, 공지 테스트에 게시판 API mock 추가·빈 목록 문구 `등록된 글이 없습니다.`로 변경.
+- 남은 것: 실제 DB에서 승인·저장 쓰기 동작과 게시글 첨부 미리보기는 사용자 확인 전. 로컬 dev에서 `/api/fc-notify` 403 반복(127.0.0.1·localhost 출처 불일치 추정, 미확인).
+
 <a id="20261019-messenger-unified-line-integration"></a>
 ## 2026-10-19 운영 메신저 통합 모델 계열 통합
 
