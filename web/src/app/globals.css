@@ -2,7 +2,10 @@
   --mantine-font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
   --bg-color: #f8f9fa;
   --primary-color: #f36f21;
-  --dashboard-canvas: #f1f0ee;
+  --dashboard-canvas: #e8e9ed;
+  --dashboard-panel: #f6f6f6;
+  --dashboard-well: #f4f4f3;
+  --dashboard-ink: #1e1d18;
   --text-primary: #111827;
   --text-secondary: #6b7280;
 }

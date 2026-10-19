@@ -5,10 +5,11 @@ import { DashboardNotificationBell } from '@/components/DashboardNotificationBel
 import { GlobalFcSearch } from '@/components/GlobalFcSearch';
 import { NotificationReadAcknowledger } from '@/components/NotificationReadAcknowledger';
 import { getDashboardRoleLabel, getDashboardRoleSubLabel } from '@/lib/staff-identity';
-import { AppShell, Avatar, Box, Burger, Divider, Group, Menu, NavLink, Text, Tooltip, UnstyledButton, useMantineTheme } from '@mantine/core';
+import { Avatar, Box, Burger, Divider, Drawer, Group, Menu, NavLink, Text, Tooltip, UnstyledButton, useMantineTheme } from '@mantine/core';
 import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import {
   IconCalendarEvent,
+  IconChevronDown,
   IconFileText,
   IconReceipt,
   IconClipboardList,
@@ -27,7 +28,7 @@ import {
 } from '@tabler/icons-react';
 import { usePathname, useRouter } from 'next/navigation';
 import type React from 'react';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import styles from './layout.module.css';
 
 type NavItem = {
@@ -115,6 +116,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     close();
   }, [pathname, close]);
 
+  // Slide the black pill under the active group tab.
+  const tabsRef = useRef<HTMLElement | null>(null);
+  const [indicator, setIndicator] = useState<{ left: number; width: number } | null>(null);
+  useEffect(() => {
+    const measure = () => {
+      const button = tabsRef.current?.querySelector<HTMLElement>(`[data-group="${activeGroup.label}"]`);
+      setIndicator(button ? { left: button.offsetLeft, width: button.offsetWidth } : null);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [activeGroup.label, isDesktop, hydrated]);
+
   useEffect(() => {
     if (!hydrated || role !== 'fc') return;
     if (pathname !== '/dashboard/referrals/graph') {
@@ -127,33 +141,65 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   const showGroupTabs = isDesktop && navGroups.length > 1;
+  const menuList = (
+    <>
+      {navGroups.map((group, groupIndex) => (
+        <Box key={group.label} component="nav" aria-label={group.label}>
+          {groupIndex > 0 ? (
+            <Text size="xs" fw={700} c="dimmed" px="sm" mt="md" mb={4}>{group.label}</Text>
+          ) : null}
+          {group.items.map((item) => {
+            const active = item.href === activeHref;
+            const Icon = item.icon;
+            return (
+              <NavLink
+                key={item.href}
+                label={item.label}
+                active={active}
+                aria-current={active ? "page" : undefined}
+                leftSection={<Icon size={16} stroke={2} />}
+                onClick={() => router.push(item.href)}
+                variant="light"
+              />
+            );
+          })}
+        </Box>
+      ))}
+      <Divider my={6} />
+      <NavLink
+        label="로그아웃"
+        color="red"
+        leftSection={<IconLogout size={16} stroke={2} />}
+        onClick={() => logout()}
+        variant="light"
+      />
+    </>
+  );
 
   return (
-    <AppShell
-      header={{ height: 72 }}
-      navbar={{ width: isDesktop ? 88 : 260, breakpoint: 'sm', collapsed: { mobile: !opened } }}
-      padding="md"
-      classNames={{ header: styles.canvas, navbar: styles.canvas, main: styles.canvas }}
-    >
+    // Three surfaces, as in the reference: page background, the rounded app panel, then white cards.
+    <div className={styles.frame}>
       <NotificationReadAcknowledger />
-      <AppShell.Header>
-        <Group h="100%" px={{ base: 8, sm: "md" }} justify="space-between" wrap="nowrap" gap={8}>
+      <div className={styles.panel}>
+        <header className={styles.header}>
           <Group wrap="nowrap" gap={8} style={{ minWidth: 0, flex: 1 }}>
             <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" aria-label={opened ? "메뉴 닫기" : "메뉴 열기"} aria-expanded={opened} aria-controls="dashboard-navigation" styles={{ root: { width: 44, height: 44, flexShrink: 0 } }} />
             <div className={styles.brand}>
               <span className={styles.brandMark} aria-hidden="true" />
-              <Text fw={800} size="md" truncate>
+              <Text fw={700} size="md" truncate>
                 {isFcSession ? 'FC 추천인 그래프' : 'FC 온보딩 웹'}
               </Text>
             </div>
           </Group>
 
           {showGroupTabs ? (
-            <nav aria-label="메뉴 묶음" className={styles.groupTabs}>
+            <nav aria-label="메뉴 묶음" className={styles.groupTabs} ref={tabsRef}>
+              <span className={styles.groupIndicator} style={indicator ?? { opacity: 0 }} aria-hidden="true" />
               {navGroups.map((group) => (
                 <button
                   key={group.label}
                   type="button"
+                  data-group={group.label}
                   className={styles.groupTab}
                   aria-current={group === activeGroup ? 'true' : undefined}
                   onClick={() => router.push(group.items[0].href)}
@@ -164,30 +210,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </nav>
           ) : null}
 
-          <Group gap={isDesktop ? "sm" : 4} wrap="nowrap" style={{ flexShrink: 0, flex: showGroupTabs ? 1 : undefined, justifyContent: 'flex-end' }}>
+          <Group gap={isDesktop ? 10 : 4} wrap="nowrap" style={{ flexShrink: 0, flex: showGroupTabs ? 1 : undefined, justifyContent: 'flex-end' }}>
             {!isFcSession ? (
               <>
                 <GlobalFcSearch role={role} residentId={residentId} />
-                <DashboardNotificationBell role={role} residentId={residentId} staffType={staffType} />
+                <span className={styles.iconCircle}>
+                  <DashboardNotificationBell role={role} residentId={residentId} staffType={staffType} />
+                </span>
               </>
             ) : null}
 
             <Menu shadow="md" width={220} position="bottom-end">
               <Menu.Target>
-                <UnstyledButton aria-label={`${displayName?.trim() || roleLabel} 계정 메뉴`} style={{ minWidth: 44, minHeight: 44 }}>
-                  <Group gap="sm" wrap="nowrap">
-                    <Avatar color="orange" radius="xl" size="sm">
-                      {userInitial}
-                    </Avatar>
-                    <Box visibleFrom="sm" maw={160}>
-                      <Text size="sm" fw={600} c="dark" truncate>
-                        {displayName?.trim() || roleLabel}
-                      </Text>
-                      <Text size="xs" c="dimmed" truncate>
-                        {subLabel}
-                      </Text>
-                    </Box>
-                  </Group>
+                <UnstyledButton className={styles.profile} aria-label={`${displayName?.trim() || roleLabel} 계정 메뉴`}>
+                  <Avatar color="orange" radius="xl" size={32}>
+                    {userInitial}
+                  </Avatar>
+                  <Box visibleFrom="sm" maw={160}>
+                    <Text size="sm" fw={600} c="dark" truncate lh={1.25}>
+                      {displayName?.trim() || roleLabel}
+                    </Text>
+                    <Text size="xs" c="dimmed" truncate lh={1.25}>
+                      {subLabel}
+                    </Text>
+                  </Box>
+                  <IconChevronDown size={14} stroke={2} className={styles.profileChevron} />
                 </UnstyledButton>
               </Menu.Target>
               <Menu.Dropdown>
@@ -209,13 +256,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </Menu.Dropdown>
             </Menu>
           </Group>
-        </Group>
-      </AppShell.Header>
+        </header>
 
-      <AppShell.Navbar id="dashboard-navigation" p={isDesktop ? 'md' : 'md'}>
-        {isDesktop ? (
-          <>
-            <AppShell.Section>
+        <div className={styles.body}>
+          {isDesktop ? (
+            <aside id="dashboard-navigation" className={styles.railColumn}>
               <nav aria-label={activeGroup.label} className={styles.rail}>
                 {activeGroup.items.map((item) => {
                   const active = item.href === activeHref;
@@ -229,65 +274,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         aria-current={active ? 'page' : undefined}
                         onClick={() => router.push(item.href)}
                       >
-                        <Icon size={18} stroke={2} />
+                        <Icon size={18} stroke={1.8} />
                       </button>
                     </Tooltip>
                   );
                 })}
               </nav>
-            </AppShell.Section>
-            <AppShell.Section grow />
-            <AppShell.Section>
               <div className={styles.rail}>
                 <Tooltip label="로그아웃" position="right" withArrow openDelay={150}>
                   <button type="button" className={`${styles.railItem} ${styles.railLogout}`} aria-label="로그아웃" onClick={() => logout()}>
-                    <IconLogout size={18} stroke={2} />
+                    <IconLogout size={18} stroke={1.8} />
                   </button>
                 </Tooltip>
               </div>
-            </AppShell.Section>
-          </>
-        ) : (
-          <>
-            <AppShell.Section grow>
-              {navGroups.map((group, groupIndex) => (
-                <Box key={group.label} component="nav" aria-label={group.label}>
-                  {groupIndex > 0 ? (
-                    <Text size="xs" fw={700} c="dimmed" px="sm" mt="md" mb={4}>{group.label}</Text>
-                  ) : null}
-                  {group.items.map((item) => {
-                    const active = item.href === activeHref;
-                    const Icon = item.icon;
-                    return (
-                      <NavLink
-                        key={item.href}
-                        label={item.label}
-                        active={active}
-                        aria-current={active ? "page" : undefined}
-                        leftSection={<Icon size={16} stroke={2} />}
-                        onClick={() => router.push(item.href)}
-                        variant="light"
-                      />
-                    );
-                  })}
-                </Box>
-              ))}
-            </AppShell.Section>
-            <AppShell.Section>
-              <Divider my={6} />
-              <NavLink
-                label="로그아웃"
-                color="red"
-                leftSection={<IconLogout size={16} stroke={2} />}
-                onClick={() => logout()}
-                variant="light"
-              />
-            </AppShell.Section>
-          </>
-        )}
-      </AppShell.Navbar>
-
-      <AppShell.Main>{children}</AppShell.Main>
-    </AppShell>
+            </aside>
+          ) : (
+            <Drawer opened={opened} onClose={close} size={280} title="메뉴" id="dashboard-navigation">
+              {menuList}
+            </Drawer>
+          )}
+          <main key={pathname} className={styles.main}>{children}</main>
+        </div>
+      </div>
+    </div>
   );
 }
