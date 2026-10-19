@@ -439,16 +439,12 @@ export default function CreateNoticePage() {
                             <Group justify="flex-end" mt="xl">
                                 <Button
                                     type="submit"
-                                    variant="gradient"
-                                    gradient={{ from: 'orange', to: 'red' }}
+                                    color="dark"
                                     size="lg"
-                                    radius="md"
+                                    radius="xl"
                                     leftSection={<IconSend size={20} />}
                                     loading={isPending}
                                     disabled={isReadOnly}
-                                    style={{
-                                        boxShadow: '0 4px 14px 0 rgba(232, 89, 12, 0.39)'
-                                    }}
                                 >
                                     전송하기
                                 </Button>

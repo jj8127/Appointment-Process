@@ -122,7 +122,7 @@ export default function NotificationDetailPage() {
           ) : null}
         </Group>
 
-        <Paper withBorder radius="md" p="lg">
+        <Paper radius={24} p="xl" bg="white">
           {isLoading ? (
             <Group justify="center" py="xl">
               <Loader color="orange" />

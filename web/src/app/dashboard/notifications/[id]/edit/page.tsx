@@ -394,13 +394,11 @@ function EditNoticeContent({ id }: { id: string }) {
                             <Group justify="flex-end" mt="xl">
                                 <Button
                                     type="submit"
-                                    variant="gradient"
-                                    gradient={{ from: 'blue', to: 'cyan' }}
+                                    color="dark"
                                     size="lg"
-                                    radius="md"
+                                    radius="xl"
                                     leftSection={<IconDeviceFloppy size={20} />}
                                     loading={isPending}
-                                    style={{ boxShadow: '0 4px 14px 0 rgba(12, 89, 232, 0.39)' }}
                                 >
                                     저장하기
                                 </Button>
