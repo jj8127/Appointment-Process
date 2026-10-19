@@ -2654,7 +2654,7 @@ export default function DashboardPage() {
                   <span className={fcm.avatar}>{selectedFc.name?.slice(0, 1) || '?'}</span>
                   <div>
                     <Group gap="xs" align="center">
-                      <Text className={fcm.name} c="white">{selectedFc.name}</Text>
+                      <Text className={fcm.name}>{selectedFc.name}</Text>
                       <Badge variant="white" radius="xl" color={!selectedFc.career_type ? 'gray' : 'dark'}>
                         {selectedFc.career_type || '조회중'}
                       </Badge>
@@ -2675,15 +2675,6 @@ export default function DashboardPage() {
                         생년월일: {selectedBirthDateDisplay}
                       </Text>
                     </Stack>
-                  </div>
-                </div>
-                <div className={fcm.progress}>
-                  <div className={fcm.progressHead}>
-                    <span>진행률</span>
-                    <b>{Math.round((Math.max(currentStepIndex, 0) / FC_MODAL_STEPS.length) * 100)}%</b>
-                  </div>
-                  <div className={fcm.progressTrack}>
-                    <i style={{ width: `${Math.max(6, Math.round((Math.max(currentStepIndex, 0) / FC_MODAL_STEPS.length) * 100))}%` }} />
                   </div>
                 </div>
                 <Tabs.List aria-label="FC 진행 단계">
