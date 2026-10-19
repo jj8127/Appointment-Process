@@ -6,7 +6,6 @@ import {
   Box,
   Button,
   Card,
-  Container,
   Group,
   LoadingOverlay,
   Modal,
@@ -34,7 +33,8 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useDeferredValue, useState } from 'react';
+import { useDeferredValue, useState, type CSSProperties } from 'react';
+import surface from '../surface.module.css';
 
 import { RecommenderSelect } from '@/components/RecommenderSelect';
 import { QueryErrorAlert } from '@/components/QueryErrorAlert';
@@ -52,7 +52,6 @@ import {
   type ReferralAdminMutationRequest,
   type ReferralAdminUnresolvedItem,
 } from '@/types/referrals';
-import { CHARCOAL } from '@/lib/brand-colors';
 
 const PAGE_SIZE = 20;
 const BACKFILL_LIMIT = 100;
@@ -213,21 +212,13 @@ async function postReferralAction(body: ReferralAdminMutationRequest) {
 function SummaryCard(props: {
   title: string;
   value: number | string;
-  tone?: 'orange' | 'blue' | 'gray';
+  hot?: boolean;
 }) {
-  const color = props.tone === 'blue' ? '#1c7ed6' : props.tone === 'gray' ? '#6b7280' : '#f97316';
-
   return (
-    <Card withBorder radius="md" p="lg" bg="white">
-      <Stack gap={6}>
-        <Text size="sm" c="dimmed">
-          {props.title}
-        </Text>
-        <Text size="xl" fw={800} style={{ color }}>
-          {props.value.toLocaleString('ko-KR')}
-        </Text>
-      </Stack>
-    </Card>
+    <div className={surface.statTile} data-hot={props.hot || undefined}>
+      <span className={surface.statLabel}>{props.title}</span>
+      <span className={surface.statValue}>{props.value.toLocaleString('ko-KR')}</span>
+    </div>
   );
 }
 
@@ -244,7 +235,7 @@ function DetailPanel(props: {
 
   if (!props.detail && !props.fallbackItem) {
     return (
-      <Paper withBorder radius="md" p="lg" bg="white">
+      <Paper radius={24} p="lg" bg="white">
         <Text size="sm" c="dimmed">
           목록에서 FC를 선택하면 현재 추천코드와 운영 이력을 확인할 수 있습니다.
         </Text>
@@ -288,7 +279,7 @@ function DetailPanel(props: {
         )}
       </Group>
 
-      <Card withBorder radius="md" p="md" bg="gray.0">
+      <Card radius={16} p="md" bg="var(--dashboard-panel)">
         <Stack gap={6}>
           <Text size="sm" fw={700}>
             현재 활성 코드
@@ -317,7 +308,7 @@ function DetailPanel(props: {
         {props.detail?.codeHistory.length ? (
           <Stack gap={8}>
             {props.detail.codeHistory.map((item) => (
-              <Paper key={item.id} withBorder radius="md" p="sm">
+              <Paper key={item.id} radius={14} p="sm" bg="var(--dashboard-panel)">
                 <Group justify="space-between" align="flex-start">
                   <div>
                     <Badge color="gray" variant="light">
@@ -354,7 +345,7 @@ function DetailPanel(props: {
               const eventCode = getEventCode(event);
               const reason = getMetadataString(event.metadata, 'reason');
               return (
-                <Paper key={event.id} withBorder radius="md" p="sm">
+                <Paper key={event.id} radius={14} p="sm" bg="var(--dashboard-panel)">
                   <Group justify="space-between" align="flex-start">
                     <div>
                       <Text size="sm" fw={600}>
@@ -617,27 +608,43 @@ export default function ReferralDashboardPage() {
   }
 
   return (
-    <Container size="xl" py="xl">
-      <Stack gap="lg">
-        <Group justify="space-between" align="flex-end">
+    <div className={surface.page}>
+      <Stack gap={14}>
+        <div className={surface.head} style={{ '--i': 0 } as CSSProperties}>
           <div>
-            <Title order={2} c={CHARCOAL}>추천인 코드</Title>
-            <Text size="sm" c="dimmed" mt={4}>
+            <Title order={1} className={surface.title}>추천인 코드</Title>
+            <Text className={surface.subtitle}>
               기존 FC 추천코드 발급 현황을 조회하고 운영 이력을 확인합니다.
             </Text>
+            {summary ? (
+              <div className={surface.headMeta}>
+                <span className={surface.metaChip} data-tone={summary.missingCodeCount === 0 ? 'ok' : 'hot'}>
+                  <i />발급률 <b>{summary.eligibleCount ? Math.round((summary.activeCodeCount / summary.eligibleCount) * 100) : 0}%</b>
+                </span>
+                <span className={surface.metaChip} data-tone={summary.unresolvedLegacyCount > 0 ? 'hot' : 'ok'}>
+                  <i />검토 대기 <b>{summary.unresolvedLegacyCount}</b>건
+                </span>
+              </div>
+            ) : null}
           </div>
 
           <Group gap="xs">
             <Button
               component={Link}
               href="/dashboard/referrals/graph"
-              variant="subtle"
+              variant="white"
+              color="dark"
+              radius="xl"
+              h={44}
               leftSection={<IconGraph size={16} />}
             >
               그래프 보기
             </Button>
             {showMutateControls ? (
               <Button
+                color="dark"
+                radius="xl"
+                h={44}
                 leftSection={<IconRefresh size={16} />}
                 onClick={() => setActionModal({ action: 'backfill_missing_codes', target: null })}
               >
@@ -649,7 +656,7 @@ export default function ReferralDashboardPage() {
               </Badge>
             ) : null}
           </Group>
-        </Group>
+        </div>
 
         {showReadOnlyState ? (
           <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />}>
@@ -668,16 +675,16 @@ export default function ReferralDashboardPage() {
         ) : null}
 
         {listQuery.error && summary ? <Text size="sm" c="orange">이전 조회 자료를 표시합니다.</Text> : null}
-        <SimpleGrid cols={{ base: 1, sm: 2, xl: 4 }}>
+        <div className={surface.statGroup} style={{ '--cols': 5, '--i': 1 } as CSSProperties}>
           <SummaryCard title="발급 대상 FC" value={summary?.eligibleCount ?? (listQuery.isLoading ? '조회 중' : '확인 불가')} />
-          <SummaryCard title="활성 코드 보유" value={summary?.activeCodeCount ?? (listQuery.isLoading ? '조회 중' : '확인 불가')} tone="blue" />
+          <SummaryCard title="활성 코드 보유" value={summary?.activeCodeCount ?? (listQuery.isLoading ? '조회 중' : '확인 불가')} />
           <SummaryCard title="미발급 FC" value={summary?.missingCodeCount ?? (listQuery.isLoading ? '조회 중' : '확인 불가')} />
-          <SummaryCard title="비활성 코드 이력" value={summary?.disabledCodeCount ?? (listQuery.isLoading ? '조회 중' : '확인 불가')} tone="gray" />
-          <SummaryCard title="검토 필요 추천인" value={summary?.unresolvedLegacyCount ?? (listQuery.isLoading ? '조회 중' : '확인 불가')} />
-        </SimpleGrid>
+          <SummaryCard title="비활성 코드 이력" value={summary?.disabledCodeCount ?? (listQuery.isLoading ? '조회 중' : '확인 불가')} />
+          <SummaryCard title="검토 필요 추천인" value={summary?.unresolvedLegacyCount ?? (listQuery.isLoading ? '조회 중' : '확인 불가')} hot />
+        </div>
 
-        <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
-          <Paper withBorder radius="md" p="lg" bg="white">
+        <SimpleGrid cols={{ base: 1, xl: 2 }} spacing={14}>
+          <Paper radius={24} p="lg" bg="white" className={surface.card} style={{ '--i': 2 } as CSSProperties}>
             <Stack gap="md">
               <Group justify="space-between" align="center">
                 <TextInput
@@ -707,7 +714,7 @@ export default function ReferralDashboardPage() {
 
                 <Stack gap="md">
                   <ScrollArea>
-                    <Table highlightOnHover>
+                    <Table className={surface.table}>
                       <Table.Thead>
                         <Table.Tr>
                           <Table.Th>FC</Table.Th>
@@ -722,7 +729,7 @@ export default function ReferralDashboardPage() {
                             <Table.Tr
                               key={item.fcId}
                               style={{ cursor: 'pointer' }}
-                              bg={effectiveSelectedFcId === item.fcId ? 'orange.0' : undefined}
+                              bg={effectiveSelectedFcId === item.fcId ? '#fff6ef' : undefined}
                               onClick={() => setSelectedFcId(item.fcId)}
                             >
                               <Table.Td>
@@ -786,7 +793,7 @@ export default function ReferralDashboardPage() {
             </Stack>
           </Paper>
 
-          <Paper withBorder radius="md" p="lg" pos="relative" bg="white">
+          <Paper radius={24} p="lg" pos="relative" bg="white" className={surface.card} style={{ '--i': 3 } as CSSProperties}>
             <LoadingOverlay
               visible={detailQuery.isFetching && !detailQuery.data && Boolean(effectiveSelectedFcId)}
               overlayProps={{ radius: 'md', blur: 1 }}
@@ -801,7 +808,7 @@ export default function ReferralDashboardPage() {
           </Paper>
         </SimpleGrid>
 
-        <Paper withBorder radius="md" p="lg" bg="white">
+        <Paper radius={24} p="lg" bg="white" className={surface.card} style={{ '--i': 4 } as CSSProperties}>
           <Stack gap="md">
             <Group justify="space-between" align="flex-end">
               <div>
@@ -835,7 +842,7 @@ export default function ReferralDashboardPage() {
                   </Text>
                 ) : null}
                 <ScrollArea>
-                  <Table highlightOnHover>
+                  <Table className={surface.table}>
                   <Table.Thead>
                     <Table.Tr>
                       <Table.Th>FC</Table.Th>
@@ -1051,6 +1058,6 @@ export default function ReferralDashboardPage() {
           </Group>
         </Stack>
       </Modal>
-    </Container>
+    </div>
   );
 }

@@ -11,6 +11,7 @@ import { SessionProvider } from '@/hooks/use-session';
 import { PwaServiceWorkerRegistrar } from '@/components/PwaServiceWorkerRegistrar';
 import { SystemNotificationRetirer } from '@/components/SystemNotificationRetirer';
 import { BRAND_ORANGE_TUPLE, HANWHA_ORANGE } from '@/lib/brand-colors';
+import { CALENDAR_THEME_COMPONENTS } from '@/lib/calendar-theme';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
@@ -29,6 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             primaryColor: 'orange',
             colors: { orange: BRAND_ORANGE_TUPLE },
             fontFamily: 'Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif',
+            components: CALENDAR_THEME_COMPONENTS,
           }}
         >
           <Notifications position="top-right" />

@@ -10,7 +10,7 @@ import { QueryErrorAlert } from '@/components/QueryErrorAlert';
 
 import { fetchPresence } from '@/lib/presence-api';
 import { formatPresenceLabel } from '@/lib/presence';
-import { getAdminStepDisplay, getStatusDisplay } from '@/lib/shared';
+import { ADMIN_STEP_LABELS, getAdminStepDisplay, getStatusDisplay } from '@/lib/shared';
 import { useResidentNumber } from '@/hooks/use-resident-number';
 import { useSession } from '@/hooks/use-session';
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
@@ -24,7 +24,6 @@ import {
     ActionIcon,
     Alert,
     Anchor,
-    Avatar,
     Badge,
     Box,
     Button,
@@ -60,7 +59,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { use, useCallback, useEffect, useRef, useState } from 'react';
+import { use, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import styles from './page.module.css';
 import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -104,7 +104,6 @@ const readSignupReferralCode = (payload: unknown) => {
 };
 
 // --- Constants ---
-const BACKGROUND = '#f8f9fa';
 
 export default function FcProfilePage({ params }: { params: Promise<{ id: string }> }) {
     const { id: fcId } = use(params);
@@ -498,79 +497,84 @@ function FcProfileContent({ fcId }: { fcId: string }) {
     const statusTextColor = statusDisplay.color === 'gray' ? 'dimmed' : statusDisplay.color;
 
     return (
-        <Box bg={BACKGROUND} style={{ minHeight: '100vh' }}>
+        <div className={styles.page}>
             <NotificationDestinationReady />
             {profileError ? (
-                <Container size="xl" pt="md">
-                    <QueryErrorAlert
-                        error={profileError}
-                        onRetry={refetchProfile}
-                        isFetching={isProfileFetching}
-                        hasData
-                        subject="FC 상세 정보"
-                    />
-                </Container>
+                <QueryErrorAlert
+                    error={profileError}
+                    onRetry={refetchProfile}
+                    isFetching={isProfileFetching}
+                    hasData
+                    subject="FC 상세 정보"
+                />
             ) : null}
-            {/* Header */}
-            <Box bg="white" style={{ borderBottom: '1px solid #e9ecef' }} py="md" px="xl">
-                <Container size="xl" p={0}>
-                    <Group justify="space-between" mb="xs">
-                        <Button variant="subtle" color="gray" size="xs" leftSection={<IconArrowLeft size={14} />} onClick={handleLeave}>
-                            목록으로 돌아가기
-                        </Button>
-                        <Badge
-                            size="lg"
-                            color={presenceBadgeColor}
-                            variant={presenceBadgeVariant}
-                            title={isPresenceError && hasCachedPresence ? '최근 활동 정보를 표시하고 있습니다. 갱신에 실패했습니다.' : undefined}
+            <Group justify="space-between">
+                <Button variant="subtle" color="gray" size="xs" radius="xl" leftSection={<IconArrowLeft size={14} />} onClick={handleLeave}>
+                    목록으로 돌아가기
+                </Button>
+            </Group>
+
+            {/* Header card: identity, current step and the 0-5 step bar */}
+            <section className={styles.card} style={{ '--i': 0 } as CSSProperties}>
+                <div className={styles.headRow}>
+                    <span className={styles.avatar}>{profile.name[0]}</span>
+                    <Stack gap={6} style={{ minWidth: 0 }}>
+                        <Group gap="xs" align="center">
+                            <Title order={2} className={styles.name}>{profile.name}</Title>
+                            <Badge variant="light" radius="xl" color={!profile.career_type ? 'gray' : 'blue'}>{profile.career_type || '미입력'}</Badge>
+                            <Badge
+                                radius="xl"
+                                color={presenceBadgeColor}
+                                variant={presenceBadgeVariant}
+                                title={isPresenceError && hasCachedPresence ? '최근 활동 정보를 표시하고 있습니다. 갱신에 실패했습니다.' : undefined}
+                            >
+                                {presenceLabel}
+                            </Badge>
+                        </Group>
+                        <Group gap="lg">
+                            <Group gap={4}>
+                                <ThemeIcon size="xs" variant="transparent" color="gray"><IconBuilding /></ThemeIcon>
+                                <Text size="sm" c={MUTED}>{profile.affiliation || '소속 미정'}</Text>
+                            </Group>
+                            <Group gap={4}>
+                                <ThemeIcon size="xs" variant="transparent" color="gray"><IconPhone /></ThemeIcon>
+                                <Text size="sm" c={MUTED}>{profile.phone}</Text>
+                            </Group>
+                        </Group>
+                    </Stack>
+                    <Stack gap={0} ml="auto" align="flex-end">
+                        <Text size="xs" c="dimmed" fw={700} tt="uppercase">Current Step</Text>
+                        <Text size="xl" fw={700} c={adminStepDisplay.color}>{adminStepDisplay.label}</Text>
+                        <Text size="sm" c={statusTextColor}>{statusDisplay.label}</Text>
+                    </Stack>
+                </div>
+                <div className={styles.stepBar} aria-label={`진행 단계 ${adminStepDisplay.label}`}>
+                    {Object.values(ADMIN_STEP_LABELS ?? {}).map((label, index) => (
+                        <span
+                            key={label}
+                            className={styles.stepSegment}
+                            data-state={index < (adminStepDisplay.step ?? -1) ? 'done' : index === adminStepDisplay.step ? 'current' : 'todo'}
                         >
-                            {presenceLabel}
-                        </Badge>
-                    </Group>
+                            <i />
+                            <span>{label}</span>
+                        </span>
+                    ))}
+                </div>
+            </section>
 
-                    <Group align="center" gap="xl">
-                        <Avatar size={80} radius="xl" color="orange" variant="filled">
-                            {profile.name[0]}
-                        </Avatar>
-
-                        <Stack gap={4}>
-                            <Group gap="xs" align="center">
-                                <Title order={2} c={CHARCOAL}>{profile.name}</Title>
-                                <Badge variant="light" color={!profile.career_type ? 'gray' : 'blue'}>{profile.career_type || '미입력'}</Badge>
-                            </Group>
-                            <Group gap="lg">
-                                <Group gap={4}>
-                                    <ThemeIcon size="xs" variant="transparent" color="gray"><IconBuilding /></ThemeIcon>
-                                    <Text size="sm" c={MUTED}>{profile.affiliation || '소속 미정'}</Text>
-                                </Group>
-                                <Group gap={4}>
-                                    <ThemeIcon size="xs" variant="transparent" color="gray"><IconPhone /></ThemeIcon>
-                                    <Text size="sm" c={MUTED}>{profile.phone}</Text>
-                                </Group>
-                            </Group>
-                        </Stack>
-
-                        <Stack gap={0} ml="auto" align="flex-end">
-                            <Text size="xs" c="dimmed" fw={700} tt="uppercase">Current Step</Text>
-                            <Text size="xl" fw={800} c={adminStepDisplay.color}>{adminStepDisplay.label}</Text>
-                            <Text size="sm" c={statusTextColor}>{statusDisplay.label}</Text>
-                        </Stack>
-                    </Group>
-                </Container>
-            </Box>
+            {isReadOnly && (
+                <Alert icon={<IconInfoCircle size={20} />} title="읽기 전용 모드" color="yellow" variant="light" radius="lg">
+                    본부장 계정은 조회만 가능합니다. 수정 권한이 필요한 경우 관리자에게 문의하세요.
+                </Alert>
+            )}
 
             {/* Body */}
-            <Container size="xl" py="xl">
-                {isReadOnly && (
-                    <Alert icon={<IconInfoCircle size={20} />} title="읽기 전용 모드" color="yellow" variant="light" mb="lg">
-                        본부장 계정은 조회만 가능합니다. 수정 권한이 필요한 경우 관리자에게 문의하세요.
-                    </Alert>
-                )}
+            <div>
                 <Grid gutter="lg">
 
                     {/* Left Column: Info */}
                     <Grid.Col span={{ base: 12, md: 7 }}>
-                        <Card shadow="sm" radius="md" withBorder>
+                        <Card radius={24} p="lg" className={styles.card} style={{ '--i': 1 } as CSSProperties}>
                             <Group justify="space-between" mb="md">
                                 <Title order={4} c={CHARCOAL}>상세 회원가입</Title>
                                 {isEditing ? (
@@ -581,20 +585,12 @@ function FcProfileContent({ fcId }: { fcId: string }) {
                                 ) : (
                                     <Button
                                         variant={canEdit ? 'filled' : 'default'}
-                                        color={canEdit ? 'orange' : 'gray'}
+                                        color={canEdit ? 'dark' : 'gray'}
                                         size="sm"
                                         radius="xl"
                                         leftSection={<IconEdit size={16} />}
                                         onClick={() => setIsEditing(true)}
                                         disabled={!canEdit}
-                                        styles={
-                                            canEdit
-                                                ? {
-                                                    root: { boxShadow: '0 10px 24px rgba(243, 111, 33, 0.22)' },
-                                                    label: { fontWeight: 700 },
-                                                }
-                                                : undefined
-                                        }
                                     >
                                         수정
                                     </Button>
@@ -801,7 +797,7 @@ function FcProfileContent({ fcId }: { fcId: string }) {
                     <Grid.Col span={{ base: 12, md: 5 }}>
                         <Stack gap="lg">
                             {/* Admin Memo */}
-                            <Card shadow="sm" radius="md" withBorder bg="yellow.0">
+                            <Card radius={24} p="lg" bg="#fff8e6" className={styles.card} style={{ '--i': 2 } as CSSProperties}>
                                 <Group justify="space-between" mb="sm">
                                     <Title order={5} c="orange.9">관리자 메모</Title>
                                     <ActionIcon aria-label="관리자 메모 저장" variant="light" color={canEdit ? 'orange' : 'gray'} onClick={handleSaveMemo} loading={saveMemoMutation.isPending} disabled={!canEdit}>
@@ -821,7 +817,7 @@ function FcProfileContent({ fcId }: { fcId: string }) {
                             </Card>
 
                             {/* Documents Timeline */}
-                            <Card shadow="sm" radius="md" withBorder>
+                            <Card radius={24} p="lg" className={styles.card} style={{ '--i': 3 } as CSSProperties}>
                                 <Title order={5} mb="md" c={CHARCOAL}>제출 서류 이력</Title>
                                 {documents && documents.length > 0 ? (
                                     <Timeline active={documents.length} bulletSize={24} lineWidth={2}>
@@ -851,7 +847,7 @@ function FcProfileContent({ fcId }: { fcId: string }) {
                         </Stack>
                     </Grid.Col>
                 </Grid>
-            </Container>
-        </Box>
+            </div>
+        </div>
     );
 }

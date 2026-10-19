@@ -22,7 +22,6 @@ import {
     Badge,
     Box,
     Button,
-    Container,
     Group,
     Paper,
     ScrollArea,
@@ -47,7 +46,8 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import surface from '../surface.module.css';
 import { useSession } from '@/hooks/use-session';
 import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
 import {
@@ -278,25 +278,33 @@ function ChatAccountPage() {
     }, [loadPresence, trackedPresencePhones]);
 
     return (
-        <Container size="xl" py="xl" h="calc(100vh - 80px)">
+        <div className={surface.page} style={{ height: 'calc(100dvh - 150px)', minHeight: 560 }}>
             {deepLinkedConversationId && deepLinkedSelection ? <NotificationDestinationReady /> : null}
-            <Group justify="space-between" mb="lg">
+            <div className={surface.head} style={{ '--i': 0 } as CSSProperties}>
                 <div>
-                    <Title order={2} c={CHARCOAL}>1:1 메신저</Title>
-                    <Text c={MUTED} size="sm">FC들과 실시간으로 1:1 대화를 나눌 수 있습니다.</Text>
+                    <Title order={1} className={surface.title}>1:1 메신저</Title>
+                    <Text className={surface.subtitle}>FC들과 실시간으로 1:1 대화를 나눌 수 있습니다.</Text>
+                    {chatList ? (
+                        <div className={surface.headMeta}>
+                            <span className={surface.metaChip}><i />대화 <b>{chatList.length}</b></span>
+                            <span className={surface.metaChip} data-tone={chatList.some((item) => item.unread_count > 0) ? 'hot' : 'ok'}>
+                                <i />미확인 <b>{chatList.reduce((sum, item) => sum + item.unread_count, 0)}</b>
+                            </span>
+                        </div>
+                    ) : null}
                 </div>
-            </Group>
+            </div>
 
-            <Paper shadow="sm" radius="lg" withBorder h="80%" style={{ overflow: 'hidden', display: 'flex' }}>
+            <Paper radius={24} className={surface.card} style={{ '--i': 1, overflow: 'hidden', display: 'flex', flex: 1, minHeight: 0, padding: 0 } as CSSProperties}>
 
                 {/* Left Panel */}
-                <Box w="30%" style={{ borderRight: '1px solid #e9ecef', display: 'flex', flexDirection: 'column' }}>
-                    <Box p="md" bg="gray.0">
+                <Box w="30%" style={{ borderRight: '1px solid #f0f0ee', display: 'flex', flexDirection: 'column' }}>
+                    <Box p="md">
                         <TextInput
                             placeholder="이름/연락처 검색"
                             leftSection={<IconSearch size={16} />}
                             variant="filled"
-                            radius="md"
+                            radius="xl"
                             value={keyword}
                             onChange={(e) => setKeyword(e.currentTarget.value)}
                         />
@@ -333,8 +341,8 @@ function ChatAccountPage() {
                                         aria-pressed={activeFc?.fc_id === item.fc_id}
                                         key={item.fc_id}
                                         p="md"
-                                        bg={activeFc?.fc_id === item.fc_id ? 'orange.0' : 'transparent'}
-                                        style={{ width: '100%', textAlign: 'left', border: 0, cursor: 'pointer', borderBottom: '1px solid #f1f3f5', transition: 'background 0.2s' }}
+                                        bg={activeFc?.fc_id === item.fc_id ? '#fff6ef' : 'transparent'}
+                                        style={{ width: '100%', textAlign: 'left', border: 0, cursor: 'pointer', borderBottom: '1px solid #f4f4f2', boxShadow: activeFc?.fc_id === item.fc_id ? 'inset 3px 0 0 var(--primary-color)' : undefined, transition: 'background 320ms ease' }}
                                         onClick={() => setSelectedFc(item)}
                                         className="hover:bg-gray-50"
                                     >
@@ -441,7 +449,7 @@ function ChatAccountPage() {
                 </Box>
 
             </Paper>
-        </Container>
+        </div>
     );
 }
 

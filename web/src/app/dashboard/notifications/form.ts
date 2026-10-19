@@ -9,11 +9,11 @@ export const noticeSchema = z.object({
     body: z.string().min(1, '내용을 입력해주세요'),
 });
 
+// White card on the dashboard panel, matching the other admin screens.
 export const noticeGlassStyle = {
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    backdropFilter: 'blur(12px)',
-    border: '1px solid rgba(255, 255, 255, 0.3)',
-    boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.07)',
+    backgroundColor: '#ffffff',
+    border: 0,
+    borderRadius: 24,
 };
 
 export async function uploadNoticeAttachment(file: File) {

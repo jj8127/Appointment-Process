@@ -82,8 +82,9 @@ import {
 } from '@tabler/icons-react';
 import dayjs from 'dayjs';
 import { useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import surface from '../surface.module.css';
+import { HANWHA_ORANGE, CHARCOAL } from '@/lib/brand-colors';
 
 const GROUP_CHAT_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '👏'];
 
@@ -680,8 +681,7 @@ function DashboardGroupChatContent() {
               radius="lg"
               px="md"
               py="sm"
-              bg={deleted ? 'gray.1' : isMe ? HANWHA_ORANGE : 'white'}
-              withBorder={!isMe || deleted}
+              bg={deleted ? 'gray.1' : isMe ? 'var(--dashboard-ink)' : 'var(--dashboard-panel)'}
               style={{ borderTopRightRadius: isMe ? 4 : undefined, borderTopLeftRadius: !isMe ? 4 : undefined }}
             >
               <Text size="sm" c={deleted ? 'dimmed' : isMe ? 'white' : CHARCOAL} fw={600} style={{ whiteSpace: 'pre-wrap' }}>
@@ -786,32 +786,37 @@ function DashboardGroupChatContent() {
   }
 
   return (
-    <Container size="xl" py="xl" h="calc(100vh - 80px)">
+    <div className={surface.page} style={{ height: 'calc(100dvh - 150px)', minHeight: 560 }}>
       {notificationRoomId && room?.id === notificationRoomId ? <NotificationDestinationReady /> : null}
-      <Group justify="space-between" mb="lg" align="flex-start">
+      <div className={surface.head} style={{ '--i': 0 } as CSSProperties}>
         <div>
-          <Title order={2} c={CHARCOAL}>가람PA 단톡방</Title>
-          <Text c={MUTED} size="sm">관리자, 본부장, FC가 함께 쓰는 공용 대화방</Text>
+          <Title order={1} className={surface.title}>가람PA 단톡방</Title>
+          <Text className={surface.subtitle}>관리자, 본부장, FC가 함께 쓰는 공용 대화방</Text>
+          <div className={surface.headMeta}>
+            <span className={surface.metaChip}><i />대화상대 <b>{memberCount.toLocaleString('ko-KR')}</b>명</span>
+            <span className={surface.metaChip} data-tone={inputEnabled ? 'ok' : 'hot'}><i />{inputEnabled ? '발언 가능' : '발언 제한'}</span>
+            <span className={surface.metaChip}><i />알림 <b>{muted ? '꺼짐' : '켜짐'}</b></span>
+          </div>
         </div>
         <Group>
           <Tooltip label={muted ? '알림 켜기' : '알림 끄기'}>
-            <ActionIcon aria-label={muted ? "알림 켜기" : "알림 끄기"} aria-pressed={!muted} variant="light" color={muted ? 'gray' : 'orange'} size="lg" onClick={handleMuteToggle}>
+            <ActionIcon aria-label={muted ? "알림 켜기" : "알림 끄기"} aria-pressed={!muted} variant="white" color={muted ? 'gray' : 'dark'} radius="xl" size={44} onClick={handleMuteToggle}>
               {muted ? <IconBellOff size={18} /> : <IconBell size={18} />}
             </ActionIcon>
           </Tooltip>
-          <Button variant="light" color="gray" leftSection={<IconRefresh size={16} />} onClick={() => void loadGroupChat()}>
+          <Button variant="white" color="dark" radius="xl" h={44} leftSection={<IconRefresh size={16} />} onClick={() => void loadGroupChat()}>
             새로고침
           </Button>
-          <Button color="orange" leftSection={<IconUsers size={16} />} onClick={() => setMemberDrawerOpen(true)}>
+          <Button color="dark" radius="xl" h={44} leftSection={<IconUsers size={16} />} onClick={() => setMemberDrawerOpen(true)}>
             대화상대 {memberCount.toLocaleString('ko-KR')}명
           </Button>
         </Group>
-      </Group>
+      </div>
 
-      <Paper withBorder radius="lg" h="calc(100% - 72px)" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <Group justify="space-between" px="lg" py="md" bg="gray.0">
+      <Paper radius={24} className={surface.card} style={{ '--i': 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1, minHeight: 0, padding: 0 } as CSSProperties}>
+        <Group justify="space-between" px="lg" py="md" style={{ borderBottom: '1px solid #f0f0ee' }}>
           <Group gap="sm">
-            <ThemeIcon color="orange" radius="xl" variant="light">
+            <ThemeIcon color="dark" radius="xl" variant="filled">
               <IconMessageCircle size={18} />
             </ThemeIcon>
             <div>
@@ -1051,6 +1056,6 @@ function DashboardGroupChatContent() {
           </Stack>
         </Stack>
       </Drawer>
-    </Container>
+    </div>
   );
 }

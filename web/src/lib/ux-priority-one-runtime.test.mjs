@@ -24,6 +24,7 @@ import { QueryReadError } from './query-read-error.ts';
 import { createChatRequestGuard } from './chat-request-guard.ts';
 import { collectSupabaseRows, requireSupabaseRows } from './supabase-query-contract.ts';
 import { normalizeAdminTempId, resolveAdminTempIdUpdate } from './admin-temp-id-update.ts';
+import { isDashboardMetricFilter } from './dashboard-work-queue.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -269,7 +270,7 @@ test('appointment confirm saves the FC-submitted date shown in 확정일 and blo
 
 test('dashboard list state round-trips through the URL and ignores unknown values', () => {
   const page = 'app/dashboard/page.tsx';
-  const read = execute(extract(page, 'readDashboardListState'), { URLSearchParams });
+  const read = execute(extract(page, 'readDashboardListState'), { URLSearchParams, isDashboardMetricFilter });
   const write = execute(extract(page, 'writeDashboardListState'), { URLSearchParams });
   const tabs = ['all', 'g_done', 'step2'];
   const state = { activeTab: 'step2', metricFilter: 'pendingDocs', keyword: '가상', currentPage: 3 };
@@ -278,6 +279,7 @@ test('dashboard list state round-trips through the URL and ignores unknown value
   assert.equal(new URLSearchParams(search).get('fcId'), 'keep');
   assert.equal(write(search, { activeTab: 'all', metricFilter: 'all', keyword: '', currentPage: 1 }), 'fcId=keep');
   assert.deepEqual({ ...read('?tab=bogus&metric=bogus&page=-2', tabs) }, { activeTab: 'all', metricFilter: 'all', keyword: '', currentPage: 1 });
+  assert.equal(read('?metric=pendingHanwha', tabs).metricFilter, 'pendingHanwha');
 });
 
 test('quick-filter tabs clear the KPI filter and reset the page like workflow tabs', () => {
@@ -330,7 +332,7 @@ test('appointment confirm saves the FC-submitted date shown in 확정일 and blo
 
 test('dashboard list state round-trips through the URL and ignores unknown values', () => {
   const page = 'app/dashboard/page.tsx';
-  const read = execute(extract(page, 'readDashboardListState'), { URLSearchParams });
+  const read = execute(extract(page, 'readDashboardListState'), { URLSearchParams, isDashboardMetricFilter });
   const write = execute(extract(page, 'writeDashboardListState'), { URLSearchParams });
   const tabs = ['all', 'g_done', 'step2'];
   const state = { activeTab: 'step2', metricFilter: 'pendingDocs', keyword: '가상', currentPage: 3 };
@@ -339,6 +341,7 @@ test('dashboard list state round-trips through the URL and ignores unknown value
   assert.equal(new URLSearchParams(search).get('fcId'), 'keep');
   assert.equal(write(search, { activeTab: 'all', metricFilter: 'all', keyword: '', currentPage: 1 }), 'fcId=keep');
   assert.deepEqual({ ...read('?tab=bogus&metric=bogus&page=-2', tabs) }, { activeTab: 'all', metricFilter: 'all', keyword: '', currentPage: 1 });
+  assert.equal(read('?metric=pendingHanwha', tabs).metricFilter, 'pendingHanwha');
 });
 
 test('quick-filter tabs clear the KPI filter and reset the page like workflow tabs', () => {

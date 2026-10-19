@@ -18,6 +18,30 @@
 - 미배포: 중간 수정의 fc-notify(푸시 data)·공유 매핑(fc-notify·group-chat·docs-deadline-reminder 번들), 관리자 웹, 앱(로그아웃·권한, OTA 필요).
 - 검증: jest 새 실패 0(기준선 27 → 23, 계약 테스트 2건 수정), deno check, 앱·웹 tsc(앱은 기존 typed route 오류 1건), eslint, web node 테스트 14/14.
 
+<a id="20261019-admin-redesign"></a>
+## 2026-10-19 관리자 웹 재설계
+
+- 기준·위치: `f32fd9cd`에서 갈라진 `feature/admin-redesign-shell-home-20261019`, worktree `D:/hanhwa/.codex-tmp/admin-redesign-20261019`(node_modules는 메인 체크아웃 junction). 커밋 `4efe612b`~`0b32a2c6`(32개), 109파일. push·배포 없음.
+- 공통 골격(`dashboard/layout.tsx`): 캔버스 위 둥근 패널, 홈·업무·사람·소통·관리 그룹 탭(선택 표시 슬라이드, 마우스 올리면 세부 메뉴가 순차 등장), 아이콘 레일, 모바일 Drawer. 메뉴의 공지사항·게시판은 `공지·게시판` 하나로 합쳤고 `/dashboard/board`는 같은 메뉴로 활성 표시한다.
+- 공통 surface(`dashboard/surface.module.css`): 헤더·흰 카드·알약 버튼·표 머리·상태 타일·헤더 상태 칩(`headMeta`/`metaChip`, 주황=처리 필요)·폼 행·선택 카드. 시험 일정·신청자 상세·서면확인 가입·추천인 3종·게시판·메신저·1:1·단톡방·처리 이력·설정·알림 열기에 적용.
+- 홈: 처리 대기열(`lib/dashboard-work-queue.ts`)에 발생 시각 열 추가. 규칙 `getDashboardWorkOccurredAt`: 보증 보험 동의=사전 심사 요청 시각(없으면 동의일), 서류=검토 대기 제출 서류의 최신 등록 시각, 다위촉=FC 완료일 제출일, 위촉=생명·손해 제출일 중 최신. 3일 이상이면 주황.
+- FC 상세 관리 모달(`dashboard/page.tsx`, `fc-modal.module.css`): 왼쪽 신원 카드+세로 단계(완료/현재/대기는 `getDefaultModalTab` 기준), 오른쪽 단계 내용. 단계마다 요약 타일(완료=연한 회색+초록 체크, 첫 미완료=주황). 버튼 배치 규칙: 필드 저장은 필드 옆 아이콘, 목록 항목 결정은 행 끝 아이콘, 단계 결정은 하단 고정 바(오른쪽 주 행동=주황). 승인/반려 토글은 같은 상태 전이를 쓰는 명시 버튼으로 바꿨다. 필드 라벨에 종류 아이콘, 경력 구분은 SegmentedControl, 최종 완료는 생명·손해 배너 토글. 기타 서류는 Enter로 추가(IME 조합 Enter 무시, `+` 버튼과 같은 `handleAddCustomDoc`).
+- 서류 관리: 3분할, 단계 표시, 실제 요청 서류명, PDF는 기존 60초 서명 URL(다운로드 옵션 없음)로 iframe 미리보기.
+- 시험: 시험 일정은 리스트 옆 월 캘린더(`dayjs/locale/ko`로 한국어 요일), 마감 회차 회색, 접수 중 회차를 마감 임박순으로 위에, 일정 모달은 종류 카드·아이콘 행·시험일 옆 `미정` 스위치·마감 D-day, 달력 스타일은 `MODAL_CALENDAR_STYLES` 하나로. 시험 신청자 고정 열에 엑셀식 구분선.
+- 공지·게시판(`dashboard/notifications/page.tsx`): 공지(`fetchAdminNotices`)와 게시글(`fetchBoardList` limit 50)을 한 목록으로 최신순 표시, 전체/공지/게시글·게시글 카테고리 필터, 공지 목록에 이미 들어온 `board_notice:` 항목은 게시글로 한 번만. `새 글 쓰기`는 먼저 받는 사람·알림 방식을 고른다(FC 공지: FC 전체, 푸시+알림함 / 게시판 글: FC·본부장·총무, 푸시+알림함, 댓글·반응). 게시판 글 선택은 `/dashboard/board?compose=1`로 작성 창을 바로 연다. 게시글 첨부는 사용자가 클릭한 글만 상세를 불러와(상세 조회마다 `board_post_views` 1건 기록) 이미지·PDF를 미리 보여 준다.
+- 삭제: 에이전트 룸(페이지, `/api/agent-room`, 장면 컴포넌트, 서버 스냅샷, 타입, `public/agent-room-assets`, 테스트, `next.config.ts`의 추적 제외, `contract-test-map.json` 규칙, 메뉴).
+- 운영 DB: 사용자 승인으로 `fc_documents`의 깨진 서류명 1행(U+FFFD 포함)을 `제3보험 수료증(경력)`으로 고쳤다. 정확히 1행일 때만 적용, 같은 이름 중복 없음 확인, 이후 깨진 행 0건.
+- 검증: 합성 데이터 fixture(포트 4320, scratchpad, 파일별 CSS module 스코프 로더)로 화면 캡처, 실제 데이터는 worktree에 `.env.local`을 복사해 `next dev --webpack`(포트 3201)로 사용자가 확인. tsc·eslint 통과, web node 814개 중 813 통과(실패 1건은 기준선부터 있던 referral-graph 범례 시험). 테스트 mock 정리: `board-read-state-runtime`·`chat-session-runtime`·`agent-room`(삭제)에 CSS module 일반 처리, 공지 테스트에 게시판 API mock 추가·빈 목록 문구 `등록된 글이 없습니다.`로 변경.
+- 남은 것: 실제 DB에서 승인·저장 쓰기 동작과 게시글 첨부 미리보기는 사용자 확인 전. 로컬 dev에서 `/api/fc-notify` 403 반복(127.0.0.1·localhost 출처 불일치 추정, 미확인).
+- 후속: 모든 달력은 `lib/calendar-theme.ts`로 헤더를 [연·월 라벨][이전][다음] 순서로 두고 라벨을 눌러 월·연 선택으로 올라간다. 게시글 첨부 상세 조회가 실패하면 문구를 보이고 같은 버튼이 재시도한다(`330c541b`). 상단 그룹 바에 마우스를 올리면 모든 묶음의 하위 페이지가 탭 아래 열로 펼쳐지고, 각 탭은 열 폭(176px)으로 넓어져 바가 같은 폭으로 늘어난다(제자리 폭은 유지하고 넓어진 바는 위에 뜸, `54e3db72`).
+- 로컬 `/api/fc-notify` 403은 dev 서버가 `req.url` host를 localhost로, Host 헤더를 127.0.0.1로 받아 same-origin 검사가 실패한 로컬 전용 문제였다. 실데이터 dev 서버는 `-H localhost`, 접속 주소 `http://localhost:3201`로 바꿨다.
+- 배포(사용자 승인): 운영 직전 배포 `6e43670f`(2026-10-17)는 이 브랜치의 조상이다. 따라서 이 배포는 `6e43670f..f32fd9cd`의 release 계열 32커밋도 함께 운영에 올린다(supabase migration 차이 없음). `origin/main`은 운영과 다른 계열이라 합치지 않았다. 검사: lint 0 error(기존 경고 1), web tsc, web 시험 813/814(기존 범례 1), 깨끗한 임시 worktree에서 `npm ci` 후 Sentry 업로드를 끈 `npm run build` 통과(이 worktree의 `web/node_modules`는 메인 checkout 링크라 Turbopack이 거부). 브랜치 push 후 `vercel deploy --prod --archive=tgz`로 `dpl_G8kcqUV6rnKhtRAS9kGf1tujPmuC`(meta gitCommitSha `54e3db72d29f2e22ddc3b59f121021426d1ea06e`) READY, alias `adminweb-red.vercel.app`(프로젝트 유일 도메인). 비로그인 응답: `/auth` 200, `/`·`/dashboard`·공지·게시판·시험 일정·서류·에이전트 룸 경로는 `/auth`로 307, 삭제한 `/api/admin/agent-room` 404. 배포 후 Vercel 오류 로그 0건, Sentry 최근 30분 이슈 0건. 로그인한 상태의 화면과 쓰기 동작은 확인하지 못했다.
+- 홈 로딩 표시(`63c3e593`): 목록 데이터도 오류도 없을 때(`isListLoading = !fcs && !isError`) 숫자·막대·목록·대기열·FC 표가 모양을 본뜬 shimmer 블록을 보이고, 로딩 문구와 FC 표 `LoadingOverlay`를 없앴다. 막대는 고정 높이 자리 표시에서 실제 높이로 900ms 동안 이어 변한다. 실패 시에는 `—`와 오류 안내를 유지한다. fixture에서 6초 지연으로 로딩 화면(스켈레톤 147개, 로딩 문구·`—` 0개)과 도착 후 전환을 확인했다. 계약은 `feature-contract-matrix.md`와 `dashboard-lifecycle.md`에 적었다.
+- 재배포(사용자 승인): pre-push 거버넌스가 계약 문서·작업 기록을 요구해 문서 두 커밋을 더한 `da71475cefe331093702096204aa7fb268cdc0e6`(코드는 `63c3e593`과 같음)을 push 후 `vercel deploy --prod --archive=tgz`로 배포했다. `dpl_5HvmxW7niegeaQLb4WNh9N7b5Ptg` READY, `adminweb-red.vercel.app` alias가 이 배포를 가리킨다. 비로그인 응답은 첫 배포와 같다(`/auth` 200, 보호 경로 307, `/api/admin/agent-room` 404). 배포 후 Vercel 오류 로그 0건, Sentry 최근 30분 이슈 0건. 로그인 화면 확인은 사용자 몫으로 남았다.
+- 로드 완료 등장: 스켈레톤이 빠지면 숫자(`reveal`, `--r` 순서), 소속·최근 가입·대기열·FC 표 행(`revealRow`)이 흐림·아래에서 떠오르고, 진행률 막대는 width 전환으로 자란다. fixture 3초 지연에서 도착 직후 단계적 등장과 약 0.6초 뒤 완료를 확인했다.
+- 참고 영상 모션(0.5배속 영상이라 실제 시간은 절반): 영상을 브라우저로 0.1~0.25초 간격 프레임 추출해 순서를 읽었다. 반영: 화면 전체가 강한 흐림에서 제자리로 선명해짐(이동 없음, 560ms), 제목은 왼쪽→오른쪽 흐림 쓸기(mask, 640ms)와 부제 뒤따름, 카드는 빈 패널이 먼저(460ms, 50ms 간격) 오고 안쪽 내용이 160ms 뒤 흐림에서 나타남, 숫자는 새 `components/CountUp.tsx`(0→값, 1초, ease-out, 동작 줄이기 시 즉시), 가장 많은 대기 타일의 주황은 `clip-path` 원형으로 왼쪽 위에서 채움(620ms), 단계 막대는 목록 도착 시 다시 마운트해 왼쪽부터 60ms 간격으로 자람. 다른 페이지도 같은 진입(surface 제목·카드, 서류·위촉·시험 신청자 cardIn 이동 제거)을 쓴다. 검은 테마는 만들지 않았다. fixture 프레임에서 순서와 약 1.2초 안 정착을 확인했고, KPI 런타임 시험은 CountUp 목표값을 읽도록 고쳤다.
+- 모션 배포(사용자 승인): pre-push가 화면 CSS 변경에 계약 문서를 요구해 `feature-contract-matrix.md`와 `mobile/exam-flows.md`에 시각 전용 진입 모션을 적은 `ec3a381058adde1fd23f4b3ead06bbcd14e07352`(코드는 `73915e82`와 같음)을 push 후 배포했다. `dpl_HVtgpoG7prCsPzjmmgrrywKm9CF5` READY, `adminweb-red.vercel.app` alias가 이 배포를 가리킨다. 비로그인 응답 `/auth` 200, 홈·공지·서류·시험 신청자·위촉 경로 307→`/auth`, `/api/admin/agent-room` 404. 배포 후 Vercel 오류 로그 0건, Sentry 최근 30분 이슈 0건. 로그인 화면의 모션 확인은 사용자 몫이다.
+
 <a id="20261019-messenger-unified-line-integration"></a>
 ## 2026-10-19 운영 메신저 통합 모델 계열 통합
 

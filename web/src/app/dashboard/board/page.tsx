@@ -45,7 +45,6 @@ import {
   Badge,
   Button,
   Card,
-  Container,
   Divider,
   FileButton,
   Group,
@@ -85,9 +84,10 @@ import {
 } from '@tabler/icons-react';
 import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import surface from '../surface.module.css';
+import styles from './page.module.css';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { CHARCOAL } from '@/lib/brand-colors';
 
 // 감정 표현 타입
 const REACTION_TYPES = [
@@ -404,7 +404,7 @@ function BoardContent() {
 
   const canManagePost = (post?: BoardPost | null) =>
     actor?.role === 'admin' || (actor?.role === 'manager' && !!post?.isMine);
-  const handleOpenCreate = () => {
+  const handleOpenCreate = useCallback(() => {
     setPendingAttachmentRetry(null);
     setEditingPostId(null);
     setLoadedEditPostId(null);
@@ -418,7 +418,16 @@ function BoardContent() {
     });
     setExistingAttachments([]);
     open();
-  };
+  }, [categories, open]);
+  // Arriving from 공지·게시판 "새 글 쓰기 → 게시판 글" opens the composer once categories are known.
+  const composeRequested = searchParams.get('compose') === '1';
+  const composeHandled = useRef(false);
+  useEffect(() => {
+    if (!composeRequested || composeHandled.current || !canWrite || categoriesQuery.isLoading) return;
+    composeHandled.current = true;
+    router.replace('/dashboard/board');
+    handleOpenCreate();
+  }, [composeRequested, canWrite, categoriesQuery.isLoading, router, handleOpenCreate]);
   const handleCloseComposer = (force = false) => {
     if (!force && (saveSubmitting.current || createPostMutation.isPending || updatePostMutation.isPending)) return;
     if (pendingAttachmentRetry && !force) {
@@ -1192,7 +1201,7 @@ function BoardContent() {
 
     return (
       <Stack key={comment.id} gap="xs" style={{ marginLeft: depth * 18 }}>
-        <Card withBorder radius="md" padding="md" style={{ background: depth >= 1 ? '#F9FAFB' : '#fff' }}>
+        <Card radius={16} padding="md" style={{ background: depth >= 1 ? 'var(--dashboard-panel)' : '#fff', boxShadow: depth >= 1 ? undefined : 'inset 0 0 0 1px #efefec' }}>
           <Group justify="space-between" align="flex-start" wrap="nowrap">
             <Group gap="sm" align="flex-start" wrap="nowrap">
               <Avatar color={getBoardAuthorAvatarColor(comment.authorRole)} radius="xl" size="sm">
@@ -1404,33 +1413,41 @@ function BoardContent() {
   };
 
   return (
-    <Container size="lg" py="xl">
+    <div className={surface.page} style={{ maxWidth: 1100 }}>
       {routePostId && detailData?.post?.id === routePostId ? <NotificationDestinationReady /> : null}
-      <Stack gap="xl">
+      <Stack gap={14}>
         {/* 헤더 */}
-        <Group justify="space-between" align="flex-start">
+        <div className={surface.head} style={{ '--i': 0 } as CSSProperties}>
           <div>
-            <Title order={2} c={CHARCOAL}>
+            <Title order={1} className={surface.title}>
               정보 게시판
             </Title>
-            <Text c="dimmed" mt={4}>
+            <Text className={surface.subtitle}>
               본부장, 총무, 개발자가 공유하는 정보 공간
             </Text>
+            {posts.length ? (
+              <div className={surface.headMeta}>
+                <span className={surface.metaChip}><i />필독 <b>{posts.filter((post) => post.isPinned).length}</b></span>
+                <span className={surface.metaChip} data-tone="ok">
+                  <i />최근 글 <b>{new Date(Math.max(...posts.map((post) => Date.parse(post.createdAt)))).toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' })}</b>
+                </span>
+              </div>
+            ) : null}
           </div>
 
           {canWrite && (
             <Button
               leftSection={<IconPlus size={18} />}
               onClick={handleOpenCreate}
-              variant="gradient"
-              gradient={{ from: 'orange', to: 'red' }}
+              color="dark"
               size="md"
-              radius="md"
+              radius="xl"
+              h={44}
             >
               새 게시글 작성
             </Button>
           )}
-        </Group>
+        </div>
 
         {/* 읽기 전용 모드 알림 */}
         {actor?.role === 'manager' && (
@@ -1475,11 +1492,12 @@ function BoardContent() {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.currentTarget.value)}
           size="md"
-          radius="md"
+          radius="xl"
           styles={{
             input: {
               backgroundColor: 'white',
-              border: '1px solid #E5E7EB',
+              border: 0,
+              height: 44,
             },
           }}
         />
@@ -1513,10 +1531,9 @@ function BoardContent() {
                   transition={{ delay: Math.min(index, 5) * 0.1 }}
                 >
                   <Card
-                    shadow="sm"
                     padding="lg"
-                    radius="md"
-                    withBorder
+                    radius={24}
+                    className={styles.postCard}
                     style={{ cursor: 'pointer' }}
                     onClick={() => handleViewPost(post)}
                   >
@@ -1621,7 +1638,7 @@ function BoardContent() {
                       {previewImages.length > 0 && (
                         <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="xs">
                           {previewImages.map((file) => (
-                            <Card key={file.id} withBorder padding="xs" radius="md">
+                            <Card key={file.id} padding="xs" radius={12} bg="var(--dashboard-panel)">
                               <Image
                                 src={file.signedUrl}
                                 alt={file.fileName}
@@ -1806,7 +1823,7 @@ function BoardContent() {
                   기존 첨부파일
                 </Text>
                 {existingAttachments.map((file) => (
-                  <Card key={file.id} withBorder padding="sm" radius="md">
+                  <Card key={file.id} padding="sm" radius={12} bg="var(--dashboard-panel)">
                       <Group justify="space-between" wrap="nowrap">
                         <Group>
                           <ThemeIcon variant="light" color="orange" size="md">
@@ -1857,7 +1874,7 @@ function BoardContent() {
                   새로 추가된 첨부파일
                 </Text>
                 {attachments.map((file) => (
-                  <Card key={file.id} withBorder padding="sm" radius="md">
+                  <Card key={file.id} padding="sm" radius={12} bg="var(--dashboard-panel)">
                     <Group justify="space-between">
                       <Group>
                         <ThemeIcon variant="light" color="orange" size="md">
@@ -1896,8 +1913,8 @@ function BoardContent() {
               취소
             </Button>
             <Button
-              variant="gradient"
-              gradient={{ from: 'orange', to: 'red' }}
+              color="dark"
+              radius="xl"
               onClick={handleCreateOrUpdate}
               disabled={!canWrite || (!pendingAttachmentRetry && ((isEditMode && !editReady) || categoriesQuery.isError))}
               loading={
@@ -1986,7 +2003,7 @@ function BoardContent() {
                       </Text>
                       <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="sm">
                         {modalImageAttachments.map((file) => (
-                          <Card key={file.id} withBorder padding="xs" radius="md">
+                          <Card key={file.id} padding="xs" radius={12} bg="var(--dashboard-panel)">
                             <Image
                               src={file.signedUrl}
                               alt={file.fileName}
@@ -2010,7 +2027,7 @@ function BoardContent() {
                       </Text>
                       <Stack gap="sm">
                         {modalFileAttachments.map((file) => (
-                          <Card key={file.id} withBorder padding="sm" radius="md">
+                          <Card key={file.id} padding="sm" radius={12} bg="var(--dashboard-panel)">
                             <Group justify="space-between">
                               <Group>
                                 <ThemeIcon variant="light" color="orange" size="md">
@@ -2132,6 +2149,6 @@ function BoardContent() {
           </Stack>
         )}
       </Modal>
-    </Container>
+    </div>
   );
 }

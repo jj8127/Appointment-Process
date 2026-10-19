@@ -9,8 +9,7 @@ import {
     Badge,
     Box,
     Button,
-    Checkbox,
-    Container,
+    Grid,
     Group,
     LoadingOverlay,
     Modal,
@@ -18,6 +17,7 @@ import {
     ScrollArea,
     SegmentedControl,
     SimpleGrid,
+    Switch,
     Stack,
     Table,
     TagsInput,
@@ -26,23 +26,33 @@ import {
     ThemeIcon,
     Title
 } from '@mantine/core';
-import { Calendar, DateInput, MonthPickerInput } from '@mantine/dates';
+import { Calendar, DateInput, MonthPickerInput, type DateInputProps } from '@mantine/dates';
 import { useForm } from '@mantine/form';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { notificationFeedbackColor } from '@/lib/notification-delivery-feedback';
 import {
     IconCalendar,
+    IconCalendarDue,
+    IconCalendarEvent,
+    IconCheck,
     IconChevronLeft,
     IconChevronRight,
+    IconCircleCheckFilled,
     IconEdit,
+    IconHeartbeat,
     IconInfoCircle,
+    IconMapPin,
+    IconNote,
     IconPlus,
-    IconTrash
+    IconTag,
+    IconTrash,
+    IconUmbrella,
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { useState } from 'react';
+import 'dayjs/locale/ko';
+import { useState, type CSSProperties } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { z } from 'zod';
 
@@ -50,8 +60,36 @@ import { useSession } from '@/hooks/use-session';
 import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
 import { sortExamRoundsNewestFirst } from '@/lib/exam-round-sort';
 import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
+import surface from '../../surface.module.css';
 
 // --- Constants ---
+
+// Calendar dropdown styling shared by the exam date and deadline inputs.
+const MODAL_CALENDAR_STYLES: DateInputProps['styles'] = {
+    calendarHeader: {
+        padding: '6px 4px',
+        borderBottom: '1px solid #eef1f4',
+        alignItems: 'center',
+    },
+    calendarHeaderLevel: { fontWeight: 700, fontSize: 14 },
+    calendarHeaderControl: { borderRadius: 8 },
+    month: {
+        width: '100%',
+        tableLayout: 'fixed',
+        margin: '0 auto',
+    },
+    monthThead: { textAlign: 'center' },
+    monthTbody: { textAlign: 'center' },
+    monthRow: {
+        textAlign: 'center',
+    },
+    weekdaysRow: {
+        textAlign: 'center',
+    },
+    monthCell: { padding: 2, textAlign: 'center' },
+    weekday: { fontWeight: 600, color: '#6b7280', textAlign: 'center' },
+    day: { borderRadius: 8, height: 34, fontWeight: 600, margin: '0 auto' },
+};
 
 // --- Types ---
 type ExamRound = {
@@ -301,39 +339,44 @@ export default function ExamSchedulePage() {
     const deadlineCutoff = (dateStr: string) => dayjs(dateStr).endOf('day');
 
     const sortedRounds = sortExamRoundsNewestFirst(rounds ?? []);
+    const openRounds = sortedRounds.filter((round) => !dayjs().isAfter(deadlineCutoff(round.registration_deadline)));
+    // Table order: rounds still taking registrations first (nearest deadline first), then closed rounds newest first.
+    const tableRounds = [
+        ...[...openRounds].sort((a, b) => dayjs(a.registration_deadline).diff(dayjs(b.registration_deadline))),
+        ...sortedRounds.filter((round) => !openRounds.includes(round)),
+    ];
 
-    const rows = sortedRounds.map((round) => {
+    const rows = tableRounds.map((round) => {
         const cutoff = deadlineCutoff(round.registration_deadline);
         const now = dayjs();
         const isClosed = now.isAfter(cutoff);
 
         return (
-        <Table.Tr key={round.id}>
+        <Table.Tr key={round.id} data-closed={isClosed || undefined}>
             <Table.Td>
                 {round.exam_date ? (
                     <Text fw={600} size="sm">{dayjs(round.exam_date).format('YYYY-MM-DD')}</Text>
                 ) : (
-                    <Badge color="gray" variant="light">미정</Badge>
+                    <span className={surface.pill}>미정</span>
                 )}
             </Table.Td>
             <Table.Td>
                 <Text fw={600} size="sm">{round.round_label}</Text>
             </Table.Td>
             <Table.Td>
-                <Text
-                    size="sm"
-                    c={isClosed ? 'red' : CHARCOAL}
-                >
-                    {dayjs(round.registration_deadline).format('YYYY-MM-DD')}{' '}
-                    {isClosed && '(마감)'}
-                </Text>
+                <Group gap={6} wrap="nowrap">
+                    <Text size="sm" c={CHARCOAL}>
+                        {dayjs(round.registration_deadline).format('YYYY-MM-DD')}
+                    </Text>
+                    {isClosed && <span className={surface.pill}>마감</span>}
+                </Group>
             </Table.Td>
             <Table.Td>
                 <Group gap={4}>
                     {round.locations.map((loc) => (
-                        <Badge key={loc.id} variant="light" color="gray" size="sm">
+                        <span key={loc.id} className={surface.pill}>
                             {loc.location_name}
-                        </Badge>
+                        </span>
                     ))}
                 </Group>
             </Table.Td>
@@ -351,30 +394,108 @@ export default function ExamSchedulePage() {
         );
     });
 
+    const renderExamDay = (date: string | Date) => {
+        const dayStr = dayjs(date).format('YYYY-MM-DD');
+        const round = rounds?.find(r => r.exam_date && r.exam_date === dayStr);
+        const isToday = dayjs(date).isSame(dayjs(), 'day');
+        const dotColor = round?.exam_type === 'life' ? '#f59f00' : '#4dabf7';
+
+        return (
+            <div style={{ height: '100%', width: '100%', display: 'grid', placeItems: 'center' }}>
+                <span style={{
+                    fontWeight: 700,
+                    color: isToday ? HANWHA_ORANGE : '#111827',
+                    width: 28,
+                    height: 28,
+                    display: 'grid',
+                    placeItems: 'center',
+                    borderRadius: 10,
+                    background: round ? '#fff' : 'transparent',
+                    boxShadow: round ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                }}>
+                    {dayjs(date).date()}
+                </span>
+                {round && (
+                    <span style={{
+                        marginTop: 4,
+                        width: 6,
+                        height: 6,
+                        borderRadius: 999,
+                        background: dotColor,
+                    }} />
+                )}
+            </div>
+        );
+    };
+
+    const today = dayjs().startOf('day');
+    const nextExam = sortedRounds
+        .filter((round) => round.exam_date && !dayjs(round.exam_date).isBefore(today))
+        .sort((a, b) => dayjs(a.exam_date).diff(dayjs(b.exam_date)))[0];
+    const nextDeadline = [...openRounds]
+        .sort((a, b) => dayjs(a.registration_deadline).diff(dayjs(b.registration_deadline)))[0];
+    const daysUntil = (value: string) => dayjs(value).startOf('day').diff(today, 'day');
+    const dLabel = (days: number) => (days === 0 ? 'D-day' : `D-${days}`);
+    const statTiles = [
+        { key: 'all', label: '전체 회차', value: sortedRounds.length },
+        { key: 'open', label: '접수 중', value: openRounds.length, hot: true },
+        { key: 'closed', label: '접수 마감', value: sortedRounds.length - openRounds.length },
+        { key: 'tbd', label: '시험일 미정', value: sortedRounds.filter((round) => !round.exam_date).length },
+    ];
+
     return (
-        <Container size="xl" py="xl">
+        <div className={surface.page}>
             {notificationRoundId && sortedRounds.some((round) => round.id === notificationRoundId)
                 ? <NotificationDestinationReady />
                 : null}
-            <Group justify="space-between" mb="lg">
+            <div className={surface.head} style={{ '--i': 0 } as CSSProperties}>
                 <div>
-                    <Title order={2} c={CHARCOAL}>시험 일정 관리</Title>
-                    <Text c={MUTED} size="sm">자격 시험 일정과 접수 가능한 장소를 관리합니다.</Text>
+                    <Title order={1} className={surface.title}>시험 일정 관리</Title>
+                    <Text className={surface.subtitle}>자격 시험 일정과 접수 가능한 장소를 관리합니다.</Text>
+                    {rounds ? (
+                        <div className={surface.headMeta}>
+                            {nextDeadline ? (
+                                <span className={surface.metaChip} data-tone={daysUntil(nextDeadline.registration_deadline) <= 3 ? 'hot' : undefined}>
+                                    <i />접수 마감 <b>{dLabel(daysUntil(nextDeadline.registration_deadline))}</b> · {nextDeadline.round_label}
+                                </span>
+                            ) : (
+                                <span className={surface.metaChip}><i />접수 중인 회차 없음</span>
+                            )}
+                            {nextExam?.exam_date ? (
+                                <span className={surface.metaChip}>
+                                    <i />다음 시험 <b>{dayjs(nextExam.exam_date).format('MM.DD')}</b> ({dLabel(daysUntil(nextExam.exam_date))})
+                                </span>
+                            ) : null}
+                        </div>
+                    ) : null}
                 </div>
-                <Group>
+                <div className={surface.actions}>
                     <SegmentedControl
                         value={viewMode}
                         onChange={(v) => setViewMode(v as 'list' | 'calendar')}
+                        color="orange"
+                        radius="xl"
+                        size="md"
+                        bg="white"
                         data={[
                             { label: '리스트', value: 'list' },
                             { label: '캘린더', value: 'calendar' }
                         ]}
                     />
-                    <Button leftSection={<IconPlus size={16} />} color={isReadOnly ? "gray" : "orange"} disabled={isReadOnly} onClick={handleOpenCreate}>
+                    <Button leftSection={<IconPlus size={16} />} color={isReadOnly ? "gray" : "dark"} radius="xl" h={44} disabled={isReadOnly} onClick={handleOpenCreate}>
                         일정 등록
                     </Button>
-                </Group>
-            </Group>
+                </div>
+            </div>
+
+            <div className={surface.statGroup} style={{ '--i': 1 } as CSSProperties}>
+                {statTiles.map((tile) => (
+                    <div key={tile.key} className={surface.statTile} data-hot={tile.hot || undefined}>
+                        <span className={surface.statLabel}>{tile.label}</span>
+                        <span className={surface.statValue}>{rounds ? tile.value : '-'}</span>
+                    </div>
+                ))}
+            </div>
 
             {isReadOnly && (
                 <Alert
@@ -382,7 +503,7 @@ export default function ExamSchedulePage() {
                     title="읽기 전용 모드"
                     color="yellow"
                     variant="light"
-                    mb="lg"
+                    radius="lg"
                 >
                     본부장 계정은 조회만 가능합니다. 수정 권한이 필요한 경우 관리자에게 문의하세요.
                 </Alert>
@@ -391,10 +512,12 @@ export default function ExamSchedulePage() {
             {isError && <QueryErrorAlert error={error} onRetry={refetch} isFetching={isFetching} hasData={!!rounds} subject="시험 일정" />}
 
             {viewMode === 'list' ? (
-                <Paper shadow="sm" radius="lg" withBorder style={{ overflow: 'hidden' }}>
+                <Grid gutter={14} align="flex-start">
+                <Grid.Col span={{ base: 12, lg: 8 }}>
+                <div className={surface.tableCard} style={{ '--i': 2 } as CSSProperties}>
                     <ScrollArea>
-                        <Table verticalSpacing="md" highlightOnHover>
-                            <Table.Thead bg="#F9FAFB">
+                        <Table verticalSpacing="md" className={surface.table}>
+                            <Table.Thead>
                                 <Table.Tr>
                                     <Table.Th>시험일</Table.Th>
                                     <Table.Th>회차명</Table.Th>
@@ -414,19 +537,39 @@ export default function ExamSchedulePage() {
                             </Table.Tbody>
                         </Table>
                     </ScrollArea>
-                </Paper>
+                </div>
+                </Grid.Col>
+                <Grid.Col span={{ base: 12, lg: 4 }}>
+                <div className={surface.card} style={{ '--i': 3 } as CSSProperties}>
+                    <Group justify="space-between" mb="sm">
+                        <Text className={surface.cardTitle}>시험 일정 캘린더</Text>
+                        <Group gap={10}>
+                            <Group gap={4}><Box w={8} h={8} bg="orange.5" style={{ borderRadius: 999 }} /><Text size="xs" c="dimmed">생명</Text></Group>
+                            <Group gap={4}><Box w={8} h={8} bg="blue.5" style={{ borderRadius: 999 }} /><Text size="xs" c="dimmed">손해</Text></Group>
+                        </Group>
+                    </Group>
+                    <Calendar
+                        static
+                        size="md"
+                        previousIcon={<IconChevronLeft size={16} />}
+                        nextIcon={<IconChevronRight size={16} />}
+                        locale="ko"
+                        monthLabelFormat="YYYY년 M월"
+                        styles={{
+                            calendarHeader: { maxWidth: 'none' },
+                            month: { width: '100%' },
+                            day: { borderRadius: 12, width: '100%', height: 44, fontWeight: 600 },
+                            weekday: { color: MUTED, fontWeight: 600 },
+                        }}
+                        renderDay={renderExamDay}
+                    />
+                </div>
+                </Grid.Col>
+                </Grid>
             ) : (
-                <Paper shadow="sm" radius="lg" withBorder p="xl" bg="white">
+                <div className={surface.card} style={{ '--i': 2 } as CSSProperties}>
                     <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
-                        <Paper
-                            withBorder
-                            radius="lg"
-                            p="lg"
-                            style={{
-                                background: 'linear-gradient(180deg, #ffffff 0%, #fff7ed 100%)',
-                                borderColor: '#f3f4f6',
-                            }}
-                        >
+                        <div className={surface.well}>
                             <Group justify="space-between" mb="md">
                                 <Group gap="sm">
                                     <ThemeIcon radius="md" variant="light" color="orange">
@@ -437,7 +580,7 @@ export default function ExamSchedulePage() {
                                         <Text size="xs" c="dimmed">월별 전체 일정을 빠르게 확인하세요.</Text>
                                     </div>
                                 </Group>
-                                <Badge variant="light" color="orange" radius="xl">Calendar View</Badge>
+                                <span className={surface.pill} data-color="orange">Calendar View</span>
                             </Group>
 
                             <Calendar
@@ -452,44 +595,12 @@ export default function ExamSchedulePage() {
                                     weekday: { color: MUTED, fontWeight: 700 },
                                     month: { fontWeight: 800 },
                                 }}
-                                renderDay={(date) => {
-                                    const dayStr = dayjs(date).format('YYYY-MM-DD');
-                                    const round = rounds?.find(r => r.exam_date && r.exam_date === dayStr);
-                                    const isToday = dayjs(date).isSame(dayjs(), 'day');
-                                    const dotColor = round?.exam_type === 'life' ? '#f59f00' : '#4dabf7';
-
-                                    return (
-                                        <div style={{ height: '100%', width: '100%', display: 'grid', placeItems: 'center' }}>
-                                            <span style={{
-                                                fontWeight: 700,
-                                                color: isToday ? HANWHA_ORANGE : '#111827',
-                                                width: 28,
-                                                height: 28,
-                                                display: 'grid',
-                                                placeItems: 'center',
-                                                borderRadius: 10,
-                                                background: round ? '#fff' : 'transparent',
-                                                boxShadow: round ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                                            }}>
-                                                {dayjs(date).date()}
-                                            </span>
-                                            {round && (
-                                                <span style={{
-                                                    marginTop: 4,
-                                                    width: 6,
-                                                    height: 6,
-                                                    borderRadius: 999,
-                                                    background: dotColor,
-                                                }} />
-                                            )}
-                                        </div>
-                                    );
-                                }}
+                                renderDay={renderExamDay}
                             />
-                        </Paper>
+                        </div>
 
                         <Stack gap="lg">
-                            <Paper withBorder radius="lg" p="md" bg="#f8f9fa">
+                            <div className={surface.well}>
                                 <Text fw={700} size="sm" mb="sm">일정 범례</Text>
                                 <Group gap="xs" mb="xs">
                                     <Box w={10} h={10} bg="orange.5" style={{ borderRadius: 999 }} />
@@ -499,18 +610,18 @@ export default function ExamSchedulePage() {
                                     <Box w={10} h={10} bg="blue.5" style={{ borderRadius: 999 }} />
                                     <Text size="xs">손해보험 시험</Text>
                                 </Group>
-                            </Paper>
+                            </div>
 
-                            <Paper withBorder radius="lg" p="md">
+                            <div className={surface.well}>
                                 <Group justify="space-between" mb="sm">
                                     <Text fw={700} size="sm">다가오는 시험</Text>
-                                    <Badge variant="outline" color="gray" radius="xl">
+                                    <span className={surface.pill} style={{ background: '#fff' }}>
                                         {rounds ? `${rounds.length}건` : isError ? '확인 불가' : '조회 중'}
-                                    </Badge>
+                                    </span>
                                 </Group>
                                 <Stack gap="xs">
                                     {sortedRounds.filter(r => r.exam_date ? dayjs(r.exam_date).isAfter(dayjs()) : true).slice(0, 4).map(r => (
-                                        <Paper key={r.id} withBorder p="sm" radius="md" bg="white">
+                                        <Paper key={r.id} p="sm" radius={14} bg="white">
                                             <Text size="sm" fw={700}>{r.round_label}</Text>
                                             <Group gap={6} mt={4}>
                                                 <Badge size="xs" color={r.exam_type === 'life' ? 'orange' : 'blue'} variant="light">
@@ -528,14 +639,14 @@ export default function ExamSchedulePage() {
                                         <Text size="xs" c="dimmed">{isLoading ? '시험 일정을 불러오는 중입니다.' : isError ? '시험 일정을 확인할 수 없습니다.' : '예정된 일정이 없습니다.'}</Text>
                                     )}
                                 </Stack>
-                            </Paper>
+                            </div>
 
-                            <Button variant="light" size="sm" fullWidth onClick={() => setViewMode('list')}>
+                            <button type="button" className={surface.softButton} style={{ background: 'var(--dashboard-panel)' }} onClick={() => setViewMode('list')}>
                                 전체 일정 관리
-                            </Button>
+                            </button>
                         </Stack>
                     </SimpleGrid>
-                </Paper>
+                </div>
             )}
 
             {/* Modal */}
@@ -544,235 +655,199 @@ export default function ExamSchedulePage() {
                 onClose={() => handleClose()}
                 title={
                     <Group gap="sm">
-                        <ThemeIcon radius="md" variant="light" color="orange">
-                            <IconCalendar size={18} />
-                        </ThemeIcon>
-                        <div>
-                            <Text fw={700} size="lg">{editingId ? '일정 수정' : '새 일정 등록'}</Text>
-                            <Text size="xs" c="dimmed">시험 일정과 접수 정보를 빠르게 정리하세요.</Text>
-                        </div>
+                        <span className={surface.modalIcon}><IconCalendar size={18} /></span>
+                        <Text fw={700} size="lg">{editingId ? '일정 수정' : '새 일정 등록'}</Text>
                     </Group>
                 }
                 size="lg"
+                radius={28}
+                padding="xl"
                 centered
             >
                 <form onSubmit={form.onSubmit(handleSubmit)}>
-                    <Stack gap="lg">
-                        <Paper withBorder radius="lg" p="md" bg="gray.0">
-                            <Text fw={700} size="sm" mb="sm">시험 일정</Text>
-                            <Checkbox
-                                label="시험일 미정"
-                                description="시험 날짜가 아직 확정되지 않은 경우 체크하세요"
-                                mb="md"
-                                {...form.getInputProps('is_date_tbd', { type: 'checkbox' })}
-                                onChange={(e) => {
-                                    const isTbd = e.currentTarget.checked;
-                                    form.setFieldValue('is_date_tbd', isTbd);
-                                    if (isTbd) {
-                                        const monthSource = form.values.exam_date ?? new Date();
-                                        form.setFieldValue(
-                                            'exam_month',
-                                            dayjs(monthSource).startOf('month').format('YYYY-MM-DD'),
-                                        );
-                                        form.setFieldValue('exam_date', null);
-                                    } else {
-                                        // A month snapshot is not an exact exam date. Require the
-                                        // operator to choose the actual day explicitly.
-                                        form.setFieldValue('exam_date', null);
-                                    }
-                                }}
-                            />
-                            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-                                {form.values.is_date_tbd ? (
-                                    <MonthPickerInput
-                                        required
-                                        label="시험 월"
-                                        description="정확한 시험일이 미정이어도 시험이 속한 월은 반드시 선택해 주세요."
-                                        placeholder="시험 월 선택"
-                                        leftSection={<IconCalendar size={16} />}
-                                        value={form.values.exam_month}
-                                        onChange={(value) => {
-                                            form.setFieldValue(
-                                                'exam_month',
-                                                value
-                                                    ? dayjs(value).startOf('month').format('YYYY-MM-DD')
-                                                    : null,
-                                            );
+                    <Stack gap="md">
+                        <div className={surface.typeCards} role="radiogroup" aria-label="시험 종류">
+                            {([
+                                { value: 'life', label: '생명 / 제3보험', icon: IconHeartbeat },
+                                { value: 'nonlife', label: '손해보험', icon: IconUmbrella },
+                            ] as const).map((type) => (
+                                <button
+                                    key={type.value}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={form.values.exam_type === type.value}
+                                    className={surface.typeCard}
+                                    data-active={form.values.exam_type === type.value || undefined}
+                                    onClick={() => form.setFieldValue('exam_type', type.value)}
+                                >
+                                    <span className={surface.typeIcon}><type.icon size={20} /></span>
+                                    <span>{type.label}</span>
+                                    {form.values.exam_type === type.value ? <IconCircleCheckFilled size={20} className={surface.typeCheck} /> : null}
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className={surface.modalSection}>
+                            <div className={surface.formRow}>
+                                <Text className={surface.formLabel}><IconTag size={15} />회차명</Text>
+                                <TextInput
+                                    aria-label="회차명/구분"
+                                    placeholder="예: 9월 1차 생명보험"
+                                    {...form.getInputProps('round_label')}
+                                />
+                            </div>
+                            <div className={surface.formRow}>
+                                <Text className={surface.formLabel}><IconCalendarEvent size={15} />{form.values.is_date_tbd ? '시험 월' : '시험일'}</Text>
+                                <Group gap="sm" wrap="nowrap" align="flex-start">
+                                    <Box style={{ flex: 1, minWidth: 0 }}>
+                                        {form.values.is_date_tbd ? (
+                                                <MonthPickerInput
+                                                    required
+                                                    aria-label="시험 월"
+                                                    placeholder="시험 월 선택 (시험일 미정이어도 필수)"
+                                                    leftSection={<IconCalendar size={16} />}
+                                                    value={form.values.exam_month}
+                                                    onChange={(value) => {
+                                                        form.setFieldValue(
+                                                            'exam_month',
+                                                            value
+                                                                ? dayjs(value).startOf('month').format('YYYY-MM-DD')
+                                                                : null,
+                                                        );
+                                                    }}
+                                                    error={form.errors.exam_month}
+                                                    locale="ko"
+                                                    valueFormat="YYYY년 MM월"
+                                                    popoverProps={{ width: 320, position: 'bottom-start', shadow: 'md' }}
+                                                    size="sm"
+                                                />
+                                        ) : (
+                                                <DateInput
+                                                    required
+                                                    aria-label="시험일"
+                                                    placeholder="시험 날짜 선택"
+                                                    leftSection={<IconCalendar size={16} />}
+                                                    value={form.values.exam_date}
+                                                    disabled={form.values.is_date_tbd}
+                                                    onChange={(value) => {
+                                                        if (!value) {
+                                                            form.setFieldValue('exam_date', null);
+                                                            return;
+                                                        }
+                                                        const nextValue =
+                                                            typeof value === 'string' ? new Date(value) : (value as Date);
+                                                        if (!Number.isNaN(nextValue.getTime())) {
+                                                            form.setFieldValue('exam_date', nextValue);
+                                                            form.setFieldValue(
+                                                                'exam_month',
+                                                                dayjs(nextValue).startOf('month').format('YYYY-MM-DD'),
+                                                            );
+                                                        }
+                                                    }}
+                                                    locale="ko"
+                                                    error={form.errors.exam_date}
+                                                    monthLabelFormat="YYYY년 M월"
+                                                    previousIcon={<IconChevronLeft size={14} />}
+                                                    nextIcon={<IconChevronRight size={14} />}
+                                                    valueFormat="YYYY년 MM월 DD일"
+                                                    popoverProps={{ width: 320, position: 'bottom-start', shadow: 'md' }}
+                                                    size="sm"
+                                                    styles={MODAL_CALENDAR_STYLES}
+                                                />
+                                        )}
+                                    </Box>
+                                    <Switch
+                                        label="미정"
+                                        color="orange"
+                                        mt={8}
+                                        {...form.getInputProps('is_date_tbd', { type: 'checkbox' })}
+                                        onChange={(e) => {
+                                            const isTbd = e.currentTarget.checked;
+                                            form.setFieldValue('is_date_tbd', isTbd);
+                                            if (isTbd) {
+                                                const monthSource = form.values.exam_date ?? new Date();
+                                                form.setFieldValue(
+                                                    'exam_month',
+                                                    dayjs(monthSource).startOf('month').format('YYYY-MM-DD'),
+                                                );
+                                                form.setFieldValue('exam_date', null);
+                                            } else {
+                                                // A month snapshot is not an exact exam date. Require the
+                                                // operator to choose the actual day explicitly.
+                                                form.setFieldValue('exam_date', null);
+                                            }
                                         }}
-                                        error={form.errors.exam_month}
-                                        locale="ko"
-                                        valueFormat="YYYY년 MM월"
-                                        popoverProps={{ width: 320, position: 'bottom-start', shadow: 'md' }}
-                                        size="sm"
                                     />
-                                ) : (
-                                <DateInput
-                                    required
-                                    label="시험일"
-                                    placeholder="시험 날짜 선택"
-                                    leftSection={<IconCalendar size={16} />}
-                                    value={form.values.exam_date}
-                                    disabled={form.values.is_date_tbd}
-                                    onChange={(value) => {
-                                        if (!value) {
-                                            form.setFieldValue('exam_date', null);
-                                            return;
-                                        }
-                                        const nextValue =
-                                            typeof value === 'string' ? new Date(value) : (value as Date);
-                                        if (!Number.isNaN(nextValue.getTime())) {
-                                            form.setFieldValue('exam_date', nextValue);
-                                            form.setFieldValue(
-                                                'exam_month',
-                                                dayjs(nextValue).startOf('month').format('YYYY-MM-DD'),
-                                            );
-                                        }
-                                    }}
-                                    locale="ko"
-                                    error={form.errors.exam_date}
-                                    monthLabelFormat="YYYY년 M월"
-                                    previousIcon={<IconChevronLeft size={14} />}
-                                    nextIcon={<IconChevronRight size={14} />}
-                                    valueFormat="YYYY년 MM월 DD일"
-                                    popoverProps={{ width: 320, position: 'bottom-start', shadow: 'md' }}
-                                    size="sm"
-                                    styles={{
-                                        calendarHeader: {
-                                            padding: '6px 4px',
-                                            borderBottom: '1px solid #eef1f4',
-                                            display: 'grid',
-                                            gridTemplateColumns: '28px 1fr 28px',
-                                            alignItems: 'center',
-                                        },
-                                        calendarHeaderControlIcon: { margin: '0 auto' },
-                                        calendarHeaderLevel: {
-                                            fontWeight: 700,
-                                            fontSize: 14,
-                                            textAlign: 'center',
-                                            justifySelf: 'center',
-                                        },
-                                        calendarHeaderControl: { borderRadius: 8, justifySelf: 'center' },
-                                        month: {
-                                            width: '100%',
-                                            tableLayout: 'fixed',
-                                            margin: '0 auto',
-                                        },
-                                        monthThead: { textAlign: 'center' },
-                                        monthTbody: { textAlign: 'center' },
-                                        monthRow: {
-                                            textAlign: 'center',
-                                        },
-                                        weekdaysRow: {
-                                            textAlign: 'center',
-                                        },
-                                        monthCell: { padding: 2, textAlign: 'center' },
-                                        weekday: { fontWeight: 600, color: '#6b7280', textAlign: 'center' },
-                                        day: { borderRadius: 8, height: 34, fontWeight: 600, margin: '0 auto' },
-                                    }}
-                                />
-                                )}
-                                <DateInput
-                                    label="접수 마감일"
-                                    placeholder="마감 날짜 선택"
-                                    leftSection={<IconCalendar size={16} />}
-                                    value={form.values.registration_deadline}
-                                    onChange={(value) => {
-                                        if (!value) return;
-                                        const nextValue =
-                                            typeof value === 'string' ? new Date(value) : (value as Date);
-                                        if (!Number.isNaN(nextValue.getTime())) {
-                                            form.setFieldValue('registration_deadline', nextValue);
-                                        }
-                                    }}
-                                    locale="ko"
-                                    monthLabelFormat="YYYY년 M월"
-                                    previousIcon={<IconChevronLeft size={14} />}
-                                    nextIcon={<IconChevronRight size={14} />}
-                                    valueFormat="YYYY년 MM월 DD일"
-                                    popoverProps={{ width: 320, position: 'bottom-start', shadow: 'md' }}
-                                    size="sm"
-                                    styles={{
-                                        calendarHeader: {
-                                            padding: '6px 4px',
-                                            borderBottom: '1px solid #eef1f4',
-                                            display: 'grid',
-                                            gridTemplateColumns: '28px 1fr 28px',
-                                            alignItems: 'center',
-                                        },
-                                        calendarHeaderControlIcon: { margin: '0 auto' },
-                                        calendarHeaderLevel: {
-                                            fontWeight: 700,
-                                            fontSize: 14,
-                                            textAlign: 'center',
-                                            justifySelf: 'center',
-                                        },
-                                        calendarHeaderControl: { borderRadius: 8, justifySelf: 'center' },
-                                        month: {
-                                            width: '100%',
-                                            tableLayout: 'fixed',
-                                            margin: '0 auto',
-                                        },
-                                        monthThead: { textAlign: 'center' },
-                                        monthTbody: { textAlign: 'center' },
-                                        monthRow: {
-                                            textAlign: 'center',
-                                        },
-                                        weekdaysRow: {
-                                            textAlign: 'center',
-                                        },
-                                        monthCell: { padding: 2, textAlign: 'center' },
-                                        weekday: { fontWeight: 600, color: '#6b7280', textAlign: 'center' },
-                                        day: { borderRadius: 8, height: 34, fontWeight: 600, margin: '0 auto' },
-                                    }}
-                                />
-                            </SimpleGrid>
-                        </Paper>
+                                </Group>
+                            </div>
+                            <div className={surface.formRow}>
+                                <Text className={surface.formLabel}><IconCalendarDue size={15} />접수 마감일</Text>
+                                <Group gap="sm" wrap="nowrap">
+                                    <Box style={{ flex: 1, minWidth: 0 }}>
+                                        <DateInput
+                                            aria-label="접수 마감일"
+                                            placeholder="마감 날짜 선택"
+                                            leftSection={<IconCalendar size={16} />}
+                                            value={form.values.registration_deadline}
+                                            onChange={(value) => {
+                                                if (!value) return;
+                                                const nextValue =
+                                                    typeof value === 'string' ? new Date(value) : (value as Date);
+                                                if (!Number.isNaN(nextValue.getTime())) {
+                                                    form.setFieldValue('registration_deadline', nextValue);
+                                                }
+                                            }}
+                                            locale="ko"
+                                            monthLabelFormat="YYYY년 M월"
+                                            previousIcon={<IconChevronLeft size={14} />}
+                                            nextIcon={<IconChevronRight size={14} />}
+                                            valueFormat="YYYY년 MM월 DD일"
+                                            popoverProps={{ width: 320, position: 'bottom-start', shadow: 'md' }}
+                                            size="sm"
+                                            styles={MODAL_CALENDAR_STYLES}
+                                        />
+                                    </Box>
+                                    {form.values.registration_deadline ? (() => {
+                                        const daysLeft = dayjs(form.values.registration_deadline).startOf('day').diff(dayjs().startOf('day'), 'day');
+                                        return (
+                                            <span className={surface.pill} data-color={daysLeft < 0 ? undefined : daysLeft <= 3 ? 'orange' : 'green'}>
+                                                {daysLeft < 0 ? '마감' : daysLeft === 0 ? 'D-day' : `D-${daysLeft}`}
+                                            </span>
+                                        );
+                                    })() : null}
+                                </Group>
+                            </div>
+                        </div>
 
-                        <Paper withBorder radius="lg" p="md">
-                            <Text fw={700} size="sm" mb="sm">시험 정보</Text>
-                            <SegmentedControl
-                                fullWidth
-                                radius="md"
-                                data={[
-                                    { value: 'life', label: '생명 / 제3보험' },
-                                    { value: 'nonlife', label: '손해보험' },
-                                ]}
-                                {...form.getInputProps('exam_type')}
-                            />
-                            <TextInput
-                                label="회차명/구분"
-                                placeholder="예: 9월 1차 생명보험"
-                                mt="md"
-                                {...form.getInputProps('round_label')}
-                            />
-                        </Paper>
-
-                        <Paper withBorder radius="lg" p="md">
-                            <Text fw={700} size="sm" mb="sm">고사장 및 비고</Text>
-                            <Box>
-                                <Text size="sm" fw={500} mb={4}>고사장(장소) 관리</Text>
-                                <TagsInput
-                                    placeholder="Enter로 장소 추가 (예: 서울, 부산)"
-                                    {...form.getInputProps('locations')}
-                                    data={['서울', '부산', '대구', '인천', '광주', '대전', '울산', '제주']}
-                                    clearable
+                        <div className={surface.modalSection}>
+                            <div className={surface.formRow} data-align="start">
+                                <Text className={surface.formLabel}><IconMapPin size={15} />고사장</Text>
+                                <Box>
+                                    <TagsInput
+                                        aria-label="고사장(장소) 관리"
+                                        placeholder="Enter로 장소 추가 (예: 서울, 부산)"
+                                        {...form.getInputProps('locations')}
+                                        data={['서울', '부산', '대구', '인천', '광주', '대전', '울산', '제주']}
+                                        clearable
+                                    />
+                                    <Text size="xs" c="dimmed" mt={6}>
+                                        이미 신청자가 있는 장소는 삭제되지 않을 수 있습니다.
+                                    </Text>
+                                </Box>
+                            </div>
+                            <div className={surface.formRow}>
+                                <Text className={surface.formLabel}><IconNote size={15} />비고</Text>
+                                <TextInput
+                                    aria-label="비고 (선택)"
+                                    placeholder="메모 사항 (선택)"
+                                    {...form.getInputProps('notes')}
                                 />
-                                <Text size="xs" c="dimmed" mt={4}>
-                                    * 이미 신청자가 있는 장소는 삭제되지 않을 수 있습니다.
-                                </Text>
-                            </Box>
-
-                            <TextInput
-                                label="비고 (선택)"
-                                placeholder="메모 사항"
-                                mt="md"
-                                {...form.getInputProps('notes')}
-                            />
-                        </Paper>
+                            </div>
+                        </div>
 
                         <Group justify="space-between" mt="xs">
-                            <Button variant="default" onClick={() => handleClose()}>취소</Button>
-                            <Button type="submit" color="orange" loading={saveMutation.isPending}>
+                            <Button variant="default" radius="xl" onClick={() => handleClose()}>취소</Button>
+                            <Button type="submit" color="orange" radius="xl" leftSection={<IconCheck size={16} />} loading={saveMutation.isPending}>
                                 {editingId ? '수정 저장' : '등록 하기'}
                             </Button>
                         </Group>
@@ -781,19 +856,19 @@ export default function ExamSchedulePage() {
             </Modal>
 
             {/* Delete Confirm */}
-            <Modal opened={deleteOpened} onClose={closeDelete} title="일정 삭제" centered>
+            <Modal opened={deleteOpened} onClose={closeDelete} title="일정 삭제" radius={28} padding="xl" centered>
                 <Stack gap="md">
                     <Text size="sm" c="dimmed">
                         {deleteTarget ? `'${deleteTarget.label}' 일정을 삭제하시겠습니까?\n신청자가 있는 회차는 삭제할 수 없으며 신청 이력은 보존됩니다.` : '일정을 삭제하시겠습니까?'}
                     </Text>
                     <Group justify="flex-end">
-                        <Button variant="default" onClick={closeDelete}>취소</Button>
-                        <Button color="red" onClick={handleConfirmDelete} loading={deleteMutation.isPending}>
+                        <Button variant="light" color="gray" radius="xl" onClick={closeDelete}>취소</Button>
+                        <Button color="red" radius="xl" onClick={handleConfirmDelete} loading={deleteMutation.isPending}>
                             삭제
                         </Button>
                     </Group>
                 </Stack>
             </Modal>
-        </Container>
+        </div>
     );
 }

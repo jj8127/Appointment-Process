@@ -5,20 +5,21 @@ import test from 'node:test';
 const pageSource = readFileSync('web/src/app/dashboard/page.tsx', 'utf8');
 const cssSource = readFileSync('web/src/app/dashboard/page.module.css', 'utf8');
 
-test('dashboard metric cards filter the FC list and expose selected state', () => {
-  assert.match(pageSource, /useState<'all' \| 'pendingAllowance' \| 'pendingDocs'>\('all'\)/);
-  assert.match(pageSource, /metricFilter === 'pendingAllowance'/);
-  assert.match(pageSource, /fc\.step === 1 && \['entered', 'prescreen'\]\.includes\(allowanceDisplay\.key\)/);
-  assert.match(pageSource, /metricFilter === 'pendingDocs'/);
-  assert.match(pageSource, /fc\.step === 2 && getDocProgress\(fc\)\.key === 'in-progress'/);
-  assert.match(pageSource, /aria-pressed=\{metricFilter === 'pendingAllowance'\}/);
-  assert.match(pageSource, /aria-pressed=\{metricFilter === 'pendingDocs'\}/);
+// Queue conditions themselves are covered by dashboard-work-queue.test.ts.
+test('home queue cards filter the FC list through the shared work-queue rule and expose selected state', () => {
+  assert.match(pageSource, /useState<DashboardMetricFilter>\('all'\)/);
+  assert.match(pageSource, /getFcWorkQueueKey\(fc\) === metricFilter/);
+  assert.match(
+    pageSource,
+    /getDashboardWorkQueueKey\(\{\s*step: calcStep\(fc\),\s*allowanceKey: getAllowanceDisplayState\(fc\)\.key,\s*docProgressKey: getDocProgress\(fc\)\.key,\s*hanwhaKey: getHanwhaProgress\(fc\)\.key,/,
+  );
+  assert.match(pageSource, /aria-pressed=\{metricFilter === queue\.key\}/);
+  assert.match(pageSource, /onClick=\{\(\) => handleMetricFilterChange\(queue\.key\)\}/);
 });
 
-test('metric cards toggle to all and workflow tabs clear card filtering', () => {
+test('queue cards toggle back to all and workflow tabs clear card filtering', () => {
   assert.match(pageSource, /current === nextFilter && nextFilter !== 'all' \? 'all' : nextFilter/);
   assert.match(pageSource, /const handleActiveTabChange[\s\S]+setMetricFilter\('all'\)/);
   assert.match(pageSource, /onChange=\{handleActiveTabChange\}/);
-  assert.match(cssSource, /\.metricCard\[data-tone='allowance'\]\[data-active\]/);
-  assert.match(cssSource, /\.metricCard\[data-tone='documents'\]\[data-active\]/);
+  assert.match(cssSource, /\.metricCard\[data-active\]/);
 });

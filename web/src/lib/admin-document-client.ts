@@ -21,6 +21,8 @@ export type AdminDocumentRow = {
   reviewer_note: string | null;
   created_at: string;
   fc_profiles: { name: string | null; phone: string | null; affiliation: string | null };
+  // The submitter's full profile, so review screens can show the onboarding step.
+  fc_workflow_profile?: FcProfile;
 };
 
 export type AdminCleanupPendingResponse = Record<string, unknown> & {
@@ -232,6 +234,8 @@ export async function fetchAdminDocuments(): Promise<AdminDocumentRow[]> {
       phone: profile.phone ?? null,
       affiliation: profile.affiliation ?? null,
     },
+    // isDocumentProfile already checked the full FcProfile shape (isAdminFcListProfile).
+    fc_workflow_profile: profile as unknown as FcProfile,
   }))).sort((left, right) => right.created_at.localeCompare(left.created_at));
 }
 

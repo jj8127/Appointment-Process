@@ -462,16 +462,17 @@ export default function ReferralGraphPage() {
         minHeight: responsiveLayout.shellHeight,
         display: 'flex',
         flexDirection: 'column',
-        background: 'linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%)',
+        background: '#fff',
+        borderRadius: 24,
         overflow: isMobileGraph ? 'visible' : 'hidden',
       }}
     >
       <Group
         px="md"
-        py={6}
+        py={10}
         gap="xs"
         wrap="nowrap"
-        style={{ background: 'rgba(255, 255, 255, 0.94)', borderBottom: '1px solid #dbe4ee', flexShrink: 0 }}
+        style={{ background: '#fff', borderBottom: '1px solid #f0f0ee', flexShrink: 0 }}
       >
         {!isDownlineScope ? (
           <Tooltip label="리스트로 돌아가기" withArrow>
@@ -484,25 +485,13 @@ export default function ReferralGraphPage() {
           {isMobileGraph ? '추천 관계 보기' : '추천인 그래프'}
         </Text>
         <SegmentedControl aria-label="그래프 배치 방식" value={layoutMode} onChange={(value) => setLayoutMode(value as 'cluster' | 'free')}
-          data={[{ value: 'cluster', label: '집단 배치' }, { value: 'free', label: '자유 배치' }]} size="xs" />
+          data={[{ value: 'cluster', label: '집단 배치' }, { value: 'free', label: '자유 배치' }]} size="xs" radius="xl" />
         <Box style={{ flex: 1 }} />
         <ActionIcon aria-label="추천 관계 새로고침" variant="subtle" color="gray" size="sm"
           loading={graphQuery.isFetching} onClick={() => graphQuery.refetch()}>
           <IconRefresh size={16} />
         </ActionIcon>
       </Group>
-
-      {graphQuery.isError ? (
-        <Box px="md" py="xs">
-          <QueryErrorAlert
-            error={graphQuery.error}
-            onRetry={graphQuery.refetch}
-            isFetching={graphQuery.isFetching}
-            hasData={Boolean(graphData)}
-            subject="추천인 그래프"
-          />
-        </Box>
-      ) : null}
 
       {graphQuery.isError ? (
         <Box px="md" py="xs">

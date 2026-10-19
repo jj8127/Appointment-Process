@@ -2,6 +2,10 @@
   --mantine-font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
   --bg-color: #f8f9fa;
   --primary-color: #f36f21;
+  --dashboard-canvas: #e8e9ed;
+  --dashboard-panel: #f6f6f6;
+  --dashboard-well: #f4f4f3;
+  --dashboard-ink: #1e1d18;
   --text-primary: #111827;
   --text-secondary: #6b7280;
 }
@@ -76,4 +80,37 @@ body {
   .group-chat-composer > button:last-child {
     margin-left: auto;
   }
+}
+
+/* Calendar header: the level label ("2026년 10월") reads as a dropdown that opens the year/month grid. */
+[class*='-calendarHeaderLevel']:not([data-static]) {
+  flex: 0 1 auto;
+  margin-right: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-weight: 650;
+}
+
+[class*='-calendarHeaderLevel']:not([data-static])::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+  opacity: 0.55;
+}
+
+[class*='-calendarHeaderLevel']:not([data-static]):hover {
+  background: #f1f1ee;
+}
+
+[class*='-calendarHeaderLevel'][data-static] {
+  margin-right: auto;
+  justify-content: flex-start;
+  padding: 0 12px;
 }

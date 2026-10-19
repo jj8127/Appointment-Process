@@ -15,6 +15,8 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 
 모바일 신청·등록·관리와 관리자 신청자 목록은 필수 회차/신청 페이지의 오류나 잘못된 응답을 빈 결과로 처리하지 않는다. 추가 조회 실패는 이미 확인한 목록과 재시도 동선을 보존하며 검색·회차·계정 변경 뒤 이전 결과는 격리한다. `exam-read-query-contract`와 `exam-admin-applicant-query-contract`의 기존 페이지·필터 검사를 재사용한다.
 
+2026-10-19: 관리자 시험 신청자 화면의 카드 등장은 아래로 미끄러지지 않고 제자리에서 흐림이 걷히는 방식으로 바뀌었다. 표시 데이터·필터·접수 동작은 그대로다.
+
 관리 화면의 Realtime 구독은 기존 `exam-realtime-channel` 소유권을 유지한다. 조회 검증을 강화해도 화면 effect별 고유 topic, cleanup 뒤 callback 무시, 계정/서명 세션 변경 시 폐기 동작을 바꾸지 않는다. 기존 `exam-realtime-channel.test.js`, `exam-read-pagination-contract.test.js`, 취소 user-flow suite가 각 구독·조회·취소 경계를 맡는다. source/type/fixture 검증은 실운영 계정의 신청·승인을 대신하지 않는다.
 
 ## 2026-10-12 시험 화면 아이콘 조작

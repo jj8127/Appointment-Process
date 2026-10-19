@@ -9,7 +9,6 @@ import {
   Badge,
   Button,
   Card,
-  Container,
   Group,
   Loader,
   SimpleGrid,
@@ -21,8 +20,9 @@ import {
 import { IconArrowRight, IconExternalLink, IconFileText, IconMessageCircle2, IconMessages, IconUsers } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect } from 'react';
-import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
+import { useEffect, type CSSProperties } from 'react';
+import surface from '../surface.module.css';
+import { HANWHA_ORANGE } from '@/lib/brand-colors';
 
 
 type FcNotifyProxyEnvelope<T> = {
@@ -153,13 +153,28 @@ export default function MessengerHubPage() {
       : `${requestBoardEnvironmentLabel}에 설계요청 메신저 주소(NEXT_PUBLIC_REQUEST_BOARD_URL)가 설정되어 있지 않아 이동할 수 없습니다.`;
 
   return (
-    <Container size="lg" py="xl">
-      <Stack gap="xs" mb="lg">
-        <Title order={2} c={CHARCOAL}>메신저</Title>
-        <Text c={MUTED} size="sm">
-          가람지사 내부 대화와 설계요청 대화를 한 화면에서 선택할 수 있습니다.
-        </Text>
-      </Stack>
+    <div className={surface.page} style={{ maxWidth: 1200 }}>
+      <div className={surface.head} style={{ '--i': 0 } as CSSProperties}>
+        <div>
+          <Title order={1} className={surface.title}>메신저</Title>
+          <Text className={surface.subtitle}>
+            가람지사 내부 대화와 설계요청 대화를 한 화면에서 선택할 수 있습니다.
+          </Text>
+          {counts ? (
+            <div className={surface.headMeta}>
+              {[
+                { label: '가람지사', value: counts.internalUnread },
+                { label: '단톡방', value: counts.groupChatUnread },
+                { label: '설계요청', value: requestBoardConfig.available ? counts.requestBoardUnread : null },
+              ].map((room) => (
+                <span key={room.label} className={surface.metaChip} data-tone={room.value ? 'hot' : room.value === 0 ? 'ok' : undefined}>
+                  <i />{room.label} <b>{room.value ?? '-'}</b>
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
 
       {(isError || (counts?.errors.length ?? 0) > 0) && (
         <QueryErrorAlert error={countError} onRetry={refetch} isFetching={isFetching} subject="미확인 수" />
@@ -170,12 +185,12 @@ export default function MessengerHubPage() {
           <Loader color={HANWHA_ORANGE} />
         </Group>
       ) : (
-        <SimpleGrid cols={{ base: 1, md: 3 }} spacing="md">
-          <Card withBorder radius="lg" shadow="sm" padding="lg">
+        <SimpleGrid cols={{ base: 1, md: 3 }} spacing={14}>
+          <Card radius={24} padding="lg" className={surface.card} style={{ '--i': 1 } as CSSProperties}>
             <Stack gap="md">
               <Group justify="space-between" align="flex-start">
                 <Group gap="sm" wrap="nowrap">
-                  <ThemeIcon radius="xl" size={42} color="orange" variant="light">
+                  <ThemeIcon radius="xl" size={42} color="dark" variant="filled">
                     <IconUsers size={20} />
                   </ThemeIcon>
                   <div>
@@ -204,25 +219,26 @@ export default function MessengerHubPage() {
 
               <Group justify="space-between">
                 <Button
-                  color="orange"
+                  color="dark"
+                  radius="xl"
                   leftSection={<IconMessageCircle2 size={16} />}
                   rightSection={<IconArrowRight size={14} />}
                   onClick={() => router.push('/dashboard/chat')}
                 >
                   채팅 열기
                 </Button>
-                <Button variant="subtle" color="gray" onClick={() => { void refetch(); }}>
+                <Button variant="subtle" color="gray" radius="xl" onClick={() => { void refetch(); }}>
                   새로고침
                 </Button>
               </Group>
             </Stack>
           </Card>
 
-          <Card withBorder radius="lg" shadow="sm" padding="lg">
+          <Card radius={24} padding="lg" className={surface.card} style={{ '--i': 2 } as CSSProperties}>
             <Stack gap="md">
               <Group justify="space-between" align="flex-start">
                 <Group gap="sm" wrap="nowrap">
-                  <ThemeIcon radius="xl" size={42} color="orange" variant="light">
+                  <ThemeIcon radius="xl" size={42} color="dark" variant="filled">
                     <IconMessages size={20} />
                   </ThemeIcon>
                   <div>
@@ -246,8 +262,8 @@ export default function MessengerHubPage() {
               </Text>
 
               <Button
-                color="orange"
-                variant="light"
+                color="dark"
+                radius="xl"
                 leftSection={<IconMessages size={16} />}
                 rightSection={<IconArrowRight size={14} />}
                 onClick={() => router.push('/dashboard/group-chat')}
@@ -257,11 +273,11 @@ export default function MessengerHubPage() {
             </Stack>
           </Card>
 
-          <Card withBorder radius="lg" shadow="sm" padding="lg">
+          <Card radius={24} padding="lg" className={surface.card} style={{ '--i': 3 } as CSSProperties}>
             <Stack gap="md">
               <Group justify="space-between" align="flex-start">
                 <Group gap="sm" wrap="nowrap">
-                  <ThemeIcon radius="xl" size={42} color="blue" variant="light">
+                  <ThemeIcon radius="xl" size={42} color="dark" variant="filled">
                     <IconFileText size={20} />
                   </ThemeIcon>
                   <div>
@@ -289,8 +305,9 @@ export default function MessengerHubPage() {
               </Text>
 
               <Button
-                color="blue"
+                color="gray"
                 variant="light"
+                radius="xl"
                 leftSection={<IconExternalLink size={16} />}
                 rightSection={<IconArrowRight size={14} />}
                 disabled={!requestBoardConfig.available}
@@ -305,6 +322,6 @@ export default function MessengerHubPage() {
           </Card>
         </SimpleGrid>
       )}
-    </Container>
+    </div>
   );
 }

@@ -98,8 +98,8 @@ export default function NotificationOpenPage({
 
   return (
     <Center mih={300}>
-      <Stack maw={480} align="stretch">
-        <Alert color="orange" title="대상을 열 수 없음">
+      <Stack maw={480} w="100%" align="stretch" bg="#fff" p="xl" style={{ borderRadius: 24 }}>
+        <Alert color="orange" radius="lg" title="대상을 열 수 없음">
           알림 대상이 삭제되었거나 접근 권한이 없거나, 네트워크 연결이 원활하지 않습니다.
           이 알림은 읽음 처리되지 않았습니다.
         </Alert>
@@ -107,7 +107,8 @@ export default function NotificationOpenPage({
           다시 시도하거나 대시보드에서 다른 알림을 확인할 수 있습니다.
         </Text>
         <Button
-          color="orange"
+          color="dark"
+          radius="xl"
           onClick={() => {
             setState('loading');
             setRetryCount((count) => count + 1);
@@ -115,7 +116,7 @@ export default function NotificationOpenPage({
         >
           다시 시도
         </Button>
-        <Button variant="light" color="orange" onClick={() => router.replace('/dashboard')}>
+        <Button variant="light" color="gray" radius="xl" onClick={() => router.replace('/dashboard')}>
           대시보드로 돌아가기
         </Button>
       </Stack>

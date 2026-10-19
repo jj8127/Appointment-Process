@@ -28,7 +28,8 @@ import {
   IconShieldCheck,
   IconUserPlus,
 } from '@tabler/icons-react';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
+import surface from '../surface.module.css';
 
 import { useSession } from '@/hooks/use-session';
 import {
@@ -41,7 +42,6 @@ import {
   SignupReferralSearchError,
   type SignupReferralSearchResult,
 } from '@/lib/admin-assisted-signup-contract';
-import { CHARCOAL } from '@/lib/brand-colors';
 
 type FormState = {
   name: string;
@@ -83,18 +83,11 @@ function VerificationLedger() {
   ];
 
   return (
-    <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="xs" aria-label="가입 보안 단계">
+    <div className={surface.statGroup} style={{ '--cols': 3, '--i': 1 } as CSSProperties} aria-label="가입 보안 단계">
       {steps.map(({ icon: Icon, label, detail, active }, index) => (
-        <Paper
-          key={label}
-          withBorder
-          radius="md"
-          p="sm"
-          bg={active ? 'orange.0' : 'gray.0'}
-          style={{ borderColor: active ? 'var(--mantine-color-orange-3)' : undefined }}
-        >
+        <div key={label} className={surface.statTile} data-active={active || undefined} style={{ minHeight: 0 }}>
           <Group gap="sm" wrap="nowrap">
-            <ThemeIcon variant={active ? 'light' : 'default'} color="orange" radius="xl">
+            <ThemeIcon variant={active ? 'filled' : 'white'} color={active ? 'dark' : 'gray'} radius="xl">
               <Icon size={17} aria-hidden="true" />
             </ThemeIcon>
             <Box>
@@ -103,9 +96,9 @@ function VerificationLedger() {
               <Text size="xs" c="dimmed">{detail}</Text>
             </Box>
           </Group>
-        </Paper>
+        </div>
       ))}
-    </SimpleGrid>
+    </div>
   );
 }
 
@@ -249,16 +242,18 @@ export default function AdminAssistedSignupPage() {
   }
 
   return (
-    <Container size="lg" py={{ base: 'md', md: 'xl' }}>
-      <Stack gap="lg">
-        <Box>
+    <div className={surface.page}>
+      <Stack gap={14}>
+        <Box className={surface.head} style={{ '--i': 0 } as CSSProperties}>
+          <div>
           <Text c="orange.7" fw={800} size="sm" tt="uppercase" mb={4}>
             Controlled onboarding
           </Text>
-          <Title order={2} c={CHARCOAL}>관리자 서면확인 회원가입</Title>
-          <Text c="dimmed" mt="xs" maw={760}>
+          <Title order={1} className={surface.title}>관리자 서면확인 회원가입</Title>
+          <Text className={surface.subtitle} maw={760}>
             문자 수신이 어려운 FC의 서면 동의를 확인해 계정을 생성합니다. 이 절차는 휴대폰 인증 완료로 기록되지 않습니다.
           </Text>
+          </div>
         </Box>
 
         <VerificationLedger />
@@ -266,6 +261,7 @@ export default function AdminAssistedSignupPage() {
         <Alert
           color="orange"
           variant="light"
+          radius="lg"
           icon={<IconAlertTriangle size={18} />}
           title="휴대폰 인증을 대체 표시하지 않습니다."
         >
@@ -287,7 +283,7 @@ export default function AdminAssistedSignupPage() {
           </Alert>
         ) : null}
 
-        <Paper component="form" onSubmit={handleSubmit} withBorder radius="lg" p={{ base: 'md', md: 'xl' }}>
+        <Paper component="form" onSubmit={handleSubmit} radius={24} p={{ base: 'md', md: 'xl' }} className={surface.card} style={{ '--i': 2 } as CSSProperties}>
           <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
             <Stack gap="md">
               <Box>
@@ -383,7 +379,7 @@ export default function AdminAssistedSignupPage() {
                       }}
                       aria-label={`${result.name}, ${result.affiliation} 추천인 선택`}
                     >
-                      <Paper withBorder radius="md" p="sm">
+                      <Paper radius={14} p="sm" bg="var(--dashboard-panel)">
                         <Group justify="space-between" wrap="nowrap">
                           <Box>
                             <Text fw={700}>{result.name}</Text>
@@ -398,7 +394,7 @@ export default function AdminAssistedSignupPage() {
               ) : null}
 
               {selectedReferral ? (
-                <Paper withBorder radius="md" p="md" bg="orange.0">
+                <Paper radius={16} p="md" bg="#fff1e6">
                   <Group justify="space-between" align="flex-start">
                     <Box>
                       <Text size="xs" c="orange.8" fw={700}>선택한 추천인</Text>
@@ -471,7 +467,7 @@ export default function AdminAssistedSignupPage() {
                 label="본인이 서면 동의서를 확인했고, 해당 FC의 회원가입 생성 및 임시 비밀번호 발급에 대한 동의를 확보했습니다."
               />
 
-              <Paper withBorder radius="md" p="md" bg="gray.0" mt="auto">
+              <Paper radius={16} p="md" bg="var(--dashboard-panel)" mt="auto">
                 <Text size="sm" fw={700}>생성 전 확인</Text>
                 <Text size="sm" c="dimmed" mt={4}>
                   생성 후 휴대폰 인증 상태는 미인증으로 유지됩니다. 실행자, 확인일, 문서관리번호와 추천인 변경 근거는 감사 기록에 남습니다.
@@ -480,7 +476,8 @@ export default function AdminAssistedSignupPage() {
 
               <Button
                 type="submit"
-                color="orange"
+                color="dark"
+                radius="xl"
                 size="md"
                 leftSection={<IconUserPlus size={18} />}
                 loading={submitting}
@@ -492,6 +489,6 @@ export default function AdminAssistedSignupPage() {
           </SimpleGrid>
         </Paper>
       </Stack>
-    </Container>
+    </div>
   );
 }

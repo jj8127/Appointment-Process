@@ -1,12 +1,13 @@
 'use client';
 
-import { Badge, Container, Group, LoadingOverlay, Paper, ScrollArea, SegmentedControl, Stack, Table, Text, TextInput, Title } from '@mantine/core';
+import { Badge, Group, LoadingOverlay, Paper, ScrollArea, SegmentedControl, Stack, Table, Text, TextInput, Title } from '@mantine/core';
 import { MonthPickerInput } from '@mantine/dates';
 import { IconSearch } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
+import surface from '../surface.module.css';
 
 import { QueryErrorAlert } from '@/components/QueryErrorAlert';
 import { useSession } from '@/hooks/use-session';
@@ -16,7 +17,6 @@ import {
   describeAuditDetail,
   type AdminAuditCategory,
 } from '@/lib/admin-audit-event';
-import { CHARCOAL, MUTED } from '@/lib/brand-colors';
 import { QueryReadError } from '@/lib/query-read-error';
 
 type AuditItem = {
@@ -64,6 +64,8 @@ export default function AuditPage() {
     enabled: canRead,
   });
 
+  const monthEvents = data?.events ?? [];
+
   const rows = useMemo(() => {
     const text = keyword.trim().toLowerCase();
     const events = data?.events ?? [];
@@ -72,11 +74,22 @@ export default function AuditPage() {
   }, [data, keyword]);
 
   return (
-    <Container size="xl" py="md">
-      <Stack gap="md">
+    <div className={surface.page}>
+      <Stack gap={14}>
+        <div className={surface.head} style={{ '--i': 0 } as CSSProperties}>
         <div>
-          <Title order={2} c={CHARCOAL}>처리 이력</Title>
-          <Text c={MUTED} size="sm" mt={4}>처리, 엑셀 다운로드, 개인정보 조회 기록</Text>
+          <Title order={1} className={surface.title}>처리 이력</Title>
+          <Text className={surface.subtitle}>처리, 엑셀 다운로드, 개인정보 조회 기록</Text>
+          {data ? (
+            <div className={surface.headMeta}>
+              <span className={surface.metaChip}><i />{dayjs(`${month}-01`).format('M월')} 기록 <b>{monthEvents.length}</b>{data.limited ? '+' : ''}</span>
+              <span className={surface.metaChip} data-tone={monthEvents.some((item) => item.category === 'personal_info_view') ? 'hot' : undefined}>
+                <i />개인정보 조회 <b>{monthEvents.filter((item) => item.category === 'personal_info_view').length}</b>
+              </span>
+              <span className={surface.metaChip}><i />엑셀 다운로드 <b>{monthEvents.filter((item) => item.category === 'export').length}</b></span>
+            </div>
+          ) : null}
+        </div>
         </div>
 
         <Group gap="sm" wrap="wrap">
@@ -87,10 +100,15 @@ export default function AuditPage() {
             valueFormat="YYYY년 M월"
             maxDate={dayjs().format('YYYY-MM-DD')}
             w={150}
+            radius="xl"
+            styles={{ input: { border: 0, height: 44 } }}
           />
           <SegmentedControl
             value={category}
             onChange={setCategory}
+            radius="xl"
+            size="md"
+            bg="white"
             data={[
               { value: 'all', label: '전체' },
               { value: 'fc_action', label: ADMIN_AUDIT_CATEGORY_LABELS.fc_action },
@@ -105,15 +123,17 @@ export default function AuditPage() {
             value={keyword}
             onChange={(event) => setKeyword(event.currentTarget.value)}
             w={220}
+            radius="xl"
+            styles={{ input: { border: 0, height: 44 } }}
           />
         </Group>
 
         {isError && <QueryErrorAlert error={error} onRetry={refetch} isFetching={isFetching} hasData={Boolean(data)} subject="처리 이력" />}
 
-        <Paper withBorder radius="md" pos="relative" mih={240}>
+        <Paper radius={24} pos="relative" mih={240} className={surface.tableCard} style={{ '--i': 1 } as CSSProperties}>
           <LoadingOverlay visible={isLoading} />
           <ScrollArea>
-            <Table striped highlightOnHover verticalSpacing="sm" miw={900}>
+            <Table verticalSpacing="sm" miw={900} className={surface.table}>
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th w={150}>시각</Table.Th>
@@ -152,6 +172,6 @@ export default function AuditPage() {
         </Paper>
         {data?.limited ? <Text size="xs" c="dimmed">최근 500건만 표시합니다. 구분을 나눠 조회하세요.</Text> : null}
       </Stack>
-    </Container>
+    </div>
   );
 }

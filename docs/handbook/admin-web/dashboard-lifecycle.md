@@ -2,10 +2,23 @@ doc_id: FC-ADMIN-DASHBOARD-LIFECYCLE
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-10-13
+last_verified: 2026-10-19
 source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/[id]/page.tsx + web/src/app/dashboard/fc-signup/page.tsx + web/src/app/api/admin/fc/route.ts + web/src/app/api/admin/list/route.ts + web/src/app/api/admin/assisted-signup/route.ts + web/src/lib/admin-assisted-signup-server.ts + web/src/lib/dashboard-table-display.ts + web/src/lib/shared.ts
 
 # Admin Web Playbook: Dashboard Lifecycle
+
+## 2026-10-19 FC 목록 로딩 표시
+
+- 목록 데이터도 오류도 없는 동안 홈의 합계·업무 타일 숫자, 단계별 막대, 소속별
+  FC·최근 가입, 처리 대기열, FC 목록 표는 실제 모양을 본뜬 스켈레톤으로 표시한다.
+  로딩 문구와 `—`는 쓰지 않는다. 막대는 데이터가 오면 실제 높이로 이어서 변한다.
+- 조회가 실패하면 스켈레톤을 멈추고 `—`와 기존 오류 안내·재시도를 보인다.
+- 데이터가 도착하면 숫자·목록 행·대기열 행·FC 표 행이 스켈레톤 자리에서 차례로
+  떠오르고(720ms, 이웃 간 60~70ms 간격), 위촉 진행률 막대는 빈 트랙에서 실제
+  비율까지 자란다. 숫자는 `CountUp`으로 0부터 약 1초 동안 올라가고, 가장 많은
+  대기 타일의 주황 배경은 왼쪽 위 모서리에서 원형으로 채워지며, 단계별 막대는
+  목록이 오면 왼쪽부터 하나씩 다시 자란다. 동작 줄이기 설정에서는 애니메이션 없이
+  바로 표시한다.
 
 ## 2026-10-13 FC 목록 읽기 응답 계약
 

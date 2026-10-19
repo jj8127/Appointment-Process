@@ -3,39 +3,25 @@
 import { QueryErrorAlert } from '@/components/QueryErrorAlert';
 
 import {
-    Badge,
-    Box,
-    Button,
-    Container,
-    Group,
     Image,
-    LoadingOverlay,
-    Modal,
-    Paper,
-    ScrollArea,
-    Stack,
-    Table,
-    Tabs,
+    Loader,
     Text,
     TextInput,
-    ThemeIcon,
-    Title
+    UnstyledButton,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
     IconCheck,
     IconDownload,
-    IconEye,
     IconFileText,
-    IconList,
     IconRefresh,
     IconSearch,
     IconX
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 import { StatusToggle } from '@/components/StatusToggle';
 import { ConfirmModal } from '@/components/ConfirmModal';
@@ -43,25 +29,10 @@ import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { useSession } from '@/hooks/use-session';
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { ADMIN_DOCUMENT_STATUS_LABELS, fetchAdminDocuments, signAdminDocument, type AdminDocumentRow as DocumentRow } from '@/lib/admin-document-client';
+import { groupDocumentsByFc, resolveReviewSelection } from '@/lib/admin-document-review';
+import { ADMIN_STEP_LABELS, getAdminStepDisplay } from '@/lib/shared';
 import { requireDocumentStatusReceipt } from '@/lib/user-intent-policy';
-import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
-// App Design Tokens
-const BACKGROUND_LIGHT = '#F9FAFB';
-
-// Status Badge Helper
-const getStatusColor = (status: string) => {
-    switch (status) {
-        case 'approved':
-            return 'green';
-        case 'rejected':
-            return 'red';
-        case 'submitted':
-        case 'pending':
-            return 'blue';
-        default:
-            return 'gray';
-    }
-};
+import styles from './page.module.css';
 
 const NO_FILE_APPROVAL_NOTE = '총무 수동 승인: 파일 미제출';
 
@@ -77,17 +48,38 @@ const isNoFileDoc = (doc: DocumentRow) => {
 const isPendingReviewDocument = (doc: DocumentRow) =>
     ['pending', 'submitted'].includes(doc.status);
 
+const isImage = (path: string | null | undefined) => {
+    if (!path) return false;
+    const lower = path.toLowerCase();
+    return lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp');
+};
+
+// PDFs preview in the browser's built-in viewer; the stored path or the original file name may carry the extension.
+const isPdf = (...names: Array<string | null | undefined>) =>
+    names.some((name) => Boolean(name) && String(name).toLowerCase().endsWith('.pdf'));
+
+const TABS = [
+    { value: 'pending', label: '미처리' },
+    { value: 'approved', label: '승인됨' },
+    { value: 'rejected', label: '반려됨' },
+    { value: 'all', label: '전체 목록' },
+] as const;
+
 export default function DocumentsPage() {
     const queryClient = useQueryClient();
     const { isReadOnly } = useSession();
     const [activeTab, setActiveTab] = useState<string | null>('pending');
     const [searchValue, setSearchValue] = useState('');
 
-    // Preview Modal State
-    const [previewOpened, { open: openPreview, close: closePreview }] = useDisclosure(false);
-    const [selectedDoc, setSelectedDoc] = useState<DocumentRow | null>(null);
+    // Review selection: one FC on the left, one of its documents in the middle.
+    const [selectedFcId, setSelectedFcId] = useState<string | null>(null);
+    const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+    const lastFcIndex = useRef(0);
+
+    // Inline preview state
     const [signedUrl, setSignedUrl] = useState<string | null>(null);
     const [previewError, setPreviewError] = useState<string | null>(null);
+    const [previewLoading, setPreviewLoading] = useState(false);
     const previewRequest = useRef(0);
     const statusSubmitting = useRef(false);
 
@@ -136,6 +128,12 @@ export default function DocumentsPage() {
 
         return docs;
     }, [documents, activeTab, searchValue]);
+
+    const groups = useMemo(() => groupDocumentsByFc(filteredDocs), [filteredDocs]);
+    const { group: selectedGroup, doc: selectedDoc } = resolveReviewSelection(groups, selectedFcId, selectedDocId, lastFcIndex.current);
+    useEffect(() => {
+        if (selectedGroup) lastFcIndex.current = groups.indexOf(selectedGroup);
+    }, [groups, selectedGroup]);
 
     // Mutations
     const updateStatusMutation = useMutation({
@@ -191,7 +189,6 @@ export default function DocumentsPage() {
             });
             queryClient.invalidateQueries({ queryKey: ['documents-list'] });
             closeReject();
-            closePreview();
         },
         onError: (err: unknown) => {
             const msg = err instanceof Error ? err.message : '처리 중 오류가 발생했습니다.';
@@ -214,25 +211,40 @@ export default function DocumentsPage() {
         updateStatusMutation.mutate(values);
     };
 
-    // Handlers
-    const handlePreview = async (doc: DocumentRow) => {
+    // Preview loads inline whenever the selected document changes.
+    const loadPreview = useCallback(async (doc: DocumentRow | null) => {
         const requestId = ++previewRequest.current;
-        setSelectedDoc(doc);
         setSignedUrl(null);
         setPreviewError(null);
-        openPreview();
-
+        if (!doc) return;
         const storagePath = String(doc.storage_path ?? '').trim();
-        if (storagePath && storagePath !== 'deleted') {
-            try {
-                const url = await signAdminDocument(doc.fc_id, storagePath);
-                if (requestId === previewRequest.current) setSignedUrl(url);
-            } catch (error) {
-                if (requestId === previewRequest.current) {
-                    setPreviewError(error instanceof Error ? error.message : '파일을 불러오지 못했습니다.');
-                }
-            }
+        if (!storagePath || storagePath === 'deleted') {
+            setPreviewLoading(false);
+            return;
         }
+        setPreviewLoading(true);
+        try {
+            const url = await signAdminDocument(doc.fc_id, storagePath);
+            if (requestId === previewRequest.current) setSignedUrl(url);
+        } catch (error) {
+            if (requestId === previewRequest.current) {
+                setPreviewError(error instanceof Error ? error.message : '파일을 불러오지 못했습니다.');
+            }
+        } finally {
+            if (requestId === previewRequest.current) setPreviewLoading(false);
+        }
+    }, []);
+
+    const previewKey = selectedDoc ? `${selectedDoc.id}:${selectedDoc.storage_path ?? ''}` : '';
+    useEffect(() => {
+        void loadPreview(selectedDoc);
+        // The key covers the fields the preview depends on.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [previewKey, loadPreview]);
+
+    const selectDoc = (doc: DocumentRow) => {
+        setSelectedFcId(doc.fc_id);
+        setSelectedDocId(doc.id);
     };
 
     const [confirmOpened, { open: openConfirm, close: closeConfirm }] = useDisclosure(false);
@@ -292,329 +304,257 @@ export default function DocumentsPage() {
         });
     };
 
-    const rows = filteredDocs.map((doc) => (
-        <Table.Tr key={doc.id} style={{ transition: 'background-color 0.2s' }}>
-            <Table.Td>
-                <Text size="sm" c="dimmed">{dayjs(doc.created_at).format('YYYY-MM-DD HH:mm')}</Text>
-            </Table.Td>
-            <Table.Td>
-                <Group gap="xs">
-                    <ThemeIcon variant="light" color="gray" size="md" radius="xl">
-                        <IconFileText size={14} />
-                    </ThemeIcon>
-                    <div>
-                        <Text size="sm" fw={600} c={CHARCOAL}>
-                            {doc.fc_profiles?.name || '알수없음'}
-                        </Text>
-                        <Text size="xs" c="dimmed">
-                            {doc.fc_profiles?.phone} · {doc.fc_profiles?.affiliation || '소속없음'}
-                        </Text>
-                    </div>
-                </Group>
-            </Table.Td>
-            <Table.Td>
-                <Badge variant="outline" color="gray" size="sm" radius="sm" style={{ textTransform: 'none' }}>
-                    {doc.doc_type}
-                </Badge>
-            </Table.Td>
-            <Table.Td>
-                <Text
-                    size="sm"
-                    c={hasStoragePath(doc.storage_path) ? HANWHA_ORANGE : MUTED}
-                    style={{ cursor: 'pointer', fontWeight: 500 }}
-                    onClick={() => handlePreview(doc)}
-                >
-                    {hasStoragePath(doc.storage_path) ? (doc.file_name || '파일 확인') : '미제출'}
-                </Text>
-            </Table.Td>
-            <Table.Td>
-                <Badge color={getStatusColor(doc.status)} variant="light" size="sm" radius="sm">
-                    {ADMIN_DOCUMENT_STATUS_LABELS[doc.status] || doc.status}
-                </Badge>
-            </Table.Td>
-            <Table.Td>
-                <Group gap={6}>
-                    <Button
-                        size="compact-xs"
-                        variant="subtle"
-                        color="gray"
-                        onClick={() => handlePreview(doc)}
-                        leftSection={<IconEye size={12} />}
-                    >
-                        열기
-                    </Button>
-                    {updateStatusMutation.isPending && updateStatusMutation.variables?.doc.id === doc.id ? <Text size="xs" role="status">처리 중</Text> : null}
-                    <StatusToggle
-                        value={doc.status === 'approved' ? 'approved' : 'pending'}
-                        onChange={(val) => {
-                            if (isReadOnly) return;
-                            if (val === 'approved') {
-                                handleApprove(doc);
-                            } else {
-                                handleRejectInit(doc); // Revert to meaningful state? Or just init reject?
-                                // Toggle 'Pending' usually implies Reject or Reset.
-                                // User flow: Click 'Approved' -> Approved.
-                                // Click 'Pending' (from Approved) -> Maybe Reset to pending?
-                                // BUT logic says "If approved, modify impossible".
-                                // So this onChange shouldn't even trigger if readOnly.
-                                // But if it's NOT readOnly (e.g. pending/rejected), we can toggle.
-                                // If I click 'Pending' while it is 'In Progress'?
-                                // Actually 'Reject' needs a reason.
-                                // So clicking 'Pending' side might trigger Reject Modal?
-                                // Let's assume clicking 'Pending' triggers Reject flow.
-                            }
-                        }}
-                        labelPending="미승인"
-                        labelApproved="승인"
-                        showNeutralForPending
-                        allowPendingPress
-                        readOnly={isReadOnly || doc.status === 'approved' || (updateStatusMutation.isPending && updateStatusMutation.variables?.doc.id === doc.id)}
-                    />
-                </Group>
-            </Table.Td>
-        </Table.Tr>
-    ));
-
-    const isImage = (path: string | null | undefined) => {
-        if (!path) return false;
-        const lower = path.toLowerCase();
-        return lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp');
-    };
+    const isRowPending = (doc: DocumentRow) => updateStatusMutation.isPending && updateStatusMutation.variables?.doc.id === doc.id;
+    const profile = selectedGroup?.docs[0]?.fc_profiles;
+    const selectedStep = selectedGroup?.docs[0]?.fc_workflow_profile ? getAdminStepDisplay(selectedGroup.docs[0].fc_workflow_profile) : null;
+    const emptyText = isLoading ? '서류 목록을 불러오는 중입니다.' : isError ? '서류 목록을 확인할 수 없습니다.' : '해당 조건의 서류가 존재하지 않습니다.';
 
     return (
-        <Container size="xl" py="xl" style={{ backgroundColor: '#fff', minHeight: '100vh' }}>
-            <Group justify="space-between" mb="lg" align="flex-end">
+        <div className={styles.page}>
+            <div className={styles.head} style={{ '--i': 0 } as CSSProperties}>
                 <div>
-                    <Title order={2} c={CHARCOAL}>서류 관리</Title>
-                    <Text c={MUTED} size="sm" mt={4}>요청 서류를 검토하고, 승인된 FC를 다위촉 단계로 넘깁니다.</Text>
+                    <h2 className={styles.title}>서류 관리</h2>
+                    <Text c="dimmed" size="sm" mt={2}>요청 서류를 검토하고, 승인된 FC를 다위촉 단계로 넘깁니다.</Text>
                 </div>
-                <Button variant="light" color="gray" leftSection={<IconRefresh size={16} />} onClick={() => queryClient.invalidateQueries({ queryKey: ['documents-list'] })}>
-                    새로고침
-                </Button>
-            </Group>
-
-            <Paper withBorder radius="lg" p="sm" mb="lg" bg="white" shadow="xs">
-                <Stack gap="sm">
-                    <Group justify="space-between" align="center" gap="sm" wrap="wrap">
-                        <TextInput
-                            value={searchValue}
-                            onChange={(event) => setSearchValue(event.currentTarget.value)}
-                            placeholder="후보자 성함 검색"
-                            leftSection={<IconSearch size={14} />}
-                            radius="md"
-                            size="sm"
-                            styles={{
-                                root: { flex: '0 1 360px', minWidth: 240 },
-                                input: {
-                                    backgroundColor: BACKGROUND_LIGHT,
-                                    borderColor: '#e5e7eb',
-                                },
-                            }}
-                        />
-                <Text size="xs" c={MUTED} fw={500}>
-                            서류 {filteredDocs.length}건
-                        </Text>
-                    </Group>
-
-                    <Tabs
-                        value={activeTab}
-                        onChange={setActiveTab}
-                        color="orange"
-                        variant="pills"
+                <div className={styles.headTools}>
+                    <TextInput
+                        value={searchValue}
+                        onChange={(event) => setSearchValue(event.currentTarget.value)}
+                        placeholder="후보자 성함 검색"
+                        leftSection={<IconSearch size={14} />}
                         radius="xl"
-                    >
-                        <Tabs.List
-                            style={{
-                                display: 'inline-flex',
-                                flexWrap: 'wrap',
-                                gap: 8,
-                                padding: 0,
-                                backgroundColor: 'transparent',
-                                border: 'none',
-                            }}
+                        size="sm"
+                        classNames={{ input: styles.searchInput }}
+                        w={260}
+                    />
+                    <button type="button" className={styles.softButton} onClick={() => queryClient.invalidateQueries({ queryKey: ['documents-list'] })}>
+                        <IconRefresh size={16} stroke={1.8} /> 새로고침
+                    </button>
+                </div>
+            </div>
+
+            <div className={styles.tabsRow} style={{ '--i': 1 } as CSSProperties}>
+                <div className={styles.tabs} role="tablist" aria-label="서류 상태">
+                    {TABS.map((tab) => (
+                        <button
+                            key={tab.value}
+                            type="button"
+                            role="tab"
+                            aria-selected={activeTab === tab.value}
+                            className={styles.tab}
+                            onClick={() => setActiveTab(tab.value)}
                         >
-                            <Tabs.Tab
-                                value="pending"
-                                fw={600}
-                                px="md"
-                                py={6}
-                                style={{ borderRadius: 999, minHeight: 34 }}
-                            >
-                                미처리 <Badge size="xs" circle ml={6} color="orange">{documents ? pendingReviewCount : '—'}</Badge>
-                            </Tabs.Tab>
-                            <Tabs.Tab
-                                value="approved"
-                                fw={600}
-                                px="md"
-                                py={6}
-                                style={{ borderRadius: 999, minHeight: 34 }}
-                            >
-                                승인됨
-                            </Tabs.Tab>
-                            <Tabs.Tab
-                                value="rejected"
-                                fw={600}
-                                px="md"
-                                py={6}
-                                style={{ borderRadius: 999, minHeight: 34 }}
-                            >
-                                반려됨
-                            </Tabs.Tab>
-                            <Tabs.Tab
-                                value="all"
-                                fw={600}
-                                px="md"
-                                py={6}
-                                style={{ borderRadius: 999, minHeight: 34 }}
-                            >
-                                전체 목록
-                            </Tabs.Tab>
-                        </Tabs.List>
-                    </Tabs>
-                </Stack>
-            </Paper>
+                            {tab.label}
+                            {tab.value === 'pending' ? <span className={styles.tabCount}>{documents ? pendingReviewCount : '—'}</span> : null}
+                        </button>
+                    ))}
+                </div>
+                <Text size="xs" c="dimmed" fw={500}>서류 {filteredDocs.length}건</Text>
+            </div>
 
             {isError && <QueryErrorAlert error={error} onRetry={refetch} isFetching={isFetching} hasData={!!documents} subject="서류 목록" />}
 
-            <Paper shadow="sm" radius="lg" withBorder style={{ overflow: 'hidden' }} pos="relative" bg="white">
-                <LoadingOverlay visible={isLoading} overlayProps={{ blur: 2 }} zIndex={10} loaderProps={{ color: 'orange' }} />
-                <ScrollArea h="calc(100vh - 280px)" type="auto">
-                    <Table verticalSpacing="md" highlightOnHover stickyHeader>
-                        <Table.Thead bg={BACKGROUND_LIGHT}>
-                            <Table.Tr>
-                                <Table.Th fw={600} c={CHARCOAL}>제출일시</Table.Th>
-                                <Table.Th fw={600} c={CHARCOAL}>제출자 정보</Table.Th>
-                                <Table.Th fw={600} c={CHARCOAL}>문서 구분</Table.Th>
-                                <Table.Th fw={600} c={CHARCOAL}>첨부파일</Table.Th>
-                                <Table.Th fw={600} c={CHARCOAL}>상태</Table.Th>
-                                <Table.Th fw={600} c={CHARCOAL}>심사/관리</Table.Th>
-                            </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                            {rows.length > 0 ? (
-                                rows
-                            ) : (
-                                <Table.Tr>
-                                    <Table.Td colSpan={6} align="center" py={80}>
-                                        <Stack align="center" gap="xs">
-                                            <ThemeIcon size={60} radius="xl" color="gray.2" variant="light">
-                                                <IconList size={30} color={MUTED} />
-                                            </ThemeIcon>
-                                            <Text c="dimmed" fw={500}>{isLoading ? '서류 목록을 불러오는 중입니다.' : isError ? '서류 목록을 확인할 수 없습니다.' : '해당 조건의 서류가 존재하지 않습니다.'}</Text>
-                                        </Stack>
-                                    </Table.Td>
-                                </Table.Tr>
-                            )}
-                        </Table.Tbody>
-                    </Table>
-                </ScrollArea>
-            </Paper>
+            <div className={styles.review}>
+                {/* Left: FCs with documents in the current tab */}
+                <section className={styles.card} style={{ '--i': 2 } as CSSProperties} aria-label="제출자 목록">
+                    <div className={styles.cardHead}>
+                        <Text className={styles.cardTitle}>제출자</Text>
+                        <span className={styles.softPill}>{groups.length}명</span>
+                    </div>
+                    <div className={styles.fcList}>
+                        {groups.length > 0 ? groups.map((group) => {
+                            const head = group.docs[0];
+                            const active = group === selectedGroup;
+                            return (
+                                <UnstyledButton
+                                    key={group.fcId}
+                                    className={styles.fcRow}
+                                    aria-current={active || undefined}
+                                    onClick={() => { setSelectedFcId(group.fcId); setSelectedDocId(null); }}
+                                >
+                                    <span className={styles.avatar}>{head.fc_profiles?.name?.[0] ?? '?'}</span>
+                                    <span className={styles.fcText}>
+                                        <span className={styles.fcName}>
+                                            {head.fc_profiles?.name || '알수없음'}
+                                            {head.fc_workflow_profile ? <span className={styles.stepTag}>{getAdminStepDisplay(head.fc_workflow_profile).step}단계</span> : null}
+                                        </span>
+                                        <span className={styles.fcMeta}>{head.fc_profiles?.phone} · {head.fc_profiles?.affiliation || '소속없음'}</span>
+                                    </span>
+                                    <span className={styles.fcCount}>
+                                        <span>{group.docs.length}건</span>
+                                        {group.pendingCount > 0 ? <span className={styles.pendingDot}>미처리 {group.pendingCount}</span> : null}
+                                    </span>
+                                </UnstyledButton>
+                            );
+                        }) : (
+                            <div className={styles.empty}>
+                                <IconFileText size={26} stroke={1.5} />
+                                <Text c="dimmed" size="sm" fw={500}>{emptyText}</Text>
+                            </div>
+                        )}
+                    </div>
+                </section>
 
-            {/* Preview Modal */}
-            <Modal
-                opened={previewOpened}
-                onClose={closePreview}
-                title={<Text fw={700} size="lg">{selectedDoc?.doc_type} 검토</Text>}
-                size="xl"
-                radius="md"
-                padding="xl"
-                centered
-            >
-                {selectedDoc && (
-                    <Stack gap="lg">
-                        <Group justify="space-between" align="center">
-                            <div>
-                                <Text fw={700} c={CHARCOAL} size="lg">{selectedDoc.fc_profiles?.name}님 제출</Text>
-                                <Text size="xs" c="dimmed">제출일: {dayjs(selectedDoc.created_at).format('YYYY-MM-DD HH:mm:ss')}</Text>
-                                {isNoFileDoc(selectedDoc) ? (
-                                    <Text size="xs" c="orange">
-                                        파일 미제출
-                                    </Text>
+                {/* Middle: inline preview of the selected document */}
+                <section className={`${styles.card} ${styles.viewerCard}`} style={{ '--i': 3 } as CSSProperties} aria-label="서류 미리보기">
+                    {selectedGroup && selectedDoc ? (
+                        <>
+                            <div className={styles.docTabs} role="tablist" aria-label={`${profile?.name ?? ''} 서류`}>
+                                {selectedGroup.docs.map((doc) => (
+                                    <button
+                                        key={doc.id}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={doc.id === selectedDoc.id}
+                                        className={styles.docTab}
+                                        onClick={() => selectDoc(doc)}
+                                    >
+                                        {doc.doc_type}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className={styles.viewerMeta}>
+                                <span><b>{selectedDoc.doc_type}</b> 검토</span>
+                                <span>{profile?.name}님 제출</span>
+                                <span>제출일: {dayjs(selectedDoc.created_at).format('YYYY-MM-DD HH:mm:ss')}</span>
+                                {isNoFileDoc(selectedDoc) ? <span className={styles.noFile}>파일 미제출</span> : null}
+                                <span className={styles.statusPill} data-status={selectedDoc.status}>
+                                    {ADMIN_DOCUMENT_STATUS_LABELS[selectedDoc.status] || selectedDoc.status}
+                                </span>
+                            </div>
+                            <div className={styles.viewer}>
+                                {signedUrl ? (
+                                    isImage(selectedDoc.storage_path) ? (
+                                        <Image src={signedUrl} alt={`${selectedDoc.doc_type} 미리보기`} fit="contain" mah={560} w="auto" />
+                                    ) : isPdf(selectedDoc.storage_path, selectedDoc.file_name) ? (
+                                        <iframe
+                                            key={signedUrl}
+                                            src={signedUrl}
+                                            title={`${selectedDoc.doc_type} PDF 미리보기`}
+                                            className={styles.pdfFrame}
+                                        />
+                                    ) : (
+                                        <div className={styles.viewerState}>
+                                            <span className={styles.viewerIcon}><IconFileText size={30} stroke={1.5} /></span>
+                                            <Text fw={600}>미리보기를 지원하지 않는 형식입니다.</Text>
+                                            <Text size="sm" c="dimmed">아래 버튼을 눌러 파일을 직접 확인하세요.</Text>
+                                        </div>
+                                    )
+                                ) : previewError ? (
+                                    <div className={styles.viewerState}>
+                                        <Text c="red">{previewError}</Text>
+                                        <button type="button" className={styles.softButton} onClick={() => void loadPreview(selectedDoc)}>다시 시도</button>
+                                    </div>
+                                ) : isNoFileDoc(selectedDoc) ? (
+                                    <Text c="dimmed" size="lg">파일이 아직 업로드되지 않았습니다.</Text>
+                                ) : previewLoading ? (
+                                    <Loader color="orange" />
                                 ) : null}
                             </div>
-                            <Badge size="lg" color={getStatusColor(selectedDoc.status)} variant="filled">
-                                {ADMIN_DOCUMENT_STATUS_LABELS[selectedDoc.status] || selectedDoc.status}
-                            </Badge>
-                        </Group>
-
-        <Box
-                            style={{
-                                width: '100%',
-                                minHeight: 500,
-                                display: 'flex',
-                                justifyContent: 'center',
-                                alignItems: 'center',
-                                backgroundColor: '#f1f3f5',
-                                borderRadius: 12,
-                                border: '1px solid #dee2e6',
-                                overflow: 'hidden'
-                            }}
-                        >
                             {signedUrl ? (
-                                isImage(selectedDoc.storage_path) ? (
-                                    <Image src={signedUrl} alt="Document Preview" fit="contain" mah={600} w="auto" />
-                                ) : (
-                                    <Stack align="center" gap="md">
-                                        <ThemeIcon size={80} radius="xl" color="blue" variant="light">
-                                            <IconFileText size={40} />
-                                        </ThemeIcon>
-                                        <Text fw={600} c={CHARCOAL}>미리보기를 지원하지 않는 형식입니다.</Text>
-                                        <Text size="sm" c="dimmed">아래 버튼을 눌러 파일을 직접 확인하세요.</Text>
-                                        <Button
-                                            component="a"
-                                            href={signedUrl}
-                                            target="_blank"
-                                            download={selectedDoc.file_name}
-                                            leftSection={<IconDownload size={18} />}
-                                            variant="filled"
-                                            color="blue"
-                                        >
-                                            파일 열기 / 다운로드
-                                        </Button>
-                                    </Stack>
-                                )
-                            ) : previewError ? (
-                                <Stack align="center" gap="md">
-                                    <Text c="red">{previewError}</Text>
-                                    <Button variant="light" onClick={() => void handlePreview(selectedDoc)}>다시 시도</Button>
-                                </Stack>
-                            ) : isNoFileDoc(selectedDoc) ? (
-                                <Text c="dimmed" size="lg">
-                                    파일이 아직 업로드되지 않았습니다.
-                                </Text>
-                            ) : (
-                                <LoadingOverlay visible={true} />
-                            )}
-                        </Box>
+                                <a className={styles.openLink} href={signedUrl} target="_blank" rel="noreferrer" download={selectedDoc.file_name ?? undefined}>
+                                    <IconDownload size={16} stroke={1.8} /> 파일 열기 / 다운로드
+                                </a>
+                            ) : null}
+                        </>
+                    ) : (
+                        <div className={styles.empty}>
+                            {isLoading ? <Loader color="orange" /> : <IconFileText size={26} stroke={1.5} />}
+                            <Text c="dimmed" size="sm" fw={500}>{emptyText}</Text>
+                        </div>
+                    )}
+                </section>
 
-                        {['pending', 'submitted'].includes(selectedDoc.status) && (
-                            <Group grow mt="xs">
-                                <Button
-                                    color="green"
-                                    size="md"
-                                    radius="md"
-                                    leftSection={<IconCheck size={20} />}
-                                    disabled={isReadOnly}
-                                    onClick={() => handleApprove(selectedDoc)}
-                                >
-                                    승인 확정
-                                </Button>
-                                <Button
-                                    color="red"
-                                    variant="light"
-                                    size="md"
-                                    radius="md"
-                                    leftSection={<IconX size={20} />}
-                                    disabled={isReadOnly}
-                                    onClick={() => { closePreview(); handleRejectInit(selectedDoc); }}
-                                >
-                                    반려 하기
-                                </Button>
-                            </Group>
+                {/* Right: the FC's documents (every original column) and the decision */}
+                <div className={styles.side}>
+                    <section className={styles.card} style={{ '--i': 4 } as CSSProperties} aria-label="제출자 정보">
+                        {selectedGroup ? (
+                            <>
+                                <div className={styles.person}>
+                                    <span className={styles.avatarLarge}>{profile?.name?.[0] ?? '?'}</span>
+                                    <span className={styles.fcText}>
+                                        <span className={styles.personName}>{profile?.name || '알수없음'}</span>
+                                        <span className={styles.fcMeta}>{profile?.phone} · {profile?.affiliation || '소속없음'}</span>
+                                    </span>
+                                </div>
+                                {selectedStep ? (
+                                    <div className={styles.stepBlock} aria-label={`현재 단계 ${selectedStep.label}`}>
+                                        <div className={styles.stepHead}>
+                                            <span className={styles.stepCaption}>현재 단계</span>
+                                            <span className={styles.stepLabel}>{selectedStep.label}</span>
+                                        </div>
+                                        <div className={styles.stepBar}>
+                                            {Object.values(ADMIN_STEP_LABELS).map((label, index) => (
+                                                <span key={label} className={styles.stepSegment} data-state={index < selectedStep.step ? 'done' : index === selectedStep.step ? 'current' : 'todo'}>
+                                                    <i />
+                                                    <span>{label.replace(/^\d단계\s*/, '')}</span>
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ) : null}
+                                <div className={styles.docTable} role="table" aria-label="이 FC의 서류">
+                                    <div className={styles.docHead} role="row">
+                                        <span role="columnheader">문서 구분 · 첨부파일</span>
+                                        <span role="columnheader">제출일시</span>
+                                        <span role="columnheader">상태</span>
+                                        <span role="columnheader">심사/관리</span>
+                                    </div>
+                                    {selectedGroup.docs.map((doc) => (
+                                        <div key={doc.id} className={styles.docRow} role="row" aria-current={doc.id === selectedDoc?.id || undefined}>
+                                            <span role="cell" className={styles.docCell}>
+                                                <span className={styles.docType}>{doc.doc_type}</span>
+                                                <button type="button" className={styles.fileLink} title={doc.file_name ?? undefined} data-missing={!hasStoragePath(doc.storage_path) || undefined} onClick={() => selectDoc(doc)}>
+                                                    {hasStoragePath(doc.storage_path) ? (doc.file_name || '파일 확인') : '미제출'}
+                                                </button>
+                                            </span>
+                                            <span role="cell" className={styles.docDate}>{dayjs(doc.created_at).format('YYYY-MM-DD HH:mm')}</span>
+                                            <span role="cell"><span className={styles.statusPill} data-status={doc.status}>{ADMIN_DOCUMENT_STATUS_LABELS[doc.status] || doc.status}</span></span>
+                                            <span role="cell" className={styles.docActions}>
+                                                {isRowPending(doc) ? <Text size="xs" role="status">처리 중</Text> : null}
+                                                <StatusToggle
+                                                    value={doc.status === 'approved' ? 'approved' : 'pending'}
+                                                    onChange={(val) => {
+                                                        if (isReadOnly) return;
+                                                        // 승인 쪽은 승인 확인, 미승인 쪽은 반려 사유 입력으로 이어진다.
+                                                        if (val === 'approved') handleApprove(doc);
+                                                        else handleRejectInit(doc);
+                                                    }}
+                                                    labelPending="미승인"
+                                                    labelApproved="승인"
+                                                    showNeutralForPending
+                                                    allowPendingPress
+                                                    isManagerMode={isReadOnly}
+                                                    readOnly={isReadOnly || doc.status === 'approved' || isRowPending(doc)}
+                                                />
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </>
+                        ) : (
+                            <div className={styles.empty}><Text c="dimmed" size="sm">{emptyText}</Text></div>
                         )}
-                    </Stack>
-                )}
-            </Modal>
+                    </section>
+
+                    {selectedDoc && isPendingReviewDocument(selectedDoc) ? (
+                        <section className={styles.card} style={{ '--i': 5 } as CSSProperties} aria-label="지금 보는 서류 결정">
+                            <div className={styles.cardHead}>
+                                <Text className={styles.cardTitle}>{selectedDoc.doc_type}</Text>
+                                <span className={styles.softPill}>지금 보는 서류</span>
+                            </div>
+                            <div className={styles.decision}>
+                                <button type="button" className={styles.inkButton} disabled={isReadOnly || isRowPending(selectedDoc)} onClick={() => handleApprove(selectedDoc)}>
+                                    <IconCheck size={18} stroke={2} /> 승인 확정
+                                </button>
+                                <button type="button" className={styles.softButton} disabled={isReadOnly || isRowPending(selectedDoc)} onClick={() => handleRejectInit(selectedDoc)}>
+                                    <IconX size={18} stroke={2} /> 반려 하기
+                                </button>
+                            </div>
+                        </section>
+                    ) : null}
+                </div>
+            </div>
 
             {/* Reject Reason Modal */}
             <RejectReasonModal
@@ -639,7 +579,6 @@ export default function DocumentsPage() {
                 title={confirmConfig?.title}
                 message={confirmConfig?.message}
             />
-
-        </Container>
+        </div>
     );
 }

@@ -10,6 +10,7 @@ import {
   requireMutationSuccess,
   requireProfileMutationReceipt,
 } from '@/lib/user-intent-policy';
+import { CountUp } from '@/components/CountUp';
 import { QueryErrorAlert } from '@/components/QueryErrorAlert';
 import { QueryReadError } from '@/lib/query-read-error';
 import { normalizeAdminTempId } from '@/lib/admin-temp-id-update';
@@ -22,19 +23,17 @@ import {
 import {
   ActionIcon,
   Alert,
-  Avatar,
   Badge,
   Box,
   Button,
   Card,
   Chip,
-  Divider,
   Group,
-  LoadingOverlay,
   Modal,
   Pagination,
   Paper,
   ScrollArea,
+  SegmentedControl,
   SimpleGrid,
   Stack,
   Table,
@@ -44,30 +43,45 @@ import {
   TextInput,
   ThemeIcon,
   Title,
+  UnstyledButton,
   Tooltip
 } from '@mantine/core';
 import { DateInput } from '@mantine/dates';
 import { useDisclosure } from '@mantine/hooks';
 import {
+  IconBriefcase,
   IconCalendar,
+  IconCalendarCheck,
+  IconCalendarDue,
+  IconCalendarEvent,
+  IconCertificate,
   IconCheck,
-  IconClock,
   IconChevronLeft,
   IconChevronRight,
+  IconCircleCheckFilled,
+  IconCircleDashed,
   IconDeviceFloppy,
   IconEdit,
+  IconFilePlus,
   IconFileText,
+  IconFileTypePdf,
+  IconHeartbeat,
+  IconId,
   IconInfoCircle,
+  IconLink,
+  IconPlus,
   IconRefresh,
   IconSearch,
   IconSend,
+  IconShieldCheck,
   IconTrash,
+  IconUmbrella,
   IconUser,
   IconX,
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { ChangeEvent, MouseEvent, useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { ChangeEvent, MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState, useTransition, type CSSProperties } from 'react';
 
 import { useSession } from '@/hooks/use-session';
 import { useResidentNumber } from '@/hooks/use-resident-number';
@@ -81,7 +95,6 @@ import type { FCDocument, FCProfileWithDocuments } from '@/types/dashboard';
 import type { CommissionCompletionStatus, FcProfile, FcStatus } from '@/types/fc';
 import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
-import { StatusToggle } from '../../components/StatusToggle';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import {
@@ -96,12 +109,23 @@ import {
   getAdminStepDisplay,
   getAppointmentProgress,
   getDocProgress,
+  getHanwhaProgress,
   getSummaryStatus
 } from '../../lib/shared';
+import {
+  DASHBOARD_WORK_QUEUES,
+  countDashboardWork,
+  getDashboardWorkOccurredAt,
+  getDashboardWorkQueueKey,
+  isDashboardMetricFilter,
+  type DashboardMetricFilter,
+  type DashboardWorkQueueKey,
+} from '@/lib/dashboard-work-queue';
 import { sendPushNotificationForFc } from '../actions';
 import { updateAppointmentAction } from './appointment/actions';
 import { updateDocStatusAction } from './docs/actions';
 import styles from './page.module.css';
+import fcm from './fc-modal.module.css';
 import {
   DASHBOARD_FC_LIST_COLUMN_COUNT,
   DASHBOARD_FC_LIST_COLUMNS,
@@ -111,7 +135,6 @@ import {
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 
 import { logger } from '../../lib/logger';
-import { CHARCOAL } from '@/lib/brand-colors';
 
 const DOCS_STAGE_LOCK_STATUSES: FcStatus[] = [
   'hanwha-commission-review',
@@ -385,6 +408,39 @@ const getHanwhaStageDescription = (
   return '3단계 다위촉 URL 완료일이 저장되었습니다. 다위촉 URL PDF를 업로드해 승인을 완료해주세요.';
 };
 
+const FC_MODAL_STEPS = [
+  { value: 'info', label: '보증 보험 동의' },
+  { value: 'docs', label: '서류 관리' },
+  { value: 'hanwha', label: '다위촉' },
+  { value: 'appointment', label: '생명/손해 위촉' },
+] as const;
+
+type StepSummaryItem = { label: string; value: string; done?: boolean; warn?: boolean };
+
+// Summary row on top of each modal step: finished items are ink, the first open item is the orange tile.
+function StepSummary({ items }: { items: StepSummaryItem[] }) {
+  const hotIndex = items.findIndex((item) => !item.done && !item.warn);
+  return (
+    <div className={fcm.summary} style={{ '--cols': items.length } as CSSProperties}>
+      {items.map((item, index) => (
+        <div
+          key={item.label}
+          className={fcm.summaryTile}
+          data-state={item.warn ? 'warn' : item.done ? 'done' : index === hotIndex ? 'hot' : 'todo'}
+        >
+          <span className={fcm.summaryLabel}>
+            {item.label}
+            {item.done ? <IconCheck size={13} stroke={2.6} /> : null}
+          </span>
+          <span className={fcm.summaryValue}>{item.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const shortDate = (value?: string | null) => (value ? dayjs(value).format('MM.DD') : null);
+
 const getDefaultModalTab = (profile: FCProfileWithDocuments): string => {
   const workflowStep = calcStep(profile);
   if (workflowStep === 2) return 'docs';
@@ -407,9 +463,29 @@ const getDefaultModalTab = (profile: FCProfileWithDocuments): string => {
   return 'info';
 };
 
+const getFcWorkQueueKey = (fc: FCProfileWithDocuments): DashboardWorkQueueKey | null =>
+  getDashboardWorkQueueKey({
+    step: calcStep(fc),
+    allowanceKey: getAllowanceDisplayState(fc).key,
+    docProgressKey: getDocProgress(fc).key,
+    hanwhaKey: getHanwhaProgress(fc).key,
+    lifeKey: getAppointmentProgress(fc, 'life').key,
+    nonlifeKey: getAppointmentProgress(fc, 'nonlife').key,
+  });
+
+// Placeholder heights (%) for the step chart while the FC list loads.
+const SKELETON_BAR_HEIGHTS = [46, 72, 58, 84, 38, 62];
+
+const QUEUE_ICONS: Record<DashboardWorkQueueKey, typeof IconFileText> = {
+  pendingAllowance: IconShieldCheck,
+  pendingDocs: IconFileText,
+  pendingHanwha: IconLink,
+  pendingAppointment: IconCertificate,
+};
+
 type DashboardListState = {
   activeTab: string;
-  metricFilter: 'all' | 'pendingAllowance' | 'pendingDocs';
+  metricFilter: DashboardMetricFilter;
   keyword: string;
   currentPage: number;
 };
@@ -422,7 +498,7 @@ function readDashboardListState(search: string, tabs: readonly string[]): Dashbo
   const page = Number(params.get('page'));
   return {
     activeTab: tab && tabs.includes(tab) ? tab : 'all',
-    metricFilter: metric === 'pendingAllowance' || metric === 'pendingDocs' ? metric : 'all',
+    metricFilter: isDashboardMetricFilter(metric) ? metric : 'all',
     keyword: params.get('q') ?? '',
     currentPage: Number.isInteger(page) && page > 1 ? page : 1,
   };
@@ -448,7 +524,7 @@ export default function DashboardPage() {
   const queryClient = useQueryClient();
   const { hydrated, isReadOnly, role, residentId } = useSession();
   const [activeTab, setActiveTab] = useState<string | null>('all');
-  const [metricFilter, setMetricFilter] = useState<'all' | 'pendingAllowance' | 'pendingDocs'>('all');
+  const [metricFilter, setMetricFilter] = useState<DashboardMetricFilter>('all');
   const [keyword, setKeyword] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [listStateRestored, setListStateRestored] = useState(false);
@@ -478,6 +554,8 @@ export default function DashboardPage() {
   // 모달 상태
   const [opened, { open, close }] = useDisclosure(false);
   const [selectedFc, setSelectedFc] = useState<FCProfileWithDocuments | null>(null);
+  // The modal step navigation marks earlier stages done and the workflow stage as current.
+  const currentStepIndex = selectedFc ? FC_MODAL_STEPS.findIndex((step) => step.value === getDefaultModalTab(selectedFc)) : -1;
   const [modalTab, setModalTab] = useState<string | null>('info');
 
   // 수정용 상태
@@ -706,7 +784,7 @@ export default function DashboardPage() {
     }
   };
 
-  const { data: fcs, isLoading, isError, error, refetch, isFetching } = useQuery({
+  const { data: fcs, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['dashboard-list', role, residentId],
     queryFn: () => fetchAdminFcList<FCProfileWithDocuments>(
       (value): value is FCProfileWithDocuments => isAdminFcProfile(value),
@@ -734,16 +812,8 @@ export default function DashboardPage() {
         result = result.filter((fc: FCProfileWithDocuments & { adminStep: number }) => fc.adminStep === stepNum);
       }
     }
-    if (metricFilter === 'pendingAllowance') {
-      result = result.filter((fc: FCProfileWithDocuments & { step: number }) => {
-        const allowanceDisplay = getAllowanceDisplayState(fc);
-        return fc.step === 1 && ['entered', 'prescreen'].includes(allowanceDisplay.key);
-      });
-    } else if (metricFilter === 'pendingDocs') {
-      result = result.filter(
-        (fc: FCProfileWithDocuments & { step: number }) =>
-          fc.step === 2 && getDocProgress(fc).key === 'in-progress',
-      );
+    if (metricFilter !== 'all') {
+      result = result.filter((fc: FCProfileWithDocuments) => getFcWorkQueueKey(fc) === metricFilter);
     }
     if (keyword.trim()) {
       const q = keyword.trim().toLowerCase();
@@ -785,7 +855,7 @@ export default function DashboardPage() {
   });
 
   // 탭이나 검색어가 변경되면 첫 페이지로 이동
-  const handleMetricFilterChange = (nextFilter: 'all' | 'pendingAllowance' | 'pendingDocs') => {
+  const handleMetricFilterChange = (nextFilter: DashboardMetricFilter) => {
     setMetricFilter((current) => current === nextFilter && nextFilter !== 'all' ? 'all' : nextFilter);
     setActiveTab('all');
     setCurrentPage(1);
@@ -1744,128 +1814,137 @@ export default function DashboardPage() {
       : isSubmitted
         ? 'FC 제출, 승인 대기'
         : '미입력';
-    const approvalStatusColor = isConfirmed ? 'green' : isSubmitted ? 'orange' : 'gray';
 
     return (
-      <Stack gap="xs" mt="sm">
-        <Group justify="space-between" gap="xs" align="center">
-          <Text size="sm" fw={700} c={isConfirmed ? 'green' : isSubmitted ? 'orange' : 'dimmed'}>
-            {sectionTitle}
-          </Text>
-          <Badge variant={isConfirmed ? 'filled' : 'light'} color={approvalStatusColor} size="sm">
-            승인 상태: {approvalStatusLabel}
-          </Badge>
-        </Group>
-        <Group align="flex-end" grow>
-          <TextInput
-            label="예정(Plan)"
-            placeholder="예: 12월 2차 / 1월 1차"
-            classNames={{ input: 'muted-placeholder-input' }}
-            value={schedule ?? ''}
-            onChange={(e) => {
-              const val = e.currentTarget?.value || '';
-              setAppointmentInputs(prev => ({ ...prev, [isLife ? 'life' : 'nonlife']: val }));
-            }}
-            readOnly={!insuranceStageOpen}
-            disabled={!insuranceStageOpen}
-          />
-          {isLife && !!selectedFc.appointment_reject_reason_life && (
-            <Badge variant="light" color="red" size="xs">
-              생명 반려
-            </Badge>
-          )}
-          {!isLife && !!selectedFc.appointment_reject_reason_nonlife && (
-            <Badge variant="light" color="red" size="xs">
-              손해 반려
-            </Badge>
-          )}
-          <DateInput
-            label={
-              <Group gap={6}>
-                <Text size="sm">확정일(Actual)</Text>
-                <Badge variant="light" color={approvalStatusColor} size="xs">
-                  {approvalStatusLabel}
-                </Badge>
-              </Group>
-            }
-            value={date}
-            onChange={(value) => {
-              const nextValue = !value ? null : new Date(value);
-              const parsed = nextValue && !Number.isNaN(nextValue.getTime()) ? nextValue : null;
-              setAppointmentInputs((prev) => ({
-                ...prev,
-                [isLife ? 'lifeDate' : 'nonLifeDate']: parsed,
-              }));
-            }}
-            placeholder="YYYY-MM-DD"
-            valueFormat="YYYY-MM-DD"
-            clearable={false}
-            disabled={isReadOnly || !insuranceStageOpen}
-            leftSection={<IconCalendar size={16} />}
-            previousIcon={<IconChevronLeft size={16} />}
-            nextIcon={<IconChevronRight size={16} />}
-            popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
-            styles={{
-              ...getModalDateInputStyles(isReadOnly || !insuranceStageOpen),
-              input: {
-                ...(getModalDateInputStyles(isReadOnly || !insuranceStageOpen).input ?? {}),
-                backgroundColor: isConfirmed ? '#EBFBEE' : isSubmitted ? '#fff4e6' : undefined,
-                borderColor: isConfirmed ? '#40C057' : isSubmitted ? '#ff922b' : undefined,
-              },
-            }}
-          />
-        </Group>
-        <Button
-          fullWidth
-          variant="light"
-          color={isReadOnly ? 'gray' : 'orange'}
-          leftSection={<IconDeviceFloppy size={14} />}
-          loading={updateAppointmentDateMutation.isPending}
-          disabled={isReadOnly || appointmentBusy || !insuranceStageOpen || !date}
-          onClick={() => updateAppointmentDateMutation.mutate({ category })}
-        >
-          완료일 저장
-        </Button>
-        {isSubmitted && (
-          <Text size="xs" c="orange">
-            FC 제출일: {dayjs(submittedDate).format('YYYY-MM-DD')}
-          </Text>
-        )}
-        <Stack gap={6}>
-          <Button
-            fullWidth
-            variant={isReadOnly ? "default" : "filled"}
-            color={isReadOnly ? "gray" : "blue"}
-            leftSection={<IconDeviceFloppy size={14} />}
-            loading={isAppointmentPending}
-            disabled={isReadOnly || appointmentBusy || !insuranceStageOpen}
-            onClick={(e) => handleAppointmentAction(e, 'schedule', category)}
-          >
-            일정 저장
-          </Button>
-          <Group grow gap={6}>
-            <Button
-              variant={isConfirmed ? "filled" : "light"}
-              color="green"
-              size="xs"
-              disabled={isConfirmed || isReadOnly || appointmentBusy || !date || !insuranceStageOpen}
-              loading={isAppointmentPending}
-              onClick={(e) => handleAppointmentAction(e, 'confirm', category)}
-            >
-              {isConfirmed ? '승인 완료됨' : '승인 처리'}
-            </Button>
-            <Button
-              variant="light"
-              color="red"
-              size="xs"
-              disabled={isReadOnly || appointmentBusy || (!isConfirmed && !isSubmitted && !date) || !insuranceStageOpen}
-              onClick={() => openRejectModal({ kind: 'appointment', category })}
-            >
-              반려
-            </Button>
+      <div className={fcm.apptCard} data-state={isConfirmed ? 'done' : isSubmitted ? 'submitted' : undefined}>
+        <div className={fcm.apptHead}>
+          <Text className={fcm.apptTitle}>{sectionTitle}</Text>
+          <Group gap={6}>
+            {isLife && !!selectedFc.appointment_reject_reason_life && (
+              <Badge variant="light" color="red" size="xs">
+                생명 반려
+              </Badge>
+            )}
+            {!isLife && !!selectedFc.appointment_reject_reason_nonlife && (
+              <Badge variant="light" color="red" size="xs">
+                손해 반려
+              </Badge>
+            )}
+            <span className={fcm.itemState} data-done={isConfirmed || undefined} data-warn={isSubmitted || undefined}>
+              승인 상태: {approvalStatusLabel}
+            </span>
           </Group>
-        </Stack>
-      </Stack>
+        </div>
+        <div className={fcm.itemRow}>
+          <Text className={fcm.fieldLabel}><IconCalendarEvent size={15} />예정(Plan)</Text>
+          <div className={fcm.fieldControl}>
+            <TextInput
+              aria-label={`${sectionTitle} 예정(Plan)`}
+              placeholder="예: 12월 2차 / 1월 1차"
+              classNames={{ input: 'muted-placeholder-input' }}
+              className={fcm.w200}
+              value={schedule ?? ''}
+              onChange={(e) => {
+                const val = e.currentTarget?.value || '';
+                setAppointmentInputs(prev => ({ ...prev, [isLife ? 'life' : 'nonlife']: val }));
+              }}
+              readOnly={!insuranceStageOpen}
+              disabled={!insuranceStageOpen}
+            />
+            <Tooltip label="일정 저장" withArrow>
+              <ActionIcon
+                aria-label={`${sectionTitle} 일정 저장`}
+                variant="default"
+                color={isReadOnly ? 'gray' : 'dark'}
+                radius="xl"
+                size={34}
+                loading={isAppointmentPending}
+                disabled={isReadOnly || appointmentBusy || !insuranceStageOpen}
+                onClick={(e) => handleAppointmentAction(e, 'schedule', category)}
+              >
+                <IconDeviceFloppy size={16} />
+              </ActionIcon>
+            </Tooltip>
+          </div>
+          <span />
+        </div>
+        <div className={fcm.itemRow}>
+          <Text className={fcm.fieldLabel}><IconCalendarCheck size={15} />확정일(Actual)</Text>
+          <div className={fcm.fieldControl}>
+            <DateInput
+              aria-label={`${sectionTitle} 확정일(Actual)`}
+              value={date}
+              onChange={(value) => {
+                const nextValue = !value ? null : new Date(value);
+                const parsed = nextValue && !Number.isNaN(nextValue.getTime()) ? nextValue : null;
+                setAppointmentInputs((prev) => ({
+                  ...prev,
+                  [isLife ? 'lifeDate' : 'nonLifeDate']: parsed,
+                }));
+              }}
+              placeholder="YYYY-MM-DD"
+              valueFormat="YYYY-MM-DD"
+              clearable={false}
+              className={fcm.w200}
+              disabled={isReadOnly || !insuranceStageOpen}
+              leftSection={<IconCalendar size={16} />}
+              previousIcon={<IconChevronLeft size={16} />}
+              nextIcon={<IconChevronRight size={16} />}
+              popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
+              styles={{
+                ...getModalDateInputStyles(isReadOnly || !insuranceStageOpen),
+                input: {
+                  ...(getModalDateInputStyles(isReadOnly || !insuranceStageOpen).input ?? {}),
+                  backgroundColor: isConfirmed ? '#EBFBEE' : isSubmitted ? '#fff4e6' : undefined,
+                },
+              }}
+            />
+            <Tooltip label="완료일 저장" withArrow>
+              <ActionIcon
+                aria-label={`${sectionTitle} 완료일 저장`}
+                variant="default"
+                color={isReadOnly ? 'gray' : 'dark'}
+                radius="xl"
+                size={34}
+                loading={updateAppointmentDateMutation.isPending}
+                disabled={isReadOnly || appointmentBusy || !insuranceStageOpen || !date}
+                onClick={() => updateAppointmentDateMutation.mutate({ category })}
+              >
+                <IconDeviceFloppy size={16} />
+              </ActionIcon>
+            </Tooltip>
+          </div>
+          {isSubmitted ? (
+            <Text size="xs" c="orange" ta="right">
+              FC 제출일: {dayjs(submittedDate).format('YYYY-MM-DD')}
+            </Text>
+          ) : <span />}
+        </div>
+        <div className={fcm.apptFoot}>
+          <Button
+            variant="light"
+            color={isReadOnly ? 'gray' : 'red'}
+            radius="xl"
+            size="sm"
+            disabled={isReadOnly || appointmentBusy || (!isConfirmed && !isSubmitted && !date) || !insuranceStageOpen}
+            onClick={() => openRejectModal({ kind: 'appointment', category })}
+          >
+            반려
+          </Button>
+          <Button
+            variant="filled"
+            color={isConfirmed ? 'teal' : 'orange'}
+            radius="xl"
+            size="sm"
+            leftSection={<IconCheck size={16} />}
+            disabled={isConfirmed || isReadOnly || appointmentBusy || !date || !insuranceStageOpen}
+            loading={isAppointmentPending}
+            onClick={(e) => handleAppointmentAction(e, 'confirm', category)}
+          >
+            {isConfirmed ? '승인 완료됨' : '승인 처리'}
+          </Button>
+        </div>
+      </div>
     );
   };
 
@@ -1879,15 +1958,56 @@ export default function DashboardPage() {
         : commissionInput === 'nonlife_only'
           ? '손해 최종 완료'
           : '미완료';
-  const commissionSummaryColor =
-    commissionInput === 'both'
-      ? 'green'
-      : commissionInput === 'life_only'
-        ? 'orange'
-        : commissionInput === 'nonlife_only'
-          ? 'blue'
-          : 'gray';
 
+  const getStepSummary = (tab: string | null): StepSummaryItem[] => {
+    if (!selectedFc) return [];
+    if (tab === 'docs') {
+      const docs = selectedFc.fc_documents ?? [];
+      const submitted = docs.filter((doc: FCDocument) => doc.storage_path && doc.storage_path !== 'deleted').length;
+      const approved = docs.filter((doc: FCDocument) => doc.status === 'approved').length;
+      const rejected = docs.filter((doc: FCDocument) => doc.status === 'rejected').length;
+      return [
+        { label: '요청', value: `${docs.length}건`, done: docs.length > 0 },
+        { label: '제출', value: `${submitted}/${docs.length}`, done: docs.length > 0 && submitted === docs.length },
+        { label: '승인', value: `${approved}/${docs.length}`, done: docs.length > 0 && approved === docs.length },
+        { label: '반려', value: `${rejected}건`, done: rejected === 0 && docs.length > 0, warn: rejected > 0 },
+      ];
+    }
+    if (tab === 'hanwha') {
+      return [
+        { label: '완료일', value: shortDate(selectedFc.hanwha_commission_date_sub) ?? '미입력', done: Boolean(selectedFc.hanwha_commission_date_sub) },
+        { label: 'URL 발송', value: shortDate(selectedFc.dawichok_url_sent_at) ?? '미발송', done: Boolean(selectedFc.dawichok_url_sent_at) },
+        { label: 'PDF 승인', value: hasHanwhaApprovedPdf(selectedFc) ? '완료' : '대기', done: hasHanwhaApprovedPdf(selectedFc) },
+      ];
+    }
+    if (tab === 'appointment') {
+      const category = (confirmed?: string | null, submitted?: string | null) =>
+        confirmed ? `${shortDate(confirmed)} 확정` : submitted ? `${shortDate(submitted)} 제출` : '미입력';
+      return [
+        { label: '생명 위촉', value: category(selectedFc.appointment_date_life, selectedFc.appointment_date_life_sub), done: Boolean(selectedFc.appointment_date_life) },
+        { label: '손해 위촉', value: category(selectedFc.appointment_date_nonlife, selectedFc.appointment_date_nonlife_sub), done: Boolean(selectedFc.appointment_date_nonlife) },
+        { label: '최종 완료', value: commissionSummaryLabel, done: commissionSummaryLabel !== '미완료' },
+      ];
+    }
+    const allowanceKey = getAllowanceDisplayState(selectedFc).key;
+    return [
+      { label: '임시사번', value: selectedFc.temp_id || '미발급', done: Boolean(selectedFc.temp_id) },
+      { label: '동의일', value: shortDate(selectedFc.allowance_date) ?? '미입력', done: Boolean(selectedFc.allowance_date) },
+      { label: '사전 심사', value: shortDate(selectedFc.allowance_prescreen_requested_at) ?? '대기', done: Boolean(selectedFc.allowance_prescreen_requested_at) || allowanceKey === 'approved' },
+      { label: '승인', value: allowanceKey === 'approved' ? '완료' : allowanceKey === 'rejected' ? '반려' : '대기', done: allowanceKey === 'approved', warn: allowanceKey === 'rejected' },
+    ];
+  };
+  // Adds the typed extra document to the request list (plus button or Enter).
+  const handleAddCustomDoc = () => {
+    const val = customDocInput.trim();
+    if (isReadOnly || !val) return;
+    if (!selectedDocs.includes(val)) {
+      const nextDocs = [...selectedDocs, val];
+      setSelectedDocs(nextDocs);
+      updateDocsRequestMutation.mutate({ types: nextDocs, deadline: docsDeadlineInput });
+    }
+    setCustomDocInput('');
+  };
   const handleCommissionToggle = (category: 'life' | 'nonlife') => {
     if (isReadOnly) return;
 
@@ -1898,10 +2018,11 @@ export default function DashboardPage() {
   };
 
   /* Table Rows */
-  const rows = paginatedData.map((fc: FCProfileWithDocuments) => (
+  const rows = paginatedData.map((fc: FCProfileWithDocuments, order: number) => (
     <Table.Tr
       key={fc.id}
-      style={{ cursor: 'pointer' }}
+      className={styles.revealRow}
+      style={{ cursor: 'pointer', '--r': Math.min(order, 12) } as CSSProperties}
       onClick={() => router.push(`/dashboard/profile/${fc.id}`)}
     >
       <Table.Td w={200}>
@@ -2095,7 +2216,9 @@ export default function DashboardPage() {
       <Table.Td ta="center">
         <Button
           variant="light"
-          color="blue"
+          color="gray"
+          c="dark"
+          radius="xl"
           size="xs"
           leftSection={<IconEdit size={14} />}
           onClick={(e) => {
@@ -2110,57 +2233,66 @@ export default function DashboardPage() {
   ));
 
   /* Metrics Calculation */
-  const metrics = useMemo(() => {
-    if (!fcs) return { total: 0, pendingAllowance: 0, pendingDocs: 0 };
-
-    return fcs.reduce(
-      (acc, fc: FCProfileWithDocuments) => {
-        acc.total += 1;
-
-        const workflowStep = calcStep(fc);
-        const allowanceDisplay = getAllowanceDisplayState(fc);
-        const docProgress = getDocProgress(fc);
-
-        if (workflowStep === 1 && ['entered', 'prescreen'].includes(allowanceDisplay.key)) {
-          acc.pendingAllowance += 1;
-        }
-
-        if (workflowStep === 2 && docProgress.key === 'in-progress') {
-          acc.pendingDocs += 1;
-        }
-
-        return acc;
-      },
-      { total: 0, pendingAllowance: 0, pendingDocs: 0 },
-    );
+  const workSummary = useMemo(() => {
+    const queued = (fcs ?? []).map((fc: FCProfileWithDocuments) => ({ fc, key: getFcWorkQueueKey(fc) }));
+    const stepCounts = [0, 0, 0, 0, 0, 0];
+    for (const fc of fcs ?? []) stepCounts[getAdminStepDisplay(fc).step] += 1;
+    return {
+      total: fcs?.length ?? 0,
+      ...countDashboardWork(queued.map((row) => row.key)),
+      stepCounts,
+      // 소속별 인원, 많은 순. 이름 없는 FC는 '소속 미정'으로 묶는다.
+      affiliations: [...(fcs ?? []).reduce((map, fc: FCProfileWithDocuments) => {
+        const name = fc.affiliation?.trim() || '소속 미정';
+        return map.set(name, (map.get(name) ?? 0) + 1);
+      }, new Map<string, number>())].sort((a, b) => b[1] - a[1]),
+      // Newest sign-ups first, using the same date as the list's 가입일 column.
+      recentSignups: [...(fcs ?? [])]
+        .sort((a, b) => String(b.signup_completed_at ?? b.created_at ?? '').localeCompare(String(a.signup_completed_at ?? a.created_at ?? '')))
+        .slice(0, 3),
+      // Queue order first, then the existing list order inside each queue.
+      items: DASHBOARD_WORK_QUEUES.flatMap((queue) =>
+        queued.filter((row) => row.key === queue.key).map((row) => ({ fc: row.fc, queue })),
+      ),
+    };
   }, [fcs]);
+  const visibleWorkItems = workSummary.items.filter((item) => metricFilter === 'all' || item.queue.key === metricFilter);
+  const maxStepCount = Math.max(1, ...workSummary.stepCounts);
+  // Until the FC list arrives each number, bar and row keeps its shape as a shimmer block; a failed read shows '—'.
+  const isListLoading = !fcs && !isError;
+  const skel = (width: number | string, height = 12) => <span className={styles.skel} style={{ width, height }} aria-hidden="true" />;
+  // Loaded values rise in where the skeleton stood; --r staggers neighbours.
+  // Numbers count up from 0 as they arrive (about 1s, neighbours a little later).
+  const reveal = (value: ReactNode, order = 0) => (
+    <span className={styles.reveal} style={{ '--r': order } as CSSProperties}>
+      {typeof value === 'number' ? <CountUp value={value} delay={120 + order * 60} /> : value}
+    </span>
+  );
+  const percent = (part: number, order: number) => reveal(<CountUp value={Math.round((part / workSummary.total) * 100)} delay={120 + order * 60} suffix="%" />, order);
+  const listValue = (value: ReactNode, width: number, height?: number, order = 0) => (fcs ? reveal(value, order) : isListLoading ? skel(width, height) : '—');
+  // The queue with the most waiting FCs gets the single accent tile.
+  const hotQueueKey = DASHBOARD_WORK_QUEUES.reduce<DashboardWorkQueueKey | null>(
+    (best, queue) => (workSummary.counts[queue.key] > (best ? workSummary.counts[best] : 0) ? queue.key : best),
+    null,
+  );
+  const busiestStep = workSummary.stepCounts.slice(0, 5).indexOf(Math.max(...workSummary.stepCounts.slice(0, 5)));
+  const openWorkItem = (fc: FCProfileWithDocuments, key: DashboardWorkQueueKey) => {
+    if (key === 'pendingDocs') router.push('/dashboard/docs');
+    else if (key === 'pendingAppointment') router.push('/dashboard/appointment');
+    else handleOpenModal(fc);
+  };
 
   const canResetToLookup = Boolean(
     selectedFc?.temp_id && !isReadOnly && isLookupResettableStatus(selectedFc?.status),
   );
   return (
-    <Box p="lg" maw={1600} mx="auto">
-      <Stack gap="xl">
-        {/* Header Section */}
-        <Group justify="space-between" align="flex-end">
-          <div>
-            <Title order={2} c={CHARCOAL}>대시보드</Title>
-            <Text c="dimmed" mt={4}>FC 온보딩 전체 현황판</Text>
-          </div>
-          <Group gap="xs">
-            <Button
-              leftSection={<IconRefresh size={16} />}
-              onClick={() => {
-                queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
-                queryClient.invalidateQueries({ queryKey: ['fc-signup-referral-code'] });
-              }}
-              variant="default"
-              radius="md"
-            >
-              새로고침
-            </Button>
-          </Group>
-        </Group>
+    <Box maw={1600} mx="auto">
+      <Stack gap="md">
+        {/* Header: today's work */}
+        <div className={styles.pageHead} style={{ '--i': 0 } as CSSProperties}>
+          <Title order={2} className={styles.pageTitle}>오늘 처리할 건</Title>
+          <Text c="dimmed" size="sm">FC 온보딩 전체 현황판 · {dayjs().format('M월 D일')}</Text>
+        </div>
 
         {/* Read-only Mode Alert */}
         {isReadOnly && (
@@ -2169,131 +2301,290 @@ export default function DashboardPage() {
             title="읽기 전용 모드"
             color="yellow"
             variant="light"
+            radius="lg"
           >
             본부장 계정은 조회만 가능합니다. 수정 권한이 필요한 경우 관리자에게 문의하세요.
           </Alert>
         )}
 
-        {/* Metrics Cards */}
-        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
-          <Card
-            component="button"
-            type="button"
-            padding="lg"
-            radius="md"
-            withBorder
-            shadow="sm"
-            className={styles.metricCard}
-            data-active={metricFilter === 'all' || undefined}
-            data-tone="total"
-            aria-pressed={metricFilter === 'all'}
-            onClick={() => handleMetricFilterChange('all')}
-          >
-            <Group justify="space-between" mb="xs">
-              <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>총 인원</Text>
-              <ThemeIcon variant="light" color="blue" radius="md" size="lg">
-                <IconUser size={22} stroke={2} />
-              </ThemeIcon>
-            </Group>
-            <Group align="flex-end" gap="xs">
-              <Text fw={800} size="2.5rem" lh={1}>{fcs ? metrics.total : '—'}</Text>
-              <Text c="dimmed" size="sm" mb={6}>명</Text>
-            </Group>
-            <Group justify="space-between" mt="md" gap="xs">
-              <Text c="green" size="xs" fw={700}>가입 완료 FC 현황</Text>
-              {metricFilter === 'all' && <Badge size="xs" variant="light" color="blue">전체 보기</Badge>}
-            </Group>
-          </Card>
+        {/* Work summary: pending total, queues that filter the list, FCs per step */}
+        <div className={styles.workTop}>
+          <section className={styles.card} style={{ '--i': 1 } as CSSProperties} aria-label="처리 대기 합계">
+            <div className={styles.cardHead}>
+              <Text className={styles.cardTitle}>처리 대기 합계</Text>
+              <UnstyledButton
+                className={styles.softPill}
+                data-active={(metricFilter === 'all' && (activeTab ?? 'all') === 'all') || undefined}
+                aria-pressed={metricFilter === 'all' && (activeTab ?? 'all') === 'all'}
+                onClick={() => handleActiveTabChange('all')}
+              >
+                총 인원 {listValue(workSummary.total, 22, 10)}명
+              </UnstyledButton>
+            </div>
+            <div className={styles.bigValue}>
+              <Text className={styles.heroNumber} component="span">{listValue(workSummary.pending, 76, 40)}</Text>
+              <Text component="span" className={styles.bigUnit}>건</Text>
+            </div>
+            <div className={styles.deltaRow}>
+              <span className={styles.delta} data-tone={workSummary.pending > 0 ? 'warn' : 'ok'}>
+                {fcs && workSummary.total > 0 ? percent(workSummary.pending, 1) : isListLoading ? skel(26, 10) : '—'}
+              </span>
+              <Text component="span" size="xs" c="dimmed">전체 FC 중 처리 대기</Text>
+            </div>
+            <div className={styles.buttonRow}>
+              <button
+                type="button"
+                className={styles.inkButton}
+                onClick={() => router.push('/dashboard/notifications/create')}
+                disabled={isReadOnly}
+              >
+                <IconSend size={16} stroke={1.8} /> 새 공지 작성
+              </button>
+              <button
+                type="button"
+                className={styles.softButton}
+                onClick={() => {
+                  queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+                  queryClient.invalidateQueries({ queryKey: ['fc-signup-referral-code'] });
+                }}
+              >
+                <IconRefresh size={16} stroke={1.8} /> 새로고침
+              </button>
+            </div>
+            <div className={styles.well}>
+              <Text size="xs" fw={600} c="dimmed" mb={8}>빠른 작업</Text>
+              <div className={styles.quickGrid}>
+                <button type="button" className={styles.quickItem} onClick={() => router.push('/dashboard/exam/applicants')}>
+                  <span className={styles.quickIcon}><IconUser size={15} stroke={1.8} /></span>
+                  시험 신청자 관리
+                </button>
+                <button type="button" className={styles.quickItem} onClick={() => router.push('/dashboard/exam/schedule')} disabled={isReadOnly}>
+                  <span className={styles.quickIcon}><IconCalendar size={15} stroke={1.8} /></span>
+                  시험 일정 등록
+                </button>
+              </div>
+            </div>
+          </section>
 
-          <Card
-            component="button"
-            type="button"
-            padding="lg"
-            radius="md"
-            withBorder
-            shadow="sm"
-            className={styles.metricCard}
-            data-active={metricFilter === 'pendingAllowance' || undefined}
-            data-tone="allowance"
-            aria-pressed={metricFilter === 'pendingAllowance'}
-            onClick={() => handleMetricFilterChange('pendingAllowance')}
-          >
-            <Group justify="space-between" mb="xs">
-              <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>보증 보험 동의 승인 대기</Text>
-              <ThemeIcon variant="light" color="orange" radius="md" size="lg">
-                <IconClock size={22} stroke={2} />
-              </ThemeIcon>
-            </Group>
-            <Group align="flex-end" gap="xs">
-              <Text fw={800} size="2.5rem" lh={1}>{fcs ? metrics.pendingAllowance : '—'}</Text>
-              <Text c="dimmed" size="sm" mb={6}>건</Text>
-            </Group>
-            <Group justify="space-between" mt="md" gap="xs">
-              <Text c="orange" size="xs" fw={700}>승인 필요</Text>
-              {metricFilter === 'pendingAllowance' && <Badge size="xs" color="orange">필터 적용</Badge>}
-            </Group>
-          </Card>
+          <section className={`${styles.card} ${styles.tileCard}`} style={{ '--i': 2 } as CSSProperties} aria-label="업무별 대기">
+            {DASHBOARD_WORK_QUEUES.map((queue) => {
+              const QueueIcon = QUEUE_ICONS[queue.key];
+              return (
+                <button
+                  key={queue.key}
+                  type="button"
+                  className={styles.metricCard}
+                  data-hot={(queue.key === hotQueueKey) || undefined}
+                  data-active={metricFilter === queue.key || undefined}
+                  data-tone={queue.key}
+                  aria-pressed={metricFilter === queue.key}
+                  onClick={() => handleMetricFilterChange(queue.key)}
+                >
+                  <span className={styles.tileHead}>
+                    <span className={styles.tileTitle}>{queue.label}</span>
+                    <span className={styles.tileIcon}><QueueIcon size={16} stroke={1.8} /></span>
+                  </span>
+                  <span className={styles.tileValue}>
+                    <Text component="span" size="1.9rem" className={styles.tileNumber}>{listValue(workSummary.counts[queue.key], 44, 28, DASHBOARD_WORK_QUEUES.indexOf(queue) + 1)}</Text>
+                    <span className={styles.tileUnit}>건</span>
+                  </span>
+                  <span className={styles.deltaRow}>
+                    <span className={styles.delta} data-tone="step">{queue.step}단계</span>
+                    <span className={styles.tileCaption}>{metricFilter === queue.key ? '필터 적용' : queue.task}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </section>
 
-          <Card
-            component="button"
-            type="button"
-            padding="lg"
-            radius="md"
-            withBorder
-            shadow="sm"
-            className={styles.metricCard}
-            data-active={metricFilter === 'pendingDocs' || undefined}
-            data-tone="documents"
-            aria-pressed={metricFilter === 'pendingDocs'}
-            onClick={() => handleMetricFilterChange('pendingDocs')}
-          >
-            <Group justify="space-between" mb="xs">
-              <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>서류검토 대기</Text>
-              <ThemeIcon variant="light" color="indigo" radius="md" size="lg">
-                <IconFileText size={22} stroke={2} />
-              </ThemeIcon>
-            </Group>
-            <Group align="flex-end" gap="xs">
-              <Text fw={800} size="2.5rem" lh={1}>{fcs ? metrics.pendingDocs : '—'}</Text>
-              <Text c="dimmed" size="sm" mb={6}>건</Text>
-            </Group>
-            <Group justify="space-between" mt="md" gap="xs">
-              <Text c="indigo" size="xs" fw={700}>검토 필요</Text>
-              {metricFilter === 'pendingDocs' && <Badge size="xs" color="indigo">필터 적용</Badge>}
-            </Group>
-          </Card>
-        </SimpleGrid>
+          <section className={styles.card} style={{ '--i': 3 } as CSSProperties} aria-label="단계별 FC">
+            <div className={styles.cardHead}>
+              <Text className={styles.cardTitle}>단계별 FC</Text>
+              <span className={styles.legend}>
+                <span className={styles.legendItem}><i data-kind="hot" />대기 많은 단계</span>
+                <span className={styles.legendItem}><i />FC 수</span>
+              </span>
+            </div>
+            <div className={`${styles.well} ${styles.chartWell}`}>
+              <div className={styles.chart}>
+                {Object.entries(ADMIN_STEP_LABELS).map(([key, label], index) => (
+                  <UnstyledButton
+                    key={key}
+                    className={styles.barColumn}
+                    data-active={activeTab === key || undefined}
+                    aria-pressed={activeTab === key}
+                    aria-label={`${label} ${fcs ? workSummary.stepCounts[index] : '—'}명`}
+                    onClick={() => handleActiveTabChange(activeTab === key ? 'all' : key)}
+                  >
+                    <Text size="xs" fw={700} className={styles.barCount}>{listValue(workSummary.stepCounts[index], 14, 10, index + 2)}</Text>
+                    <span className={styles.barTrack}>
+                      <span
+                        key={isListLoading ? 'skeleton' : 'loaded'}
+                        className={styles.bar}
+                        data-busiest={(index === busiestStep && workSummary.stepCounts[index] > 0) || undefined}
+                        data-loading={isListLoading || undefined}
+                        style={{ height: isListLoading ? `${SKELETON_BAR_HEIGHTS[index]}%` : `${Math.max(4, Math.round((workSummary.stepCounts[index] / maxStepCount) * 100))}%`, '--b': index } as CSSProperties}
+                      />
+                    </span>
+                    <span className={styles.barLabel}>{label.replace(/^\d단계\s*/, '')}</span>
+                  </UnstyledButton>
+                ))}
+              </div>
+            </div>
+            <Text size="xs" c="green" fw={700}>가입 완료 FC 현황</Text>
+          </section>
+        </div>
 
         {isError && <QueryErrorAlert error={error} onRetry={refetch} isFetching={isFetching} hasData={!!fcs} subject="FC 목록" />}
 
-        {/* Quick Actions */}
-        <Paper p="md" radius="md" withBorder bg="gray.0">
-          <Group justify="space-between">
-            <Group>
-              <ThemeIcon variant="white" size="lg" radius="md" color="dark">
-                <IconSend size={20} />
-              </ThemeIcon>
-              <div>
-                <Text size="sm" fw={700}>빠른 작업</Text>
-                <Text size="xs" c="dimmed">자주 사용하는 기능을 바로 실행하세요.</Text>
-              </div>
-            </Group>
-            <Group gap="xs">
-              <Button variant="white" color="dark" size="xs" leftSection={<IconUser size={14} />} onClick={() => router.push('/dashboard/exam/applicants')}>
-                시험 신청자 관리
-              </Button>
-              <Button variant="white" color={isReadOnly ? "gray" : "dark"} size="xs" leftSection={<IconCalendar size={14} />} onClick={() => router.push('/dashboard/exam/schedule')} disabled={isReadOnly}>
-                시험 일정 등록
-              </Button>
-              <Button variant="filled" color={isReadOnly ? "gray" : "dark"} size="xs" leftSection={<IconSend size={14} />} onClick={() => router.push('/dashboard/notifications/create')} disabled={isReadOnly}>
-                새 공지 작성
-              </Button>
-            </Group>
-          </Group>
-        </Paper>
+        <div className={styles.workMid}>
+        {/* Progress and affiliation summary, from the same FC list */}
+        <section className={styles.card} style={{ '--i': 4 } as CSSProperties} aria-label="위촉 진행률">
+          <div className={styles.cardHead}>
+            <Text className={styles.cardTitle}>위촉 진행률</Text>
+            <span className={styles.softPill}>5단계 완료 {listValue(workSummary.stepCounts[5], 18, 10)}명</span>
+          </div>
+          <div>
+            <div className={styles.progressMeta}>
+              <Text component="span" className={styles.progressValue}>
+                {fcs && workSummary.total > 0 ? percent(workSummary.stepCounts[5], 2) : isListLoading ? skel(84, 34) : '—'}
+              </Text>
+              <Text component="span" size="xs" c="dimmed">{fcs ? reveal(`${workSummary.stepCounts[5]} / ${workSummary.total}명`, 3) : ''}</Text>
+            </div>
+            <div className={styles.progressTrack} role="presentation">
+              <span
+                className={styles.progressFill}
+                style={{ width: fcs && workSummary.total > 0 ? `${(workSummary.stepCounts[5] / workSummary.total) * 100}%` : '0%' }}
+              />
+            </div>
+          </div>
+          <div className={styles.well}>
+            <div className={styles.cardHead} style={{ marginBottom: 8 }}>
+              <Text size="xs" fw={600} c="dimmed">소속별 FC</Text>
+              {keyword ? (
+                <UnstyledButton className={styles.softPillWhite} onClick={() => { setKeyword(''); setCurrentPage(1); }}>
+                  검색 해제
+                </UnstyledButton>
+              ) : null}
+            </div>
+            <div className={styles.affiliationList}>
+              {fcs ? workSummary.affiliations.slice(0, 5).map(([name, count], order) => (
+                <UnstyledButton
+                  key={name}
+                  className={styles.affiliationRow}
+                  style={{ '--r': order + 2 } as CSSProperties}
+                  data-active={keyword === name || undefined}
+                  aria-pressed={keyword === name}
+                  onClick={() => { setKeyword(keyword === name ? '' : name); setCurrentPage(1); }}
+                >
+                  <span className={styles.affiliationName}>{name}</span>
+                  <span className={styles.affiliationBar}>
+                    <span style={{ width: `${Math.round((count / Math.max(1, workSummary.affiliations[0]?.[1] ?? 1)) * 100)}%` }} />
+                  </span>
+                  <span className={styles.affiliationCount}>{count}명</span>
+                </UnstyledButton>
+              )) : isListLoading ? (
+                [64, 48, 40, 30].map((width) => (
+                  <span key={width} className={styles.skelRow}>{skel(52)}<span className={styles.skelFill}>{skel(`${width}%`, 8)}</span>{skel(24)}</span>
+                ))
+              ) : (
+                <Text size="xs" c="dimmed">—</Text>
+              )}
+            </div>
+          </div>
+          <div className={`${styles.well} ${styles.affiliationWell}`}>
+            <Text size="xs" fw={600} c="dimmed" mb={8}>최근 가입</Text>
+            <div className={styles.affiliationList}>
+              {fcs ? workSummary.recentSignups.map((fc: FCProfileWithDocuments, order: number) => (
+                <UnstyledButton key={fc.id} className={styles.signupRow} style={{ '--r': order + 3 } as CSSProperties} onClick={() => router.push(`/dashboard/profile/${fc.id}`)}>
+                  <span className={styles.personAvatar}>{fc.name?.[0] ?? 'F'}</span>
+                  <span className={styles.signupText}>
+                    <span className={styles.affiliationName}>{fc.name}</span>
+                    <span className={styles.signupMeta}>{fc.affiliation || '-'}</span>
+                  </span>
+                  <span className={styles.affiliationCount}>{formatDashboardSignupDate(fc.signup_completed_at ?? fc.created_at)}</span>
+                </UnstyledButton>
+              )) : isListLoading ? (
+                [0, 1, 2].map((row) => (
+                  <span key={row} className={styles.skelRow}>
+                    {skel(30, 30)}
+                    <span className={styles.skelStack}>{skel(64)}{skel(96, 10)}</span>
+                    {skel(36, 10)}
+                  </span>
+                ))
+              ) : (
+                <Text size="xs" c="dimmed">—</Text>
+              )}
+            </div>
+          </div>
+        </section>
 
+        {/* Combined work queue */}
+        <section className={styles.card} style={{ '--i': 5 } as CSSProperties} aria-label="처리 대기열">
+          <div className={styles.cardHead}>
+            <Text className={styles.cardTitle}>
+              처리 대기열{metricFilter !== 'all' ? ` · ${DASHBOARD_WORK_QUEUES.find((queue) => queue.key === metricFilter)?.label ?? ''}` : ''}
+            </Text>
+            {fcs ? <span className={styles.softPill}>{visibleWorkItems.length}건 중 {Math.min(visibleWorkItems.length, 6)}건</span> : null}
+          </div>
+          <div className={styles.queueTable}>
+            <div className={styles.queueHead}>
+              <span>FC</span>
+              <span>처리할 일</span>
+              <span>진행 단계</span>
+              <span>발생</span>
+              <span />
+            </div>
+            {visibleWorkItems.length > 0 ? visibleWorkItems.slice(0, 6).map(({ fc, queue }, order) => {
+              const stepDisplay = getAdminStepDisplay(fc);
+              const occurredAt = getDashboardWorkOccurredAt(queue.key, fc);
+              const waitingDays = occurredAt ? dayjs().startOf('day').diff(dayjs(occurredAt).startOf('day'), 'day') : null;
+              return (
+                <div key={`${queue.key}:${fc.id}`} className={`${styles.queueRow} ${styles.revealRow}`} style={{ '--r': order + 1 } as CSSProperties}>
+                  <span className={styles.person}>
+                    <span className={styles.personAvatar}>{fc.name?.[0] ?? 'F'}</span>
+                    <span>
+                      <Text size="sm" fw={600} component="span" display="block">{fc.name}</Text>
+                      <Text size="xs" c="dimmed" component="span" display="block">{fc.affiliation || '-'}</Text>
+                    </span>
+                  </span>
+                  <Text size="sm">{queue.task}</Text>
+                  <span className={styles.statusDot} data-color={stepDisplay.color}>{stepDisplay.label}</span>
+                  <span className={styles.queueWhen} data-stale={waitingDays !== null && waitingDays >= 3 ? true : undefined} title={occurredAt ? dayjs(occurredAt).format('YYYY-MM-DD HH:mm') : undefined}>
+                    {occurredAt ? (
+                      <>
+                        <b>{waitingDays === 0 ? '오늘' : waitingDays === 1 ? '어제' : `${waitingDays}일 전`}</b>
+                        <small>{dayjs(occurredAt).format('MM.DD')}</small>
+                      </>
+                    ) : '-'}
+                  </span>
+                  <span className={styles.rowAction}>
+                    <button type="button" className={styles.inkButtonSmall} onClick={() => openWorkItem(fc, queue.key)}>
+                      {isReadOnly ? '보기' : '처리'}
+                    </button>
+                  </span>
+                </div>
+              );
+            }) : isListLoading ? (
+              [0, 1, 2, 3].map((row) => (
+                <div key={row} className={styles.queueRow} aria-hidden="true">
+                  <span className={styles.person}>{skel(32, 32)}<span className={styles.skelStack}>{skel(58)}{skel(84, 10)}</span></span>
+                  {skel(120)}
+                  {skel(88)}
+                  {skel(48)}
+                  <span className={styles.rowAction}>{skel(52, 30)}</span>
+                </div>
+              ))
+            ) : (
+              <div className={styles.queueEmpty}>
+                <Text size="sm" c="dimmed">{!fcs ? 'FC 목록을 확인할 수 없습니다.' : '처리 대기 없음'}</Text>
+              </div>
+            )}
+          </div>
+        </section>
+        </div>
         {/* Main Content Area */}
-        <Paper shadow="sm" radius="lg" withBorder p="md" bg="white">
+        <Paper radius={24} p="lg" bg="white" className={styles.card} style={{ '--i': 6 } as CSSProperties}>
           <Stack gap="xs" mb="md">
             <Group justify="space-between">
               <Tabs
@@ -2303,7 +2594,7 @@ export default function DashboardPage() {
                 radius="xl"
                 color="dark"
               >
-                <Tabs.List bg="gray.1" p={4} style={{ borderRadius: 24 }}>
+                <Tabs.List bg="var(--dashboard-panel)" p={4} style={{ borderRadius: 24 }}>
                   <Tabs.Tab value="all" fw={600} px={16}>전체</Tabs.Tab>
                   {Object.entries(ADMIN_STEP_LABELS).map(([key, label]) => (
                     <Tabs.Tab key={key} value={key} fw={600} px={16}>{label}</Tabs.Tab>
@@ -2331,9 +2622,9 @@ export default function DashboardPage() {
                 onChange={handleActiveTabChange}
                 variant="pills"
                 radius="xl"
-                color="blue"
+                color="dark"
               >
-                <Tabs.List bg="blue.0" p={4} style={{ borderRadius: 24 }}>
+                <Tabs.List bg="var(--dashboard-panel)" p={4} style={{ borderRadius: 24 }}>
                   <Tabs.Tab value="g_done" fw={600} px={14}>5단계 완료</Tabs.Tab>
                   <Tabs.Tab value="g_others" fw={600} px={14}>그 이외 (0~4단계)</Tabs.Tab>
                 </Tabs.List>
@@ -2342,10 +2633,9 @@ export default function DashboardPage() {
           </Stack>
 
           <Box pos="relative" mih={400}>
-            <LoadingOverlay visible={!hydrated || isLoading} overlayProps={{ blur: 1 }} />
             <ScrollArea h="calc(100vh - 280px)" type="auto" offsetScrollbars>
-              <Table verticalSpacing="sm" highlightOnHover striped withTableBorder>
-                <Table.Thead bg="gray.0" style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+              <Table verticalSpacing="sm" highlightOnHover highlightOnHoverColor="#fafaf9" className={styles.fcTable}>
+                <Table.Thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                   <Table.Tr>
                     {DASHBOARD_FC_LIST_COLUMNS.map((column) => (
                       <Table.Th
@@ -2361,6 +2651,16 @@ export default function DashboardPage() {
                 <Table.Tbody>
                   {rows.length > 0 ? (
                     rows
+                  ) : isListLoading ? (
+                    Array.from({ length: 8 }, (_, row) => (
+                      <Table.Tr key={row} aria-hidden="true">
+                        {DASHBOARD_FC_LIST_COLUMNS.map((column, index) => (
+                          <Table.Td key={column.key} ta={column.align === 'center' ? 'center' : undefined}>
+                            {index === 0 ? <span className={styles.skelRow}>{skel(30, 30)}{skel(64)}</span> : skel(column.align === 'center' ? 48 : '70%')}
+                          </Table.Td>
+                        ))}
+                      </Table.Tr>
+                    ))
                   ) : (
                     <Table.Tr>
                       <Table.Td colSpan={DASHBOARD_FC_LIST_COLUMN_COUNT} align="center" py={80}>
@@ -2368,7 +2668,7 @@ export default function DashboardPage() {
                           <ThemeIcon size={60} radius="xl" color="gray" variant="light">
                             <IconSearch size={30} />
                           </ThemeIcon>
-                          <Text c="dimmed" fw={500}>{isLoading ? 'FC 목록을 불러오는 중입니다.' : isError ? 'FC 목록을 확인할 수 없습니다.' : '조건에 맞는 데이터가 없습니다.'}</Text>
+                          <Text c="dimmed" fw={500}>{isError ? 'FC 목록을 확인할 수 없습니다.' : '조건에 맞는 데이터가 없습니다.'}</Text>
                         </Stack>
                       </Table.Td>
                     </Table.Tr>
@@ -2385,7 +2685,8 @@ export default function DashboardPage() {
                   value={visiblePage}
                   onChange={setCurrentPage}
                   size="md"
-                  radius="md"
+                  radius="xl"
+                  color="dark"
                   withEdges
                 />
               </Group>
@@ -2394,7 +2695,7 @@ export default function DashboardPage() {
         </Paper>
 
         {/* 요약 정보 */}
-        <Paper p="md" radius="md" withBorder>
+        <Paper px="lg" py="sm" radius={24} bg="white">
           <Group justify="space-between">
             <Text size="sm" c="dimmed">
               {fcs ? `전체 ${filteredData.length}명 중 ${paginatedData.length}명 표시 (페이지 ${visiblePage}/${totalPages})` : isError ? 'FC 목록 확인 불가' : 'FC 목록 조회 중'}
@@ -2407,9 +2708,9 @@ export default function DashboardPage() {
         opened={opened}
         onClose={close}
         title={<Text fw={700} size="lg">FC 상세 관리</Text>}
-        size="lg"
+        size={920}
         padding="xl"
-        radius="md"
+        radius={28}
         centered
         overlayProps={{ blur: 3 }}
       >
@@ -2418,451 +2719,365 @@ export default function DashboardPage() {
             {documentCleanupStatus.isError && !isReadOnly ? <QueryErrorAlert error={documentCleanupStatus.error} onRetry={() => documentCleanupStatus.refetch()} subject="파일 정리 상태" /> : null}
             {(documentCleanupFcId === selectedFc.id || documentCleanupStatus.data?.cleanupPending) ? <Alert color="yellow" mb="md" title="일부 파일 정리가 남아 있습니다">
               서류 변경은 완료됐습니다. 삭제나 요청 변경을 반복하지 마세요.
-              <Button size="xs" mt="xs" disabled={isReadOnly} loading={retryDocumentCleanupMutation.isPending} onClick={() => retryDocumentCleanupMutation.mutate(selectedFc.id)}>파일 정리만 다시 시도</Button>
+              <Button radius="xl" size="xs" mt="xs" disabled={isReadOnly} loading={retryDocumentCleanupMutation.isPending} onClick={() => retryDocumentCleanupMutation.mutate(selectedFc.id)}>파일 정리만 다시 시도</Button>
             </Alert> : null}
-            <Group mb="xl" align="flex-start">
-              <Avatar size="lg" color="orange" radius="xl">
-                {selectedFc.name?.slice(0, 1) || '?'}
-              </Avatar>
-              <div>
-                <Group gap="xs" align="center">
-                  <Text size="lg" fw={700}>
-                    {selectedFc.name}
-                  </Text>
-                  <Badge variant="light" color={!selectedFc.career_type ? 'gray' : 'blue'}>
-                    {selectedFc.career_type || '조회중'}
-                  </Badge>
-                </Group>
-                <Text size="sm" c="dimmed">
-                  {selectedFc.phone} · {selectedFc.affiliation || '소속 미정'}
-                </Text>
-                <Stack gap={2} mt={6}>
-                  <Text size="sm" fw={600} c="dark.8">
-                    주민등록번호:{' '}
-                    <Text component="span" size="sm" fw={700} c={isSelectedResidentNumberFetching ? 'dimmed' : 'dark.8'}>
-                      {selectedResidentNumberDisplay}
+            <Tabs
+              value={modalTab}
+              onChange={setModalTab}
+              variant="unstyled"
+              orientation="vertical"
+              className={fcm.shell}
+              style={{ display: 'grid' }}
+              classNames={{ list: fcm.stepList, tab: fcm.stepTab, tabLabel: fcm.stepInner, panel: fcm.panel }}
+            >
+              <aside className={fcm.side}>
+                <div className={fcm.identity}>
+                  <span className={fcm.avatar}>{selectedFc.name?.slice(0, 1) || '?'}</span>
+                  <div>
+                    <Group gap="xs" align="center">
+                      <Text className={fcm.name}>{selectedFc.name}</Text>
+                      <Badge variant="white" radius="xl" color={!selectedFc.career_type ? 'gray' : 'dark'}>
+                        {selectedFc.career_type || '조회중'}
+                      </Badge>
+                    </Group>
+                    <Text size="sm" c="dimmed" mt={4}>
+                      {selectedFc.phone} · {selectedFc.affiliation || '소속 미정'}
                     </Text>
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    생년월일: {selectedBirthDateDisplay}
-                  </Text>
-                </Stack>
-              </div>
-            </Group>
-
-            <Tabs value={modalTab} onChange={setModalTab} color="orange" variant="outline" radius="md">
-              <Tabs.List
-                mb="lg"
-                style={{ display: 'flex', flexWrap: 'nowrap', gap: 8, overflowX: 'auto' }}
-              >
-                <Tabs.Tab
-                  value="info"
-                  leftSection={<IconEdit size={16} />}
-                  style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', whiteSpace: 'nowrap' }}
-                >
-                  보증 보험 동의
-                </Tabs.Tab>
-                <Tabs.Tab
-                  value="docs"
-                  leftSection={<IconFileText size={16} />}
-                  style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', whiteSpace: 'nowrap' }}
-                >
-                  서류 관리
-                </Tabs.Tab>
-                <Tabs.Tab
-                  value="hanwha"
-                  leftSection={<IconCalendar size={16} />}
-                  style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', whiteSpace: 'nowrap' }}
-                >
-                  다위촉
-                </Tabs.Tab>
-                <Tabs.Tab
-                  value="appointment"
-                  leftSection={<IconCalendar size={16} />}
-                  style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', whiteSpace: 'nowrap' }}
-                >
-                  생명/손해 위촉
-                </Tabs.Tab>
-
-              </Tabs.List>
-              <Tabs.Panel value="info">
-                <Stack gap="md">
-                  {(() => {
-                    const allowanceDisplay = getAllowanceDisplayState(selectedFc);
-
-                    return (
-                      <Box>
-                        <Text size="xs" fw={700} c="dimmed" mb={6}>
-                          현재 진행 단계
+                  </div>
+                  <div className={fcm.facts}>
+                    <Stack gap={2} mt={6}>
+                      <Text size="sm" fw={600} c="dark.8">
+                        주민등록번호:{' '}
+                        <Text component="span" size="sm" fw={700} c={isSelectedResidentNumberFetching ? 'dimmed' : 'dark.8'}>
+                          {selectedResidentNumberDisplay}
                         </Text>
-                        <SimpleGrid cols={{ base: 1, sm: 2, lg: 5 }} spacing="sm">
-                          {ALLOWANCE_FLOW_CARDS.map((step) => {
-                            const active = step.key === allowanceDisplay.key;
-                            return (
-                              <Paper
-                                key={step.key}
-                                withBorder
-                                radius="md"
-                                p="sm"
-                                style={{
-                                  borderColor: active
-                                    ? 'var(--mantine-color-orange-3)'
-                                    : 'var(--mantine-color-gray-3)',
-                                  backgroundColor: active
-                                    ? 'var(--mantine-color-orange-0)'
-                                    : 'var(--mantine-color-white)',
-                                }}
-                              >
-                                <Group justify="space-between" align="flex-start" gap="xs">
-                                  <Stack gap={2}>
-                                    <Text size="xs" c="dimmed" fw={700}>
-                                      {step.label}
-                                    </Text>
-                                    <Text size="sm" fw={700}>
-                                      {step.helper}
-                                    </Text>
-                                  </Stack>
-                                  <Badge
-                                    size="xs"
-                                    variant={active ? 'filled' : 'light'}
-                                    color={active ? 'orange' : 'gray'}
-                                  >
-                                    {active ? '현재' : '대기'}
-                                  </Badge>
-                                </Group>
-                              </Paper>
-                            );
-                          })}
-                        </SimpleGrid>
-                      </Box>
-                    );
-                  })()}
-
-                  <TextInput
-                    label="임시사번"
-                    placeholder="T-123456"
-                    classNames={{ input: 'muted-placeholder-input' }}
-                    value={tempIdInput}
-                    onChange={(e) => {
-                      const val = e.currentTarget?.value || '';
-                      setTempIdInput(val);
-                    }}
-                  />
-                    {canResetToLookup && (
-                    <>
-                      <Button
-                        variant="light"
-                        color="gray"
-                        size="xs"
-                        leftSection={<IconRefresh size={14} />}
-                        loading={resetToLookupMutation.isPending}
-                        onClick={() => {
-                          showConfirm({
-                            title: '조회중 단계로 되돌리기',
-                            message: '임시사번과 보증보험 조회 동의일을 비우고 조회중(임시사번 미입력) 단계로 되돌릴까요?',
-                            confirmLabel: '되돌리기',
-                            color: 'orange',
-                            onConfirm: () => resetToLookupMutation.mutate(),
-                          });
-                        }}
-                      >
-                        조회중 단계로 되돌리기
-                      </Button>
-                      <Text size="xs" c="dimmed" mt={-8}>
-                        잘못 입력한 임시사번을 비우고 이전 단계로 되돌릴 때 사용합니다.
                       </Text>
-                    </>
-                  )}
-                  <Box>
-                    <Text size="sm" fw={500} mb={6}>
-                      경력 구분 {careerInput === null && <Text span c="red" size="xs">(선택 필요)</Text>}
-                    </Text>
-                    <Chip.Group value={careerInput || ''} onChange={(v) => setCareerInput(v as '신입' | '경력' | null)}>
-                      <Group gap="xs">
-                        <Chip value="신입" color="orange" variant="light">
-                          신입
-                        </Chip>
-                        <Chip value="경력" color="blue" variant="light">
-                          경력
-                        </Chip>
-                      </Group>
-                    </Chip.Group>
-                  </Box>
+                      <Text size="xs" c="dimmed">
+                        생년월일: {selectedBirthDateDisplay}
+                      </Text>
+                    </Stack>
+                  </div>
+                </div>
+                <Tabs.List aria-label="FC 진행 단계">
+                  {FC_MODAL_STEPS.map((step, index) => {
+                    const state = index < currentStepIndex ? 'done' : index === currentStepIndex ? 'current' : 'todo';
+                    return (
+                      <Tabs.Tab key={step.value} value={step.value} data-state={state}>
+                        <span className={fcm.stepDot}>{state === 'done' ? <IconCheck size={16} stroke={2.4} /> : index + 1}</span>
+                        <span className={fcm.stepText}>
+                          <span className={fcm.stepLabel}>{step.label}</span>
+                          <span className={fcm.stepState}>{state === 'done' ? '완료' : state === 'current' ? '현재 단계' : '대기'}</span>
+                        </span>
+                      </Tabs.Tab>
+                    );
+                  })}
+                </Tabs.List>
+              </aside>
+              <div className={fcm.content}>
+                <div className={fcm.contentHead}>
+                  <Text className={fcm.contentTitle}>{FC_MODAL_STEPS.find((step) => step.value === modalTab)?.label ?? ''}</Text>
+                  {modalTab === 'info' ? (() => {
+                    const allowanceCard = ALLOWANCE_FLOW_CARDS.find((card) => card.key === getAllowanceDisplayState(selectedFc).key);
+                    return allowanceCard ? (
+                      <span className={fcm.subState}><i />{allowanceCard.label} · {allowanceCard.helper}</span>
+                    ) : null;
+                  })() : null}
+                </div>
+                <StepSummary items={getStepSummary(modalTab)} />
+              <Tabs.Panel value="info">
+                {(() => {
+                  const allowanceDisplay = getAllowanceDisplayState(selectedFc);
+                  const effectiveAllowanceDate = allowanceDateInput
+                    ? dayjs(allowanceDateInput).format('YYYY-MM-DD')
+                    : selectedFc.allowance_date ?? null;
+                  const hasTempIdForAllowance = Boolean(String(selectedFc.temp_id ?? '').trim());
+                  const allowanceStateButtons = [
+                    {
+                      key: 'prescreen',
+                      label: '사전 심사 요청 하기',
+                      active: allowanceDisplay.key === 'prescreen',
+                      color: 'blue' as const,
+                      onClick: () =>
+                        updateStatusMutation.mutate({
+                          status: 'allowance-pending',
+                          title: '사전 심사 요청',
+                          msg: '사전 심사 요청을 보냈습니다.',
+                          extra: {
+                            allowance_date: effectiveAllowanceDate,
+                            allowance_prescreen_requested_at: new Date().toISOString(),
+                            allowance_reject_reason: null,
+                          },
+                        }),
+                    },
+                    {
+                      key: 'approved',
+                      label: '승인 완료',
+                      active: allowanceDisplay.key === 'approved',
+                      color: 'green' as const,
+                      onClick: () =>
+                        updateStatusMutation.mutate({
+                          status: 'allowance-consented',
+                          title: '보증 보험 동의 승인',
+                          msg: '보증 보험 동의가 승인되었습니다. 서류 제출 단계로 진행해주세요.',
+                          extra: {
+                            allowance_date: effectiveAllowanceDate,
+                            allowance_reject_reason: null,
+                          },
+                        }),
+                    },
+                  ] as const;
+                  const hasAllowanceDateForAction = Boolean(effectiveAllowanceDate);
+                  const allowanceStateDisabled =
+                    isReadOnly || updateStatusMutation.isPending || !hasTempIdForAllowance || !hasAllowanceDateForAction;
 
-                  <Box mt="md">
-                    {(() => {
-                      const allowanceDisplay = getAllowanceDisplayState(selectedFc);
-                      const effectiveAllowanceDate = allowanceDateInput
-                        ? dayjs(allowanceDateInput).format('YYYY-MM-DD')
-                        : selectedFc.allowance_date ?? null;
-                      const hasTempIdForAllowance = Boolean(String(selectedFc.temp_id ?? '').trim());
-                      const allowanceStateButtons = [
-                        {
-                          key: 'prescreen',
-                          label: '사전 심사 요청 하기',
-                          active: allowanceDisplay.key === 'prescreen',
-                          color: 'blue' as const,
-                          onClick: () =>
-                            updateStatusMutation.mutate({
-                              status: 'allowance-pending',
-                              title: '사전 심사 요청',
-                              msg: '사전 심사 요청을 보냈습니다.',
-                              extra: {
-                                allowance_date: effectiveAllowanceDate,
-                                allowance_prescreen_requested_at: new Date().toISOString(),
-                                allowance_reject_reason: null,
-                              },
-                            }),
-                        },
-                        {
-                          key: 'approved',
-                          label: '승인 완료',
-                          active: allowanceDisplay.key === 'approved',
-                          color: 'green' as const,
-                          onClick: () =>
-                            updateStatusMutation.mutate({
-                              status: 'allowance-consented',
-                              title: '보증 보험 동의 승인',
-                              msg: '보증 보험 동의가 승인되었습니다. 서류 제출 단계로 진행해주세요.',
-                              extra: {
-                                allowance_date: effectiveAllowanceDate,
-                                allowance_reject_reason: null,
-                              },
-                            }),
-                        },
-                      ] as const;
-                      const hasAllowanceDateForAction = Boolean(effectiveAllowanceDate);
-                      const allowanceStateDisabled =
-                        isReadOnly || updateStatusMutation.isPending || !hasTempIdForAllowance || !hasAllowanceDateForAction;
-
-                      return (
-                        <>
-                          <Paper withBorder radius="lg" p="md">
-                            <Text fw={600} size="sm" mb="xs">
-                              보증 보험 동의 관리
-                            </Text>
-                            <Text size="xs" c="dimmed" mb="md">
-                              화면에서 현재 진행 단계를 확인한 뒤, 아래에서 상태를 저장하거나 변경하세요.
-                            </Text>
-                            {!hasTempIdForAllowance ? (
-                              <Alert
-                                mb="md"
-                                color="red"
-                                radius="md"
-                                icon={<IconInfoCircle size={16} />}
-                              >
-                                <Text size="sm">
-                                  임시사번 발급 후 보증보험 조회 동의일 저장과 승인 처리를 진행할 수 있습니다.
-                                </Text>
-                              </Alert>
-                            ) : null}
-                            {!hasAllowanceDateForAction ? (
-                              <Alert
-                                mb="md"
-                                color="orange"
-                                radius="md"
-                                icon={<IconInfoCircle size={16} />}
-                              >
-                                <Text size="sm">
-                                  보증보험 조회 동의일을 입력해야 사전 심사 요청과 승인 완료를 저장할 수 있습니다.
-                                </Text>
-                              </Alert>
-                            ) : null}
-
-                            {isReadOnly ? (
-                              <Alert
-                                mb="md"
-                                color="gray"
-                                radius="md"
-                                icon={<IconInfoCircle size={16} />}
-                              >
-                                <Text size="sm">
-                                  본부장 계정은 현재 상태 확인만 가능하며, 저장과 상태 변경 버튼은 비활성화됩니다.
-                                </Text>
-                              </Alert>
-                            ) : null}
-
-                            <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-                              <Stack gap="sm">
-                                <DateInput
-                                  label="보증보험 조회 동의일"
-                                  value={allowanceDateInput}
-                                  onChange={handleAllowanceDateChange}
-                                  placeholder="YYYY-MM-DD"
-                                  valueFormat="YYYY-MM-DD"
-                                  disabled={isReadOnly || !hasTempIdForAllowance}
-                                  clearable={false}
-                                  radius="md"
-                                  size="md"
-                                  leftSection={<IconCalendar size={16} />}
-                                  previousIcon={<IconChevronLeft size={16} />}
-                                  nextIcon={<IconChevronRight size={16} />}
-                                  popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
-                                  styles={getModalDateInputStyles(isReadOnly || !hasTempIdForAllowance)}
-                                />
-                                <Button
-                                  fullWidth
-                                  size="sm"
-                                  color={isReadOnly ? 'gray' : 'orange'}
-                                  variant="light"
-                                  leftSection={<IconDeviceFloppy size={16} />}
-                                  onClick={() => updateAllowanceDateMutation.mutate()}
-                                  loading={updateAllowanceDateMutation.isPending}
-                                  disabled={isReadOnly || !hasTempIdForAllowance || !allowanceDateInput}
-                                >
-                                  보증보험 조회 동의일 저장
-                                </Button>
-                              </Stack>
-
-                              <Stack gap="sm">
-                                <Box>
-                                  <Text
-                                    size="sm"
-                                    fw={500}
-                                    mb={6}
-                                    c="transparent"
-                                    aria-hidden="true"
-                                  >
-                                    상태 조작
-                                  </Text>
-                                  <Button
-                                    fullWidth
-                                    color="blue"
-                                    variant={allowanceDisplay.key === 'prescreen' ? 'filled' : 'light'}
-                                    onClick={() => allowanceStateButtons[0].onClick()}
-                                    disabled={allowanceStateDisabled}
-                                    leftSection={<IconSend size={16} />}
-                                  >
-                                    사전 심사 요청 하기
-                                  </Button>
-                                </Box>
-                                <StatusToggle
-                                  value={allowanceDisplay.key === 'approved' ? 'approved' : 'pending'}
-                                  onChange={(val) => {
-                                    if (val === 'approved') {
-                                      allowanceStateButtons[1].onClick();
-                                      return;
-                                    }
-                                    if (allowanceDisplay.key === 'rejected') {
-                                      return;
-                                    }
-                                    openRejectModal({ kind: 'allowance' });
+                  return (
+                    <Stack gap="md">
+                      <section className={fcm.section}>
+                        <div className={fcm.sectionHead}>
+                          <Text className={fcm.sectionTitle}>입력 정보</Text>
+                          <Button radius="xl" size="sm" variant="default" leftSection={<IconDeviceFloppy size={14} />} onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} disabled={isReadOnly || (selectedFc.status !== 'draft' && selectedFc.status !== 'temp-id-issued' && selectedFc.status !== 'allowance-pending')} color={isReadOnly ? "gray" : "dark"}>
+                            저장
+                          </Button>
+                        </div>
+                        <div className={fcm.fieldRow}>
+                          <Text className={fcm.fieldLabel}><IconId size={15} />임시사번</Text>
+                          <div className={fcm.fieldControl}>
+                            <TextInput
+                              aria-label="임시사번"
+                              placeholder="T-123456"
+                              className={fcm.w200}
+                              classNames={{ input: 'muted-placeholder-input' }}
+                              value={tempIdInput}
+                              onChange={(e) => {
+                                const val = e.currentTarget?.value || '';
+                                setTempIdInput(val);
+                              }}
+                            />
+                            {canResetToLookup && (
+                              <Tooltip label="조회중 단계로 되돌리기 · 잘못 입력한 임시사번을 비우고 이전 단계로 되돌릴 때 사용합니다." multiline w={240} withArrow>
+                                <ActionIcon
+                                  aria-label="조회중 단계로 되돌리기"
+                                  variant="default"
+                                  color="gray"
+                                  radius="xl"
+                                  size={34}
+                                  loading={resetToLookupMutation.isPending}
+                                  onClick={() => {
+                                    showConfirm({
+                                      title: '조회중 단계로 되돌리기',
+                                      message: '임시사번과 보증보험 조회 동의일을 비우고 조회중(임시사번 미입력) 단계로 되돌릴까요?',
+                                      confirmLabel: '되돌리기',
+                                      color: 'orange',
+                                      onConfirm: () => resetToLookupMutation.mutate(),
+                                    });
                                   }}
-                                  labelPending="미승인"
-                                  labelApproved="승인 완료"
-                                  readOnly={allowanceStateDisabled}
-                                  allowPendingPress
-                                  isManagerMode={isReadOnly}
-                                />
-                              </Stack>
-                            </SimpleGrid>
-                          </Paper>
-                        </>
-                      );
-                    })()}
-                  </Box>
+                                >
+                                  <IconRefresh size={16} />
+                                </ActionIcon>
+                              </Tooltip>
+                            )}
+                          </div>
+                        </div>
+                        <div className={fcm.fieldRow}>
+                          <Text className={fcm.fieldLabel}>
+                            <IconBriefcase size={15} />경력 구분 {careerInput === null && <Text span c="red" size="xs">(선택 필요)</Text>}
+                          </Text>
+                          <SegmentedControl
+                            aria-label="경력 구분"
+                            value={careerInput ?? ''}
+                            onChange={(v) => setCareerInput(v as '신입' | '경력')}
+                            data={['신입', '경력']} color="orange"
+                            radius="xl"
+                            size="sm"
+                            className={fcm.segment}
+                          />
+                        </div>
+                        <div className={fcm.fieldRow}>
+                          <Text className={fcm.fieldLabel}><IconCalendarCheck size={15} />보증보험 조회 동의일</Text>
+                          <div className={fcm.fieldControl}>
+                            <Box className={fcm.w200}>
+                              <DateInput
+                                aria-label="보증보험 조회 동의일"
+                                value={allowanceDateInput}
+                                onChange={handleAllowanceDateChange}
+                                placeholder="YYYY-MM-DD"
+                                valueFormat="YYYY-MM-DD"
+                                disabled={isReadOnly || !hasTempIdForAllowance}
+                                clearable={false}
+                                radius="lg"
+                                size="sm"
+                                leftSection={<IconCalendar size={16} />}
+                                previousIcon={<IconChevronLeft size={16} />}
+                                nextIcon={<IconChevronRight size={16} />}
+                                popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
+                                styles={getModalDateInputStyles(isReadOnly || !hasTempIdForAllowance)}
+                              />
+                            </Box>
+                            <Tooltip label="동의일 저장" withArrow>
+                              <ActionIcon
+                                aria-label="보증보험 조회 동의일 저장"
+                                variant="default"
+                                color={isReadOnly ? 'gray' : 'dark'}
+                                radius="xl"
+                                size={34}
+                                onClick={() => updateAllowanceDateMutation.mutate()}
+                                loading={updateAllowanceDateMutation.isPending}
+                                disabled={isReadOnly || !hasTempIdForAllowance || !allowanceDateInput}
+                              >
+                                <IconDeviceFloppy size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                          </div>
+                        </div>
+                        {!hasTempIdForAllowance ? (
+                          <Text className={fcm.hint} data-tone="red">임시사번 발급 후 보증보험 조회 동의일 저장과 승인 처리를 진행할 수 있습니다.</Text>
+                        ) : null}
+                        {!hasAllowanceDateForAction ? (
+                          <Text className={fcm.hint} data-tone="orange">보증보험 조회 동의일을 입력해야 사전 심사 요청과 승인 완료를 저장할 수 있습니다.</Text>
+                        ) : null}
+                        {isReadOnly ? (
+                          <Text className={fcm.hint}>본부장 계정은 현재 상태 확인만 가능하며, 저장과 상태 변경 버튼은 비활성화됩니다.</Text>
+                        ) : null}
+                      </section>
 
-                  <Button fullWidth mt="md" onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} disabled={isReadOnly || (selectedFc.status !== 'draft' && selectedFc.status !== 'temp-id-issued' && selectedFc.status !== 'allowance-pending')} color={isReadOnly ? "gray" : "dark"}>
-                    변경사항 저장
-                  </Button>
-
-                  <Divider my="sm" />
-
-                  <Group grow>
-                    <Button
-                      variant="light"
-                      color={isReadOnly ? "gray" : "orange"}
-                      leftSection={<IconSend size={16} />}
-                      loading={reminderPending} disabled={isReadOnly || reminderPending}
-                      onClick={async () => {
-                        if (reminderPendingRef.current) return;
-                        reminderPendingRef.current = true;
-                        setReminderPending(true);
-                        try {
-                        // Resolve the current notification recipient from the stable FC id on the server.
-                        const notificationResult = await sendPushNotificationForFc(selectedFc.id, {
-                          title: '진행 요청',
-                          body: '관리자가 진행을 요청하였습니다.',
-                          target: {
-                            version: 1,
-                            kind: 'onboarding_section',
-                            fcId: selectedFc.id,
-                            section: 'home',
-                          },
-                          data: { url: '/' },
-                        });
-                        if (!('inbox' in notificationResult) || !('failures' in notificationResult)) {
-                          logger.warn('[dashboard] reminder request rejected');
-                          notifications.show({
-                            title: '알림 요청 실패',
-                            message: '알림 요청을 처리하지 못했습니다. 수신자와 권한을 확인해 주세요.',
-                            color: 'red',
-                          });
-                          return;
-                        }
-                        const invalidRecipient = notificationResult.failures.some(
-                          (failure) => failure === 'missing_recipient' || failure === 'recipient_mismatch',
-                        );
-                        if (invalidRecipient) {
-                          logger.warn('[dashboard] reminder recipient invalid');
-                          notifications.show({
-                            title: '수신자 확인 필요',
-                            message: '유효한 알림 수신자를 확인할 수 없습니다.',
-                            color: 'red',
-                          });
-                          return;
-                        }
-                        if (!notificationResult.inbox?.logged) {
-                          logger.warn('[dashboard] reminder inbox persistence failed');
-                          notifications.show({
-                            title: '알림 등록 실패',
-                            message: '알림을 등록하지 못했습니다. 다시 시도해 주세요.',
-                            color: 'red',
-                          });
-                          return;
-                        }
-                        notifications.show({
-                          title: '전송 완료',
-                          message: '알림을 보냈습니다.',
-                          color: 'blue',
-                        });
-                        } catch {
-                          notifications.show({ title: '알림 결과 확인 필요', message: '전송 결과를 확인하지 못했습니다. 잠시 후 알림 상태를 확인해주세요.', color: 'red' });
-                        } finally { reminderPendingRef.current = false; setReminderPending(false); }
-                      }}
-                    >
-                      재촉 알림
-                    </Button>
-                    <Button
-                      variant="subtle"
-                      color={isReadOnly ? "gray" : "red"}
-                      leftSection={<IconTrash size={16} />}
-                      disabled={isReadOnly}
-                      onClick={() => {
-                        logger.debug('[Web][deleteFc] click', { requestCount: 1 });
-                        showConfirm({
-                          title: 'FC 삭제',
-                          message: '정말로 FC를 삭제하시겠습니까? 관련 서류도 모두 삭제됩니다.',
-                          confirmLabel: '삭제',
-                          color: 'red',
-                          onConfirm: () => {
-                            logger.debug('[Web][deleteFc] mutate');
-                            deleteFcMutation.mutate();
-                          },
-                        });
-                      }}
-                    >
-                      FC 삭제
-                    </Button>
-                  </Group>
-                </Stack>
+                      <div className={fcm.footer}>
+                        <Group gap={4}>
+                          <Tooltip label="FC 삭제" withArrow>
+                            <ActionIcon
+                              aria-label="FC 삭제"
+                              radius="xl"
+                              size={34}
+                              variant="light"
+                              color={isReadOnly ? 'gray' : 'red'}
+                              disabled={isReadOnly}
+                              onClick={() => {
+                                logger.debug('[Web][deleteFc] click', { requestCount: 1 });
+                                showConfirm({
+                                  title: 'FC 삭제',
+                                  message: '정말로 FC를 삭제하시겠습니까? 관련 서류도 모두 삭제됩니다.',
+                                  confirmLabel: '삭제',
+                                  color: 'red',
+                                  onConfirm: () => {
+                                    logger.debug('[Web][deleteFc] mutate');
+                                    deleteFcMutation.mutate();
+                                  },
+                                });
+                              }}
+                            >
+                              <IconTrash size={18} />
+                            </ActionIcon>
+                          </Tooltip>
+                          <Tooltip label="재촉 알림" withArrow>
+                            <ActionIcon
+                              aria-label="재촉 알림"
+                              radius="xl"
+                              size={34}
+                              variant="default"
+                              color={isReadOnly ? 'gray' : 'dark'}
+                              loading={reminderPending}
+                              disabled={isReadOnly || reminderPending}
+                              onClick={async () => {
+                                if (reminderPendingRef.current) return;
+                                reminderPendingRef.current = true;
+                                setReminderPending(true);
+                                try {
+                                // Resolve the current notification recipient from the stable FC id on the server.
+                                const notificationResult = await sendPushNotificationForFc(selectedFc.id, {
+                                  title: '진행 요청',
+                                  body: '관리자가 진행을 요청하였습니다.',
+                                  target: {
+                                    version: 1,
+                                    kind: 'onboarding_section',
+                                    fcId: selectedFc.id,
+                                    section: 'home',
+                                  },
+                                  data: { url: '/' },
+                                });
+                                if (!('inbox' in notificationResult) || !('failures' in notificationResult)) {
+                                  logger.warn('[dashboard] reminder request rejected');
+                                  notifications.show({
+                                    title: '알림 요청 실패',
+                                    message: '알림 요청을 처리하지 못했습니다. 수신자와 권한을 확인해 주세요.',
+                                    color: 'red',
+                                  });
+                                  return;
+                                }
+                                const invalidRecipient = notificationResult.failures.some(
+                                  (failure) => failure === 'missing_recipient' || failure === 'recipient_mismatch',
+                                );
+                                if (invalidRecipient) {
+                                  logger.warn('[dashboard] reminder recipient invalid');
+                                  notifications.show({
+                                    title: '수신자 확인 필요',
+                                    message: '유효한 알림 수신자를 확인할 수 없습니다.',
+                                    color: 'red',
+                                  });
+                                  return;
+                                }
+                                if (!notificationResult.inbox?.logged) {
+                                  logger.warn('[dashboard] reminder inbox persistence failed');
+                                  notifications.show({
+                                    title: '알림 등록 실패',
+                                    message: '알림을 등록하지 못했습니다. 다시 시도해 주세요.',
+                                    color: 'red',
+                                  });
+                                  return;
+                                }
+                                notifications.show({
+                                  title: '전송 완료',
+                                  message: '알림을 보냈습니다.',
+                                  color: 'blue',
+                                });
+                                } catch {
+                                  notifications.show({ title: '알림 결과 확인 필요', message: '전송 결과를 확인하지 못했습니다. 잠시 후 알림 상태를 확인해주세요.', color: 'red' });
+                                } finally { reminderPendingRef.current = false; setReminderPending(false); }
+                              }}
+                            >
+                              <IconSend size={18} />
+                            </ActionIcon>
+                          </Tooltip>
+                        </Group>
+                        <Group gap="xs">
+                          <Button
+                            radius="xl"
+                            variant="light"
+                            color={isReadOnly ? 'gray' : 'red'}
+                            disabled={allowanceStateDisabled || allowanceDisplay.key === 'rejected'}
+                            onClick={() => openRejectModal({ kind: 'allowance' })}
+                          >
+                            반려
+                          </Button>
+                          <Button
+                            radius="xl"
+                            variant="default"
+                            color="dark"
+                            leftSection={<IconSend size={16} />}
+                            disabled={allowanceStateDisabled}
+                            onClick={() => allowanceStateButtons[0].onClick()}
+                          >
+                            사전 심사 요청
+                          </Button>
+                          <Button
+                            radius="xl"
+                            color="orange"
+                            leftSection={<IconCheck size={16} />}
+                            disabled={allowanceStateDisabled || allowanceDisplay.key === 'approved'}
+                            onClick={() => allowanceStateButtons[1].onClick()}
+                          >
+                            {allowanceDisplay.key === 'approved' ? '승인 완료됨' : '승인 완료'}
+                          </Button>
+                        </Group>
+                      </div>
+                    </Stack>
+                  );
+                })()}
               </Tabs.Panel>
 
               <Tabs.Panel value="docs">
                 <Stack gap="md">
-                  <Card withBorder radius="md" p="sm" bg="gray.0">
-                    <Group justify="space-between" mb="xs">
-                      <Text fw={600} size="sm">
+                  <section className={fcm.section}>
+                    <Group justify="space-between">
+                      <Text className={fcm.sectionTitle}>
                         요청 서류 ({selectedFc.fc_documents?.length || 0}건)
                       </Text>
                     </Group>
@@ -2873,25 +3088,25 @@ export default function DashboardPage() {
                           return (
                             <Card
                               key={idx}
-                              radius="md"
-                              withBorder
-                              shadow="sm"
+                              radius={16}
                               p={0}
                               style={{
                                 overflow: 'hidden',
-                                borderColor: isSubmitted ? '#339af0' : '#fd7e14',
-                                borderWidth: 1,
+                                boxShadow: `inset 3px 0 0 ${isSubmitted ? '#3b5bdb' : 'var(--primary-color)'}`,
                               }}
                             >
                               <Group
                                 justify="space-between"
-                                p="sm"
+                                py={8}
+                                px="sm"
                                 bg="white"
+                                wrap="nowrap"
                               >
                                 <Group gap="sm">
                                   <ThemeIcon
                                     variant="light"
-                                    size="lg"
+                                    radius="xl"
+                                    size="md"
                                     color={d.status === 'approved' ? 'teal' : d.status === 'rejected' ? 'red' : 'gray'}
                                   >
                                     {d.status === 'approved' ? (
@@ -2924,97 +3139,124 @@ export default function DashboardPage() {
                                   </div>
                                 </Group>
                                 <Group gap={4}>
-                                  {isSubmitted && (
-                                    <Button
-                                      variant="default"
-                                      size="xs"
-                                      onClick={() => handleOpenDoc(d.storage_path ?? '')}
-                                    >
-                                      열기
-                                    </Button>
-                                  )}
-                                  <Divider orientation="vertical" />
-                                  <Group gap={4}>
-                                    <StatusToggle
-                                      value={d.status === 'approved' ? 'approved' : 'pending'}
-                                      onChange={async (val) => {
-                                        const nextStatus = (val === 'approved' ? 'approved' : 'rejected') as 'approved' | 'rejected';
-                                        if (val !== 'approved') {
-                                          if (d.status === 'rejected') return;
-                                          openRejectModal({ kind: 'doc', doc: d });
-                                          return;
-                                        }
-                                        if (nextStatus === d.status) return;
-                                        if (nextStatus === 'approved') {
-                                          showConfirm({
-                                            title: '서류 승인',
-                                            message: isSubmitted
-                                              ? '문서를 승인하시겠습니까?'
-                                              : '파일이 미제출된 문서입니다. 총무 수동 승인으로 처리하시겠습니까?',
-                                            confirmLabel: '승인',
-                                            color: 'blue',
-                                            onConfirm: async () => {
-                                              const manualApprovalNote = isSubmitted ? null : '총무 수동 승인: 파일 미제출';
-                                              const res = await updateDocStatusAction({ success: false }, {
-                                                fcId: selectedFc.id,
-                                                docType: d.doc_type,
+                                  {(() => {
+                                    // Same decision flow the approve/reject toggle used.
+                                    const decide = async (val: 'approved' | 'pending') => {
+                                      const nextStatus = (val === 'approved' ? 'approved' : 'rejected') as 'approved' | 'rejected';
+                                      if (val !== 'approved') {
+                                        if (d.status === 'rejected') return;
+                                        openRejectModal({ kind: 'doc', doc: d });
+                                        return;
+                                      }
+                                      if (nextStatus === d.status) return;
+                                      if (nextStatus === 'approved') {
+                                        showConfirm({
+                                          title: '서류 승인',
+                                          message: isSubmitted
+                                            ? '문서를 승인하시겠습니까?'
+                                            : '파일이 미제출된 문서입니다. 총무 수동 승인으로 처리하시겠습니까?',
+                                          confirmLabel: '승인',
+                                          color: 'blue',
+                                          onConfirm: async () => {
+                                            const manualApprovalNote = isSubmitted ? null : '총무 수동 승인: 파일 미제출';
+                                            const res = await updateDocStatusAction({ success: false }, {
+                                              fcId: selectedFc.id,
+                                              docType: d.doc_type,
+                                              status: nextStatus,
+                                              reason: manualApprovalNote,
+                                            });
+                                            if (res.success) {
+                                              const receipt = requireDocumentStatusReceipt(res, {
                                                 status: nextStatus,
-                                                reason: manualApprovalNote,
+                                                reviewerNote: manualApprovalNote,
                                               });
-                                              if (res.success) {
-                                                const receipt = requireDocumentStatusReceipt(res, {
-                                                  status: nextStatus,
-                                                  reviewerNote: manualApprovalNote,
-                                                });
-                                                showAdminNotificationWarning(res);
-                                                notifications.show({ title: '승인', message: res.message, color: 'green' });
-                                                const nextDocs = (selectedFc.fc_documents || []).map((doc: FCDocument) =>
-                                                  doc.doc_type === d.doc_type
-                                                    ? { ...doc, status: receipt.status, reviewer_note: receipt.reviewerNote }
-                                                    : doc
-                                                );
-                                                let nextProfileStatus = selectedFc.status;
-                                                if (
-                                                  receipt.allApproved !== null
-                                                  && !DOCS_STAGE_LOCK_STATUSES.includes(selectedFc.status)
-                                                ) {
-                                                  nextProfileStatus = receipt.allApproved ? 'docs-approved' : 'docs-pending';
-                                                }
-                                                updateSelectedFc(
-                                                  receipt.allApproved === null
-                                                    ? { fc_documents: nextDocs }
-                                                    : nextProfileStatus === 'docs-pending'
-                                                    ? { ...buildDocWorkflowResetProfileFields(), fc_documents: nextDocs }
-                                                    : { fc_documents: nextDocs, status: nextProfileStatus },
-                                                );
-                                                queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
-                                              } else {
-                                                notifications.show({ title: '오류', message: res.error, color: 'red' });
+                                              showAdminNotificationWarning(res);
+                                              notifications.show({ title: '승인', message: res.message, color: 'green' });
+                                              const nextDocs = (selectedFc.fc_documents || []).map((doc: FCDocument) =>
+                                                doc.doc_type === d.doc_type
+                                                  ? { ...doc, status: receipt.status, reviewer_note: receipt.reviewerNote }
+                                                  : doc
+                                              );
+                                              let nextProfileStatus = selectedFc.status;
+                                              if (
+                                                receipt.allApproved !== null
+                                                && !DOCS_STAGE_LOCK_STATUSES.includes(selectedFc.status)
+                                              ) {
+                                                nextProfileStatus = receipt.allApproved ? 'docs-approved' : 'docs-pending';
                                               }
-                                            },
-                                          });
-                                          return;
-                                        }
-                                      }}
-                                      labelPending="미승인"
-                                      labelApproved="승인"
-                                      showNeutralForPending
-                                      allowPendingPress
-                                      readOnly={isReadOnly}
-                                      isManagerMode={isReadOnly}
-                                    />
-                                    <Tooltip label="삭제">
-                                      <ActionIcon aria-label="제출한 서류 파일 삭제"
-                                        variant="light"
-                                        color={isReadOnly ? "gray" : "red"}
-                                        size="input-xs"
-                                        disabled={isReadOnly || !isSubmitted}
-                                        onClick={() => handleDeleteDocFile(d)}
-                                      >
-                                        <IconTrash size={16} />
-                                      </ActionIcon>
-                                    </Tooltip>
-                                  </Group>
+                                              updateSelectedFc(
+                                                receipt.allApproved === null
+                                                  ? { fc_documents: nextDocs }
+                                                  : nextProfileStatus === 'docs-pending'
+                                                  ? { ...buildDocWorkflowResetProfileFields(), fc_documents: nextDocs }
+                                                  : { fc_documents: nextDocs, status: nextProfileStatus },
+                                              );
+                                              queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+                                            } else {
+                                              notifications.show({ title: '오류', message: res.error, color: 'red' });
+                                            }
+                                          },
+                                        });
+                                        return;
+                                      }
+                                    };
+                                    return (
+                                      <Group gap={4} wrap="nowrap">
+                                        <Tooltip label="열기">
+                                          <ActionIcon
+                                            aria-label="서류 열기"
+                                            variant="default"
+                                            color="gray"
+                                            radius="xl"
+                                            size={34}
+                                            disabled={!isSubmitted}
+                                            onClick={() => handleOpenDoc(d.storage_path ?? '')}
+                                          >
+                                            <IconFileText size={16} />
+                                          </ActionIcon>
+                                        </Tooltip>
+                                        <Tooltip label="승인">
+                                          <ActionIcon
+                                            aria-label="서류 승인"
+                                            variant={d.status === 'approved' ? 'filled' : 'light'}
+                                            color={isReadOnly ? 'gray' : 'teal'}
+                                            radius="xl"
+                                            size={34}
+                                            disabled={isReadOnly || d.status === 'approved'}
+                                            onClick={() => void decide('approved')}
+                                          >
+                                            <IconCheck size={16} />
+                                          </ActionIcon>
+                                        </Tooltip>
+                                        <Tooltip label="반려">
+                                          <ActionIcon
+                                            aria-label="서류 반려"
+                                            variant={d.status === 'rejected' ? 'filled' : 'light'}
+                                            color={isReadOnly ? 'gray' : 'red'}
+                                            radius="xl"
+                                            size={34}
+                                            disabled={isReadOnly || d.status === 'rejected'}
+                                            onClick={() => void decide('pending')}
+                                          >
+                                            <IconX size={16} />
+                                          </ActionIcon>
+                                        </Tooltip>
+                                        <Tooltip label="파일 삭제">
+                                          <ActionIcon
+                                            aria-label="제출한 서류 파일 삭제"
+                                            variant="light"
+                                            color={isReadOnly ? 'gray' : 'red'}
+                                            radius="xl"
+                                            size={34}
+                                            disabled={isReadOnly || !isSubmitted}
+                                            onClick={() => handleDeleteDocFile(d)}
+                                          >
+                                            <IconTrash size={16} />
+                                          </ActionIcon>
+                                        </Tooltip>
+                                      </Group>
+                                    );
+                                  })()}
                                 </Group>
                               </Group>
                             </Card>
@@ -3026,17 +3268,29 @@ export default function DashboardPage() {
                         제출된 서류가 없습니다.
                       </Text>
                     )}
-                  </Card>
-
-                  <Box>
-                    <Text fw={600} size="sm" mb="xs">
-                      필수 서류 요청 목록
-                    </Text>
-                    <Box mb="md">
-                      <Text size="xs" c="dimmed" fw={500} mb={6}>
-                        서류 마감일 (알림용)
+                  </section>
+                  <section className={fcm.section}>
+                    <div className={fcm.sectionHead}>
+                      <Text className={fcm.sectionTitle}>
+                        필수 서류 요청 목록
+                      </Text>
+                      <Button radius="xl"
+                      size="sm"
+                      leftSection={<IconDeviceFloppy size={14} />}
+                      color={isReadOnly ? 'gray' : 'orange'}
+                      disabled={isReadOnly}
+                      onClick={() => updateDocsRequestMutation.mutate({ types: selectedDocs, deadline: docsDeadlineInput })}
+                      loading={updateDocsRequestMutation.isPending}
+                    >
+                      요청 저장
+                    </Button>
+                    </div>
+                    <div className={fcm.fieldRow}>
+                      <Text className={fcm.fieldLabel}>
+                        <IconCalendarDue size={15} />서류 마감일 (알림용)
                       </Text>
                       <DateInput
+                        className={fcm.w200}
                         value={docsDeadlineInput}
                         onChange={handleDocsDeadlineChange}
                         placeholder="YYYY-MM-DD"
@@ -3069,7 +3323,7 @@ export default function DashboardPage() {
                           monthCell: { padding: 4 },
                         }}
                       />
-                    </Box>
+                    </div>
                     {(() => {
                       const submittedDocTypes = new Set(
                         (selectedFc.fc_documents ?? [])
@@ -3107,334 +3361,326 @@ export default function DashboardPage() {
                         </Chip.Group>
                       );
                     })()}
-                  </Box>
-
-                  <Group align="flex-end" gap={6}>
+                  <Group align="flex-end" gap={6} wrap="nowrap" style={{ maxWidth: 380 }}>
                     <TextInput
                       placeholder="기타 서류 입력"
+                      leftSection={<IconFilePlus size={15} />}
                       classNames={{ input: 'muted-placeholder-input' }}
                       style={{ flex: 1 }}
-                      size="xs"
+                      size="sm"
                       value={customDocInput}
+                      onKeyDown={(e) => {
+                        // Enter adds the document; ignore the Enter that finishes Korean IME composition.
+                        if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+                        e.preventDefault();
+                        handleAddCustomDoc();
+                      }}
                       onChange={(e) => {
                         const val = e.currentTarget?.value || '';
                         const cleaned = val.replace(/\u200B/g, '').trimStart();
                         setCustomDocInput(cleaned.trim().length === 0 ? '' : cleaned);
                       }}
                     />
-                    <Button
+                    <ActionIcon
+                      aria-label="기타 서류 추가"
                       variant="default"
-                      size="xs"
+                      color={isReadOnly ? 'gray' : 'dark'}
+                      radius="xl"
+                      size={34}
                       disabled={isReadOnly}
-                      onClick={() => {
-                        if (customDocInput.trim()) {
-                          const val = customDocInput.trim();
-                          if (!selectedDocs.includes(val)) {
-                            const nextDocs = [...selectedDocs, val];
-                            setSelectedDocs(nextDocs);
-                            updateDocsRequestMutation.mutate({ types: nextDocs, deadline: docsDeadlineInput });
-                          }
-                          setCustomDocInput('');
-                        }
-                      }}
+                      onClick={handleAddCustomDoc}
                     >
-                      추가
-                    </Button>
+                      <IconPlus size={16} />
+                    </ActionIcon>
                   </Group>
 
-                  <Button
-                    fullWidth
-                    color={isReadOnly ? "gray" : "orange"}
-                    mt="md"
-                    disabled={isReadOnly}
-                    onClick={() => updateDocsRequestMutation.mutate({ types: selectedDocs, deadline: docsDeadlineInput })}
-                    loading={updateDocsRequestMutation.isPending}
-                  >
-                    서류 요청 업데이트
-                  </Button>
-
-                  <Divider my="md" />
-
-                  <Text fw={600} size="sm" mb="xs">서류 심사 완료</Text>
-                  <StatusToggle
-                    value={['docs-approved', 'hanwha-commission-review', 'hanwha-commission-rejected', 'hanwha-commission-approved', 'appointment-completed', 'final-link-sent'].includes(selectedFc.status) ? 'approved' : 'pending'}
-                    onChange={(val) => {
-                      if (val === 'approved') {
-                        updateStatusMutation.mutate({
-                          status: 'docs-approved',
-                          title: '서류 검토 완료',
-                          msg: '서류 검토가 완료되었습니다. 다위촉 URL 단계로 진행해주세요.',
-                        });
-                        return;
-                      }
-                      showConfirm({
-                        title: '심사 완료 취소',
-                        message: '심사 완료 상태를 취소하시겠습니까?',
-                        confirmLabel: '취소',
-                        color: 'orange',
-                        onConfirm: () => {
+                  </section>
+                  {(() => {
+                    const docsReviewed = ['docs-approved', 'hanwha-commission-review', 'hanwha-commission-rejected', 'hanwha-commission-approved', 'appointment-completed', 'final-link-sent'].includes(selectedFc.status);
+                    const reviewLocked = isReadOnly || DOCS_STAGE_LOCK_STATUSES.includes(selectedFc.status);
+                    // Same transitions the review toggle used.
+                    const decideReview = (val: 'approved' | 'pending') => {
+                        if (val === 'approved') {
                           updateStatusMutation.mutate({
-                            status: 'docs-pending',
-                            msg: '',
-                            extra: buildDocWorkflowResetProfileFields(),
+                            status: 'docs-approved',
+                            title: '서류 검토 완료',
+                            msg: '서류 검토가 완료되었습니다. 다위촉 URL 단계로 진행해주세요.',
                           });
-                        },
-                      });
-                    }}
-                    labelPending="심사 대기"
-                    labelApproved="심사 완료"
-                    showNeutralForPending
-                    readOnly={isReadOnly || DOCS_STAGE_LOCK_STATUSES.includes(selectedFc.status)}
-                    isManagerMode={isReadOnly}
-                  />
+                          return;
+                        }
+                        showConfirm({
+                          title: '심사 완료 취소',
+                          message: '심사 완료 상태를 취소하시겠습니까?',
+                          confirmLabel: '취소',
+                          color: 'orange',
+                          onConfirm: () => {
+                            updateStatusMutation.mutate({
+                              status: 'docs-pending',
+                              msg: '',
+                              extra: buildDocWorkflowResetProfileFields(),
+                            });
+                          },
+                        });
+                    };
+                    return (
+                      <div className={fcm.footer}>
+                        <span className={fcm.footerStatus} data-done={docsReviewed || undefined}>
+                          <i />서류 심사 · {docsReviewed ? '심사 완료' : '심사 대기'}
+                        </span>
+                        {docsReviewed ? (
+                          <Button radius="xl" variant="default" color="gray" disabled={reviewLocked} onClick={() => decideReview('pending')}>
+                            심사 완료 취소
+                          </Button>
+                        ) : (
+                          <Button radius="xl" color="orange" leftSection={<IconCheck size={16} />} disabled={reviewLocked} onClick={() => decideReview('approved')}>
+                            서류 심사 완료
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </Stack>
               </Tabs.Panel>
 
               <Tabs.Panel value="hanwha">
-                <Stack gap="md">
-                  {(() => {
-                    const hanwhaStatus = getHanwhaStageStatus(selectedFc);
-                    const hanwhaDescription = getHanwhaStageDescription(selectedFc);
-
-                    return (
+                {(() => {
+                  const hanwhaStatus = getHanwhaStageStatus(selectedFc);
+                  const hanwhaDescription = getHanwhaStageDescription(selectedFc);
+                  const pdfApproved = hasHanwhaApprovedPdf(selectedFc);
+                  return (
+                    <Stack gap="md">
                       <Alert
                         color={hanwhaStatus?.color ?? 'blue'}
                         icon={<IconInfoCircle size={16} />}
-                        radius="md"
+                        radius="lg"
+                        py={10}
                       >
-                        <Text fw={700} size="sm" mb={4}>
+                        <Text fw={700} size="sm" mb={2}>
                           {hanwhaStatus?.label ?? '다위촉 URL 대기'}
                         </Text>
                         <Text size="xs">
                           {hanwhaDescription ?? '서류 승인이 끝나면 다위촉 URL 관리 단계가 열립니다.'}
                         </Text>
                       </Alert>
-                    );
-                  })()}
 
-                  <Box mt="md">
-                    <Group justify="space-between" mb="xs">
-                      <Text fw={600} size="sm">다위촉 URL 검토</Text>
-                      <Badge
-                        variant="light"
-                        color={selectedFc.hanwha_commission_date_sub ? 'green' : 'gray'}
-                        size="sm"
-                      >
-                        {selectedFc.hanwha_commission_date_sub ? '입력됨' : '미입력'}
-                      </Badge>
-                    </Group>
-                    <DateInput
-                      label="완료일(다위촉 URL)"
-                      value={hanwhaSubmittedDateInput}
-                      onChange={handleHanwhaSubmittedDateChange}
-                      placeholder="YYYY-MM-DD"
-                      valueFormat="YYYY-MM-DD"
-                      clearable={false}
-                      disabled={isReadOnly}
-                      radius="md"
-                      size="md"
-                      leftSection={<IconCalendar size={16} />}
-                      previousIcon={<IconChevronLeft size={16} />}
-                      nextIcon={<IconChevronRight size={16} />}
-                      popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
-                      styles={getModalDateInputStyles(isReadOnly)}
-                    />
-                    <Button
-                      fullWidth
-                      mt="sm"
-                      size="xs"
-                      color={isReadOnly ? 'gray' : 'orange'}
-                      variant="light"
-                      onClick={() => updateHanwhaSubmissionDateMutation.mutate()}
-                      loading={updateHanwhaSubmissionDateMutation.isPending}
-                      disabled={isReadOnly || !hanwhaSubmittedDateInput}
-                    >
-                      완료일 저장
-                    </Button>
-                    <Card withBorder radius="md" p="sm" mt="sm" bg={selectedFc.dawichok_url_sent_at ? 'teal.0' : 'orange.0'}>
-                      <Group justify="space-between" gap="xs" mb={4}>
-                        <Text size="xs" fw={700} c={selectedFc.dawichok_url_sent_at ? 'teal' : 'orange'}>
-                          다위촉 URL 발송 안내
-                        </Text>
-                        <Badge
-                          size="sm"
-                          color={selectedFc.dawichok_url_sent_at ? 'teal' : 'gray'}
-                          variant="light"
-                        >
-                          {selectedFc.dawichok_url_sent_at ? '발송됨' : '미발송'}
-                        </Badge>
-                      </Group>
-                      <Text size="xs" c="dimmed">
-                        FC에게 “카카오톡으로 전송된 다위촉 URL을 진행해 주세요.” 알림을 보냅니다.
-                      </Text>
-                      {selectedFc.dawichok_url_sent_at ? (
-                        <Text size="xs" c="dimmed" mt={4}>
-                          최근 발송: {dayjs(selectedFc.dawichok_url_sent_at).format('YYYY-MM-DD HH:mm')}
-                        </Text>
-                      ) : null}
-                      <Button
-                        fullWidth
-                        mt="xs"
-                        size="xs"
-                        color={isReadOnly ? 'gray' : 'teal'}
-                        variant="filled"
-                        leftSection={<IconSend size={14} />}
-                        onClick={() => markDawichokUrlSentMutation.mutate()}
-                        loading={markDawichokUrlSentMutation.isPending}
-                        disabled={isReadOnly || markDawichokUrlSentMutation.isPending}
-                      >
-                        {selectedFc.dawichok_url_sent_at ? 'URL 발송 알림 다시 보내기' : 'URL 발송 알림'}
-                      </Button>
-                    </Card>
-                    <input
-                      ref={hanwhaPdfUploadInputRef}
-                      type="file"
-                      accept="application/pdf"
-                      style={{ display: 'none' }}
-                      onChange={handleHanwhaPdfInputChange}
-                    />
-                    <Divider my="sm" />
-                    <Box
-                      p="sm"
-                      style={{
-                        borderRadius: 12,
-                        border: `1px solid ${hasHanwhaApprovedPdf(selectedFc) ? '#12b886' : '#FFD8A8'}`,
-                        backgroundColor: hasHanwhaApprovedPdf(selectedFc) ? '#F0FDF4' : '#FFF7ED',
-                      }}
-                    >
-                      <Group justify="space-between" mb={4}>
-                        <Text size="xs" fw={700} c={hasHanwhaApprovedPdf(selectedFc) ? 'teal' : 'orange'}>
-                          다위촉 URL PDF
-                        </Text>
-                        <Badge size="sm" color={hasHanwhaApprovedPdf(selectedFc) ? 'teal' : 'orange'} variant="light">
-                          {hasHanwhaApprovedPdf(selectedFc) ? '승인 완료' : '승인 대기'}
-                        </Badge>
-                      </Group>
-                      {!!selectedFc.hanwha_commission_pdf_name ? (
-                        <Text size="xs" c="dimmed" mb="xs">
-                          등록 파일: {selectedFc.hanwha_commission_pdf_name}
-                        </Text>
-                      ) : (
-                        <Text size="xs" c="dimmed" mb="xs">
-                          등록된 다위촉 URL PDF가 없습니다.
-                        </Text>
-                      )}
-                      <Group gap="xs">
-                        {!!selectedFc.hanwha_commission_pdf_path && (
-                          <Button
-                            size="xs"
-                            color="blue"
-                            variant="light"
-                            onClick={() => handleOpenDoc(selectedFc.hanwha_commission_pdf_path!)}
-                          >
-                            다위촉 URL PDF 보기
-                          </Button>
-                        )}
-                        {!!selectedFc.hanwha_commission_pdf_path && (
-                          <Button
-                            size="xs"
-                            color="red"
-                            variant="light"
-                            loading={isHanwhaPdfDeleting}
-                            onClick={handleDeleteHanwhaPdf}
-                            disabled={isReadOnly || isHanwhaPdfDeleting}
-                          >
-                            PDF 삭제
-                          </Button>
-                        )}
-                      </Group>
-                      <Button
-                        mt="xs"
-                        fullWidth
-                        size="xs"
-                        color={isReadOnly ? 'gray' : 'teal'}
-                        variant="light"
-                        loading={isHanwhaPdfUploading}
-                        disabled={isReadOnly || isHanwhaPdfUploading || !hanwhaSubmittedDateInput}
-                        onClick={handleApproveHanwha}
-                      >
-                        다위촉 URL PDF 업로드 및 승인
-                      </Button>
-                    </Box>
-                    {!!selectedFc.hanwha_commission_reject_reason && (
-                      <Textarea
-                        mt="sm"
-                        label="반려 사유"
-                        value={selectedFc.hanwha_commission_reject_reason}
-                        readOnly
-                        minRows={2}
+                      <section className={fcm.section}>
+                        <Text className={fcm.sectionTitle}>다위촉 URL 진행</Text>
+
+                        <div className={fcm.itemRow}>
+                          <Text className={fcm.fieldLabel}><IconCalendarCheck size={15} />완료일(다위촉 URL)</Text>
+                          <div className={fcm.fieldControl}>
+                            <DateInput
+                              aria-label="완료일(다위촉 URL)"
+                              className={fcm.w200}
+                              value={hanwhaSubmittedDateInput}
+                              onChange={handleHanwhaSubmittedDateChange}
+                              placeholder="YYYY-MM-DD"
+                              valueFormat="YYYY-MM-DD"
+                              clearable={false}
+                              disabled={isReadOnly}
+                              radius="lg"
+                              size="sm"
+                              leftSection={<IconCalendar size={16} />}
+                              previousIcon={<IconChevronLeft size={16} />}
+                              nextIcon={<IconChevronRight size={16} />}
+                              popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
+                              styles={getModalDateInputStyles(isReadOnly)}
+                            />
+                            <Tooltip label="완료일 저장" withArrow>
+                              <ActionIcon
+                                aria-label="완료일 저장"
+                                variant="default"
+                                color={isReadOnly ? 'gray' : 'dark'}
+                                radius="xl"
+                                size={34}
+                                onClick={() => updateHanwhaSubmissionDateMutation.mutate()}
+                                loading={updateHanwhaSubmissionDateMutation.isPending}
+                                disabled={isReadOnly || !hanwhaSubmittedDateInput}
+                              >
+                                <IconDeviceFloppy size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                          </div>
+                          <span className={fcm.itemState} data-done={selectedFc.hanwha_commission_date_sub ? true : undefined}>
+                            {selectedFc.hanwha_commission_date_sub ? '입력됨' : '미입력'}
+                          </span>
+                        </div>
+
+                        <div className={fcm.itemRow}>
+                          <Text className={fcm.fieldLabel}><IconSend size={15} />URL 발송 알림</Text>
+                          <div className={fcm.fieldControl}>
+                            <Text size="sm" c={selectedFc.dawichok_url_sent_at ? 'dark' : 'dimmed'}>
+                              {selectedFc.dawichok_url_sent_at
+                                ? `최근 발송: ${dayjs(selectedFc.dawichok_url_sent_at).format('YYYY-MM-DD HH:mm')}`
+                                : '아직 보내지 않았습니다.'}
+                            </Text>
+                            <Tooltip label="FC에게 “카카오톡으로 전송된 다위촉 URL을 진행해 주세요.” 알림을 보냅니다." multiline w={240} withArrow>
+                              <Button
+                                radius="xl"
+                                size="sm"
+                                variant="default"
+                                color={isReadOnly ? 'gray' : 'dark'}
+                                leftSection={<IconSend size={14} />}
+                                onClick={() => markDawichokUrlSentMutation.mutate()}
+                                loading={markDawichokUrlSentMutation.isPending}
+                                disabled={isReadOnly || markDawichokUrlSentMutation.isPending}
+                              >
+                                {selectedFc.dawichok_url_sent_at ? '다시 보내기' : '알림 보내기'}
+                              </Button>
+                            </Tooltip>
+                          </div>
+                          <span className={fcm.itemState} data-done={selectedFc.dawichok_url_sent_at ? true : undefined}>
+                            {selectedFc.dawichok_url_sent_at ? '발송됨' : '미발송'}
+                          </span>
+                        </div>
+
+                        <div className={fcm.itemRow}>
+                          <Text className={fcm.fieldLabel}><IconFileTypePdf size={15} />다위촉 URL PDF</Text>
+                          <div className={fcm.fieldControl}>
+                            <Text size="sm" c={selectedFc.hanwha_commission_pdf_name ? 'dark' : 'dimmed'} truncate maw={220}>
+                              {selectedFc.hanwha_commission_pdf_name
+                                ? `등록 파일: ${selectedFc.hanwha_commission_pdf_name}`
+                                : '등록된 다위촉 URL PDF가 없습니다.'}
+                            </Text>
+                            {!!selectedFc.hanwha_commission_pdf_path && (
+                              <Tooltip label="다위촉 URL PDF 보기" withArrow>
+                                <ActionIcon
+                                  aria-label="다위촉 URL PDF 보기"
+                                  variant="default"
+                                  color="gray"
+                                  radius="xl"
+                                  size={34}
+                                  onClick={() => handleOpenDoc(selectedFc.hanwha_commission_pdf_path!)}
+                                >
+                                  <IconFileText size={16} />
+                                </ActionIcon>
+                              </Tooltip>
+                            )}
+                            {!!selectedFc.hanwha_commission_pdf_path && (
+                              <Tooltip label="PDF 삭제" withArrow>
+                                <ActionIcon
+                                  aria-label="PDF 삭제"
+                                  variant="light"
+                                  color={isReadOnly ? 'gray' : 'red'}
+                                  radius="xl"
+                                  size={34}
+                                  loading={isHanwhaPdfDeleting}
+                                  onClick={handleDeleteHanwhaPdf}
+                                  disabled={isReadOnly || isHanwhaPdfDeleting}
+                                >
+                                  <IconTrash size={16} />
+                                </ActionIcon>
+                              </Tooltip>
+                            )}
+                          </div>
+                          <span className={fcm.itemState} data-done={pdfApproved || undefined}>
+                            {pdfApproved ? '승인 완료' : '승인 대기'}
+                          </span>
+                        </div>
+                      </section>
+
+                      <input
+                        ref={hanwhaPdfUploadInputRef}
+                        type="file"
+                        accept="application/pdf"
+                        style={{ display: 'none' }}
+                        onChange={handleHanwhaPdfInputChange}
                       />
-                    )}
-                  </Box>
-                </Stack>
-              </Tabs.Panel>
+                      {!!selectedFc.hanwha_commission_reject_reason && (
+                        <Textarea
+                          label="반려 사유"
+                          value={selectedFc.hanwha_commission_reject_reason}
+                          readOnly
+                          minRows={2}
+                        />
+                      )}
 
+                      <div className={fcm.footer}>
+                        <span className={fcm.footerStatus} data-done={pdfApproved || undefined}>
+                          <i />다위촉 · {hanwhaStatus?.label ?? '다위촉 URL 대기'}
+                        </span>
+                        <Button
+                          radius="xl"
+                          color={isReadOnly ? 'gray' : 'orange'}
+                          leftSection={<IconCheck size={16} />}
+                          loading={isHanwhaPdfUploading}
+                          disabled={isReadOnly || isHanwhaPdfUploading || !hanwhaSubmittedDateInput}
+                          onClick={handleApproveHanwha}
+                        >
+                          PDF 업로드 및 승인
+                        </Button>
+                      </div>
+                    </Stack>
+                  );
+                })()}
+              </Tabs.Panel>
               <Tabs.Panel value="appointment">
                 <Stack gap="md">
-                  <Card withBorder radius="md" p="md" bg="gray.0">
-                    <Group justify="space-between" mb="xs">
-                      <Text fw={600} size="sm">최종 완료 상태</Text>
-                      <Badge variant="light" color={commissionSummaryColor} size="sm">
-                        {commissionSummaryLabel}
-                      </Badge>
-                    </Group>
-                    <Text size="xs" c="dimmed">
-                      아래 승인 후 최종 완료 여부를 별도로 저장합니다.
-                    </Text>
-                    <Group gap="xs" wrap="wrap" mt="sm">
-                      <Chip
-                        checked={lifeCommissionSelected}
-                        onChange={() => handleCommissionToggle('life')}
-                        color="orange"
-                        variant={lifeCommissionSelected ? 'filled' : 'light'}
+                  <div className={fcm.bannerRow}>
+                    {([
+                      { key: 'life', label: '생명보험 위촉', icon: IconHeartbeat, selected: lifeCommissionSelected, date: selectedFc.appointment_date_life },
+                      { key: 'nonlife', label: '손해보험 위촉', icon: IconUmbrella, selected: nonlifeCommissionSelected, date: selectedFc.appointment_date_nonlife },
+                    ] as const).map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        className={fcm.banner}
+                        data-done={item.selected || undefined}
+                        aria-pressed={item.selected}
                         disabled={isReadOnly || updateCommissionMutation.isPending}
+                        onClick={() => handleCommissionToggle(item.key)}
                       >
-                        생명 최종 완료
-                      </Chip>
-                      <Chip
-                        checked={nonlifeCommissionSelected}
-                        onChange={() => handleCommissionToggle('nonlife')}
-                        color="blue"
-                        variant={nonlifeCommissionSelected ? 'filled' : 'light'}
-                        disabled={isReadOnly || updateCommissionMutation.isPending}
-                      >
-                        손해 최종 완료
-                      </Chip>
-                    </Group>
-                    <Button
-                      fullWidth
-                      mt="sm"
-                      size="xs"
-                      color={isReadOnly ? 'gray' : 'teal'}
-                      variant="light"
-                      onClick={() => updateCommissionMutation.mutate()}
-                      loading={updateCommissionMutation.isPending}
-                      disabled={isReadOnly}
-                    >
-                      최종 완료 상태 저장
-                    </Button>
-                  </Card>
+                        <span className={fcm.bannerIcon}><item.icon size={22} /></span>
+                        <span className={fcm.bannerText}>
+                          <span className={fcm.bannerLabel}>{item.label}</span>
+                          <span className={fcm.bannerState}>{item.selected ? '최종 완료' : '미완료'}</span>
+                          <span className={fcm.bannerMeta}>{item.date ? `확정일 ${dayjs(item.date).format('YYYY-MM-DD')}` : '확정일 없음'}</span>
+                        </span>
+                        <span className={fcm.bannerMark}>
+                          {item.selected ? <IconCircleCheckFilled size={26} /> : <IconCircleDashed size={26} />}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+
                   {canOpenInsuranceStage(selectedFc) ? (
-                    <Card withBorder radius="md" p="md" bg="gray.0">
-                      <Text fw={600} size="sm" mb="xs">생명/손해 위촉 심사 및 확정</Text>
+                    <Stack gap="sm">
                       {renderAppointmentSection('life')}
-                      <Divider my="sm" />
                       {renderAppointmentSection('nonlife')}
-                    </Card>
+                    </Stack>
                   ) : (
-                    <Alert color="yellow" icon={<IconInfoCircle size={16} />} radius="md">
+                    <Alert color="yellow" icon={<IconInfoCircle size={16} />} radius="lg">
                       <Text fw={700} size="sm" mb={4}>
                         생명/손해 위촉 관리 잠금
                       </Text>
-                        <Text size="xs">
-                          다위촉 URL PDF가 승인되어야 생명/손해 위촉 관리 탭을 열 수 있습니다.
-                        </Text>
+                      <Text size="xs">
+                        다위촉 URL PDF가 승인되어야 생명/손해 위촉 관리 탭을 열 수 있습니다.
+                      </Text>
                     </Alert>
                   )}
+
+                  <div className={fcm.footer}>
+                    <span className={fcm.footerStatus} data-done={commissionInput === 'both' || undefined}>
+                      <i />최종 완료 · {commissionSummaryLabel}
+                    </span>
+                    <Tooltip label="위 승인 후 최종 완료 여부를 별도로 저장합니다." withArrow>
+                      <Button
+                        radius="xl"
+                        color={isReadOnly ? 'gray' : 'orange'}
+                        leftSection={<IconCheck size={16} />}
+                        onClick={() => updateCommissionMutation.mutate()}
+                        loading={updateCommissionMutation.isPending}
+                        disabled={isReadOnly}
+                      >
+                        최종 완료 저장
+                      </Button>
+                    </Tooltip>
+                  </div>
                 </Stack>
               </Tabs.Panel>
 
 
+              </div>
             </Tabs>
           </>
         )}
