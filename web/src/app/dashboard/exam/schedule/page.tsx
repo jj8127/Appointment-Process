@@ -303,8 +303,14 @@ export default function ExamSchedulePage() {
     const deadlineCutoff = (dateStr: string) => dayjs(dateStr).endOf('day');
 
     const sortedRounds = sortExamRoundsNewestFirst(rounds ?? []);
+    const openRounds = sortedRounds.filter((round) => !dayjs().isAfter(deadlineCutoff(round.registration_deadline)));
+    // Table order: rounds still taking registrations first (nearest deadline first), then closed rounds newest first.
+    const tableRounds = [
+        ...[...openRounds].sort((a, b) => dayjs(a.registration_deadline).diff(dayjs(b.registration_deadline))),
+        ...sortedRounds.filter((round) => !openRounds.includes(round)),
+    ];
 
-    const rows = sortedRounds.map((round) => {
+    const rows = tableRounds.map((round) => {
         const cutoff = deadlineCutoff(round.registration_deadline);
         const now = dayjs();
         const isClosed = now.isAfter(cutoff);
@@ -386,7 +392,6 @@ export default function ExamSchedulePage() {
         );
     };
 
-    const openRounds = sortedRounds.filter((round) => !dayjs().isAfter(deadlineCutoff(round.registration_deadline)));
     const today = dayjs().startOf('day');
     const nextExam = sortedRounds
         .filter((round) => round.exam_date && !dayjs(round.exam_date).isBefore(today))
