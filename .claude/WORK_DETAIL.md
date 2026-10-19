@@ -15,6 +15,9 @@
 - 운영 DB: 사용자 승인으로 `fc_documents`의 깨진 서류명 1행(U+FFFD 포함)을 `제3보험 수료증(경력)`으로 고쳤다. 정확히 1행일 때만 적용, 같은 이름 중복 없음 확인, 이후 깨진 행 0건.
 - 검증: 합성 데이터 fixture(포트 4320, scratchpad, 파일별 CSS module 스코프 로더)로 화면 캡처, 실제 데이터는 worktree에 `.env.local`을 복사해 `next dev --webpack`(포트 3201)로 사용자가 확인. tsc·eslint 통과, web node 814개 중 813 통과(실패 1건은 기준선부터 있던 referral-graph 범례 시험). 테스트 mock 정리: `board-read-state-runtime`·`chat-session-runtime`·`agent-room`(삭제)에 CSS module 일반 처리, 공지 테스트에 게시판 API mock 추가·빈 목록 문구 `등록된 글이 없습니다.`로 변경.
 - 남은 것: 실제 DB에서 승인·저장 쓰기 동작과 게시글 첨부 미리보기는 사용자 확인 전. 로컬 dev에서 `/api/fc-notify` 403 반복(127.0.0.1·localhost 출처 불일치 추정, 미확인).
+- 후속: 모든 달력은 `lib/calendar-theme.ts`로 헤더를 [연·월 라벨][이전][다음] 순서로 두고 라벨을 눌러 월·연 선택으로 올라간다. 게시글 첨부 상세 조회가 실패하면 문구를 보이고 같은 버튼이 재시도한다(`330c541b`). 상단 그룹 바에 마우스를 올리면 모든 묶음의 하위 페이지가 탭 아래 열로 펼쳐지고, 각 탭은 열 폭(176px)으로 넓어져 바가 같은 폭으로 늘어난다(제자리 폭은 유지하고 넓어진 바는 위에 뜸, `54e3db72`).
+- 로컬 `/api/fc-notify` 403은 dev 서버가 `req.url` host를 localhost로, Host 헤더를 127.0.0.1로 받아 same-origin 검사가 실패한 로컬 전용 문제였다. 실데이터 dev 서버는 `-H localhost`, 접속 주소 `http://localhost:3201`로 바꿨다.
+- 배포(사용자 승인): 운영 직전 배포 `6e43670f`(2026-10-17)는 이 브랜치의 조상이다. 따라서 이 배포는 `6e43670f..f32fd9cd`의 release 계열 32커밋도 함께 운영에 올린다(supabase migration 차이 없음). `origin/main`은 운영과 다른 계열이라 합치지 않았다. 검사: lint 0 error(기존 경고 1), web tsc, web 시험 813/814(기존 범례 1), 깨끗한 임시 worktree에서 `npm ci` 후 Sentry 업로드를 끈 `npm run build` 통과(이 worktree의 `web/node_modules`는 메인 checkout 링크라 Turbopack이 거부). 브랜치 push 후 `vercel deploy --prod --archive=tgz`로 `dpl_G8kcqUV6rnKhtRAS9kGf1tujPmuC`(meta gitCommitSha `54e3db72d29f2e22ddc3b59f121021426d1ea06e`) READY, alias `adminweb-red.vercel.app`(프로젝트 유일 도메인). 비로그인 응답: `/auth` 200, `/`·`/dashboard`·공지·게시판·시험 일정·서류·에이전트 룸 경로는 `/auth`로 307, 삭제한 `/api/admin/agent-room` 404. 배포 후 Vercel 오류 로그 0건, Sentry 최근 30분 이슈 0건. 로그인한 상태의 화면과 쓰기 동작은 확인하지 못했다.
 
 <a id="20261019-messenger-unified-line-integration"></a>
 ## 2026-10-19 운영 메신저 통합 모델 계열 통합
