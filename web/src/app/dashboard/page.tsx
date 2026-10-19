@@ -33,6 +33,7 @@ import {
   Pagination,
   Paper,
   ScrollArea,
+  SegmentedControl,
   SimpleGrid,
   Stack,
   Table,
@@ -48,14 +49,24 @@ import {
 import { DateInput } from '@mantine/dates';
 import { useDisclosure } from '@mantine/hooks';
 import {
+  IconBriefcase,
   IconCalendar,
+  IconCalendarCheck,
+  IconCalendarDue,
+  IconCalendarEvent,
+  IconCertificate,
   IconCheck,
   IconChevronLeft,
   IconChevronRight,
+  IconCircleCheckFilled,
+  IconCircleDashed,
   IconDeviceFloppy,
   IconEdit,
+  IconFilePlus,
   IconFileText,
-  IconCertificate,
+  IconFileTypePdf,
+  IconHeartbeat,
+  IconId,
   IconInfoCircle,
   IconLink,
   IconPlus,
@@ -64,6 +75,7 @@ import {
   IconSend,
   IconShieldCheck,
   IconTrash,
+  IconUmbrella,
   IconUser,
   IconX,
 } from '@tabler/icons-react';
@@ -1820,7 +1832,7 @@ export default function DashboardPage() {
           </Group>
         </div>
         <div className={fcm.itemRow}>
-          <Text className={fcm.fieldLabel}>예정(Plan)</Text>
+          <Text className={fcm.fieldLabel}><IconCalendarEvent size={15} />예정(Plan)</Text>
           <div className={fcm.fieldControl}>
             <TextInput
               aria-label={`${sectionTitle} 예정(Plan)`}
@@ -1853,7 +1865,7 @@ export default function DashboardPage() {
           <span />
         </div>
         <div className={fcm.itemRow}>
-          <Text className={fcm.fieldLabel}>확정일(Actual)</Text>
+          <Text className={fcm.fieldLabel}><IconCalendarCheck size={15} />확정일(Actual)</Text>
           <div className={fcm.fieldControl}>
             <DateInput
               aria-label={`${sectionTitle} 확정일(Actual)`}
@@ -1886,7 +1898,7 @@ export default function DashboardPage() {
             <Tooltip label="완료일 저장" withArrow>
               <ActionIcon
                 aria-label={`${sectionTitle} 완료일 저장`}
-                variant="light"
+                variant="default"
                 color={isReadOnly ? 'gray' : 'dark'}
                 radius="xl"
                 size={34}
@@ -1906,7 +1918,7 @@ export default function DashboardPage() {
         </div>
         <div className={fcm.apptFoot}>
           <Button
-            variant="subtle"
+            variant="light"
             color={isReadOnly ? 'gray' : 'red'}
             radius="xl"
             size="sm"
@@ -2750,12 +2762,12 @@ export default function DashboardPage() {
                       <section className={fcm.section}>
                         <div className={fcm.sectionHead}>
                           <Text className={fcm.sectionTitle}>입력 정보</Text>
-                          <Button radius="xl" size="xs" variant="white" leftSection={<IconDeviceFloppy size={14} />} onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} disabled={isReadOnly || (selectedFc.status !== 'draft' && selectedFc.status !== 'temp-id-issued' && selectedFc.status !== 'allowance-pending')} color={isReadOnly ? "gray" : "dark"}>
+                          <Button radius="xl" size="sm" variant="default" leftSection={<IconDeviceFloppy size={14} />} onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} disabled={isReadOnly || (selectedFc.status !== 'draft' && selectedFc.status !== 'temp-id-issued' && selectedFc.status !== 'allowance-pending')} color={isReadOnly ? "gray" : "dark"}>
                             저장
                           </Button>
                         </div>
                         <div className={fcm.fieldRow}>
-                          <Text className={fcm.fieldLabel}>임시사번</Text>
+                          <Text className={fcm.fieldLabel}><IconId size={15} />임시사번</Text>
                           <div className={fcm.fieldControl}>
                             <TextInput
                               aria-label="임시사번"
@@ -2772,7 +2784,7 @@ export default function DashboardPage() {
                               <Tooltip label="조회중 단계로 되돌리기 · 잘못 입력한 임시사번을 비우고 이전 단계로 되돌릴 때 사용합니다." multiline w={240} withArrow>
                                 <ActionIcon
                                   aria-label="조회중 단계로 되돌리기"
-                                  variant="white"
+                                  variant="default"
                                   color="gray"
                                   radius="xl"
                                   size={34}
@@ -2795,21 +2807,20 @@ export default function DashboardPage() {
                         </div>
                         <div className={fcm.fieldRow}>
                           <Text className={fcm.fieldLabel}>
-                            경력 구분 {careerInput === null && <Text span c="red" size="xs">(선택 필요)</Text>}
+                            <IconBriefcase size={15} />경력 구분 {careerInput === null && <Text span c="red" size="xs">(선택 필요)</Text>}
                           </Text>
-                          <Chip.Group value={careerInput || ''} onChange={(v) => setCareerInput(v as '신입' | '경력' | null)}>
-                              <Group gap="xs">
-                                <Chip value="신입" color="orange" variant="light">
-                                  신입
-                                </Chip>
-                                <Chip value="경력" color="blue" variant="light">
-                                  경력
-                                </Chip>
-                              </Group>
-                            </Chip.Group>
+                          <SegmentedControl
+                            aria-label="경력 구분"
+                            value={careerInput ?? ''}
+                            onChange={(v) => setCareerInput(v as '신입' | '경력')}
+                            data={['신입', '경력']} color="dark"
+                            radius="xl"
+                            size="sm"
+                            className={fcm.segment}
+                          />
                         </div>
                         <div className={fcm.fieldRow}>
-                          <Text className={fcm.fieldLabel}>보증보험 조회 동의일</Text>
+                          <Text className={fcm.fieldLabel}><IconCalendarCheck size={15} />보증보험 조회 동의일</Text>
                           <div className={fcm.fieldControl}>
                             <Box className={fcm.w200}>
                               <DateInput
@@ -2862,8 +2873,8 @@ export default function DashboardPage() {
                             <ActionIcon
                               aria-label="FC 삭제"
                               radius="xl"
-                              size={36}
-                              variant="subtle"
+                              size={34}
+                              variant="light"
                               color={isReadOnly ? 'gray' : 'red'}
                               disabled={isReadOnly}
                               onClick={() => {
@@ -2887,8 +2898,8 @@ export default function DashboardPage() {
                             <ActionIcon
                               aria-label="재촉 알림"
                               radius="xl"
-                              size={36}
-                              variant="subtle"
+                              size={34}
+                              variant="default"
                               color={isReadOnly ? 'gray' : 'dark'}
                               loading={reminderPending}
                               disabled={isReadOnly || reminderPending}
@@ -2956,7 +2967,7 @@ export default function DashboardPage() {
                         <Group gap="xs">
                           <Button
                             radius="xl"
-                            variant="subtle"
+                            variant="light"
                             color={isReadOnly ? 'gray' : 'red'}
                             disabled={allowanceStateDisabled || allowanceDisplay.key === 'rejected'}
                             onClick={() => openRejectModal({ kind: 'allowance' })}
@@ -2965,7 +2976,7 @@ export default function DashboardPage() {
                           </Button>
                           <Button
                             radius="xl"
-                            variant="light"
+                            variant="default"
                             color="dark"
                             leftSection={<IconSend size={16} />}
                             disabled={allowanceStateDisabled}
@@ -3121,10 +3132,10 @@ export default function DashboardPage() {
                                         <Tooltip label="열기">
                                           <ActionIcon
                                             aria-label="서류 열기"
-                                            variant="light"
+                                            variant="default"
                                             color="gray"
                                             radius="xl"
-                                            size={32}
+                                            size={34}
                                             disabled={!isSubmitted}
                                             onClick={() => handleOpenDoc(d.storage_path ?? '')}
                                           >
@@ -3137,7 +3148,7 @@ export default function DashboardPage() {
                                             variant={d.status === 'approved' ? 'filled' : 'light'}
                                             color={isReadOnly ? 'gray' : 'teal'}
                                             radius="xl"
-                                            size={32}
+                                            size={34}
                                             disabled={isReadOnly || d.status === 'approved'}
                                             onClick={() => void decide('approved')}
                                           >
@@ -3150,7 +3161,7 @@ export default function DashboardPage() {
                                             variant={d.status === 'rejected' ? 'filled' : 'light'}
                                             color={isReadOnly ? 'gray' : 'red'}
                                             radius="xl"
-                                            size={32}
+                                            size={34}
                                             disabled={isReadOnly || d.status === 'rejected'}
                                             onClick={() => void decide('pending')}
                                           >
@@ -3160,10 +3171,10 @@ export default function DashboardPage() {
                                         <Tooltip label="파일 삭제">
                                           <ActionIcon
                                             aria-label="제출한 서류 파일 삭제"
-                                            variant="subtle"
+                                            variant="light"
                                             color={isReadOnly ? 'gray' : 'red'}
                                             radius="xl"
-                                            size={32}
+                                            size={34}
                                             disabled={isReadOnly || !isSubmitted}
                                             onClick={() => handleDeleteDocFile(d)}
                                           >
@@ -3191,7 +3202,7 @@ export default function DashboardPage() {
                         필수 서류 요청 목록
                       </Text>
                       <Button radius="xl"
-                      size="xs"
+                      size="sm"
                       leftSection={<IconDeviceFloppy size={14} />}
                       color={isReadOnly ? "gray" : "dark"}
                       disabled={isReadOnly}
@@ -3203,7 +3214,7 @@ export default function DashboardPage() {
                     </div>
                     <div className={fcm.fieldRow}>
                       <Text className={fcm.fieldLabel}>
-                        서류 마감일 (알림용)
+                        <IconCalendarDue size={15} />서류 마감일 (알림용)
                       </Text>
                       <DateInput
                         className={fcm.w200}
@@ -3280,6 +3291,7 @@ export default function DashboardPage() {
                   <Group align="flex-end" gap={6} wrap="nowrap" style={{ maxWidth: 380 }}>
                     <TextInput
                       placeholder="기타 서류 입력"
+                      leftSection={<IconFilePlus size={15} />}
                       classNames={{ input: 'muted-placeholder-input' }}
                       style={{ flex: 1 }}
                       size="xs"
@@ -3295,7 +3307,7 @@ export default function DashboardPage() {
                       variant="filled"
                       color={isReadOnly ? 'gray' : 'dark'}
                       radius="xl"
-                      size={30}
+                      size={34}
                       disabled={isReadOnly}
                       onClick={() => {
                         if (customDocInput.trim()) {
@@ -3347,7 +3359,7 @@ export default function DashboardPage() {
                           <i />서류 심사 · {docsReviewed ? '심사 완료' : '심사 대기'}
                         </span>
                         {docsReviewed ? (
-                          <Button radius="xl" variant="subtle" color="gray" disabled={reviewLocked} onClick={() => decideReview('pending')}>
+                          <Button radius="xl" variant="default" color="gray" disabled={reviewLocked} onClick={() => decideReview('pending')}>
                             심사 완료 취소
                           </Button>
                         ) : (
@@ -3386,7 +3398,7 @@ export default function DashboardPage() {
                         <Text className={fcm.sectionTitle}>다위촉 URL 진행</Text>
 
                         <div className={fcm.itemRow}>
-                          <Text className={fcm.fieldLabel}>완료일(다위촉 URL)</Text>
+                          <Text className={fcm.fieldLabel}><IconCalendarCheck size={15} />완료일(다위촉 URL)</Text>
                           <div className={fcm.fieldControl}>
                             <DateInput
                               aria-label="완료일(다위촉 URL)"
@@ -3426,7 +3438,7 @@ export default function DashboardPage() {
                         </div>
 
                         <div className={fcm.itemRow}>
-                          <Text className={fcm.fieldLabel}>URL 발송 알림</Text>
+                          <Text className={fcm.fieldLabel}><IconSend size={15} />URL 발송 알림</Text>
                           <div className={fcm.fieldControl}>
                             <Text size="sm" c={selectedFc.dawichok_url_sent_at ? 'dark' : 'dimmed'}>
                               {selectedFc.dawichok_url_sent_at
@@ -3436,8 +3448,8 @@ export default function DashboardPage() {
                             <Tooltip label="FC에게 “카카오톡으로 전송된 다위촉 URL을 진행해 주세요.” 알림을 보냅니다." multiline w={240} withArrow>
                               <Button
                                 radius="xl"
-                                size="xs"
-                                variant="light"
+                                size="sm"
+                                variant="default"
                                 color={isReadOnly ? 'gray' : 'dark'}
                                 leftSection={<IconSend size={14} />}
                                 onClick={() => markDawichokUrlSentMutation.mutate()}
@@ -3454,7 +3466,7 @@ export default function DashboardPage() {
                         </div>
 
                         <div className={fcm.itemRow}>
-                          <Text className={fcm.fieldLabel}>다위촉 URL PDF</Text>
+                          <Text className={fcm.fieldLabel}><IconFileTypePdf size={15} />다위촉 URL PDF</Text>
                           <div className={fcm.fieldControl}>
                             <Text size="sm" c={selectedFc.hanwha_commission_pdf_name ? 'dark' : 'dimmed'} truncate maw={220}>
                               {selectedFc.hanwha_commission_pdf_name
@@ -3465,10 +3477,10 @@ export default function DashboardPage() {
                               <Tooltip label="다위촉 URL PDF 보기" withArrow>
                                 <ActionIcon
                                   aria-label="다위촉 URL PDF 보기"
-                                  variant="light"
+                                  variant="default"
                                   color="gray"
                                   radius="xl"
-                                  size={30}
+                                  size={34}
                                   onClick={() => handleOpenDoc(selectedFc.hanwha_commission_pdf_path!)}
                                 >
                                   <IconFileText size={16} />
@@ -3479,10 +3491,10 @@ export default function DashboardPage() {
                               <Tooltip label="PDF 삭제" withArrow>
                                 <ActionIcon
                                   aria-label="PDF 삭제"
-                                  variant="subtle"
+                                  variant="light"
                                   color={isReadOnly ? 'gray' : 'red'}
                                   radius="xl"
-                                  size={30}
+                                  size={34}
                                   loading={isHanwhaPdfDeleting}
                                   onClick={handleDeleteHanwhaPdf}
                                   disabled={isReadOnly || isHanwhaPdfDeleting}
@@ -3535,6 +3547,33 @@ export default function DashboardPage() {
               </Tabs.Panel>
               <Tabs.Panel value="appointment">
                 <Stack gap="md">
+                  <div className={fcm.bannerRow}>
+                    {([
+                      { key: 'life', label: '생명보험 위촉', icon: IconHeartbeat, selected: lifeCommissionSelected, date: selectedFc.appointment_date_life },
+                      { key: 'nonlife', label: '손해보험 위촉', icon: IconUmbrella, selected: nonlifeCommissionSelected, date: selectedFc.appointment_date_nonlife },
+                    ] as const).map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        className={fcm.banner}
+                        data-done={item.selected || undefined}
+                        aria-pressed={item.selected}
+                        disabled={isReadOnly || updateCommissionMutation.isPending}
+                        onClick={() => handleCommissionToggle(item.key)}
+                      >
+                        <span className={fcm.bannerIcon}><item.icon size={22} /></span>
+                        <span className={fcm.bannerText}>
+                          <span className={fcm.bannerLabel}>{item.label}</span>
+                          <span className={fcm.bannerState}>{item.selected ? '최종 완료' : '미완료'}</span>
+                          <span className={fcm.bannerMeta}>{item.date ? `확정일 ${dayjs(item.date).format('YYYY-MM-DD')}` : '확정일 없음'}</span>
+                        </span>
+                        <span className={fcm.bannerMark}>
+                          {item.selected ? <IconCircleCheckFilled size={26} /> : <IconCircleDashed size={26} />}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+
                   {canOpenInsuranceStage(selectedFc) ? (
                     <Stack gap="sm">
                       {renderAppointmentSection('life')}
@@ -3555,38 +3594,18 @@ export default function DashboardPage() {
                     <span className={fcm.footerStatus} data-done={commissionInput === 'both' || undefined}>
                       <i />최종 완료 · {commissionSummaryLabel}
                     </span>
-                    <Group gap="xs">
-                      <Chip
-                        checked={lifeCommissionSelected}
-                        onChange={() => handleCommissionToggle('life')}
-                        color="orange"
-                        variant={lifeCommissionSelected ? 'filled' : 'light'}
-                        disabled={isReadOnly || updateCommissionMutation.isPending}
+                    <Tooltip label="위 승인 후 최종 완료 여부를 별도로 저장합니다." withArrow>
+                      <Button
+                        radius="xl"
+                        color={isReadOnly ? 'gray' : 'dark'}
+                        leftSection={<IconCheck size={16} />}
+                        onClick={() => updateCommissionMutation.mutate()}
+                        loading={updateCommissionMutation.isPending}
+                        disabled={isReadOnly}
                       >
-                        생명 최종 완료
-                      </Chip>
-                      <Chip
-                        checked={nonlifeCommissionSelected}
-                        onChange={() => handleCommissionToggle('nonlife')}
-                        color="blue"
-                        variant={nonlifeCommissionSelected ? 'filled' : 'light'}
-                        disabled={isReadOnly || updateCommissionMutation.isPending}
-                      >
-                        손해 최종 완료
-                      </Chip>
-                      <Tooltip label="위 승인 후 최종 완료 여부를 별도로 저장합니다." withArrow>
-                        <Button
-                          radius="xl"
-                          color={isReadOnly ? 'gray' : 'dark'}
-                          leftSection={<IconCheck size={16} />}
-                          onClick={() => updateCommissionMutation.mutate()}
-                          loading={updateCommissionMutation.isPending}
-                          disabled={isReadOnly}
-                        >
-                          최종 완료 저장
-                        </Button>
-                      </Tooltip>
-                    </Group>
+                        최종 완료 저장
+                      </Button>
+                    </Tooltip>
                   </div>
                 </Stack>
               </Tabs.Panel>
