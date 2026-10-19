@@ -31,9 +31,11 @@ export function mapNotificationCategoryToAppPushCategory(
   if (category === 'request_board_message') return 'messages';
   if (category.startsWith(REQUEST_BOARD_CATEGORY_PREFIX)) return 'request_activity';
   if (category === 'message' || category.endsWith(MESSAGE_CATEGORY_SUFFIX)) return 'messages';
+  // Board posts (공지·가람pick·일반 게시글) follow the user's 공지 알림 switch.
   if (
     category === 'notice'
     || category === 'notices'
+    || category === 'board_post'
     || category.includes('announcement')
     || category.includes('notice')
     || category.includes('공지')

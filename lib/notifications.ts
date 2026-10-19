@@ -3,6 +3,7 @@ import { Linking, Platform } from 'react-native';
 
 import { logger } from './logger';
 import { getStoredAppSessionToken } from './request-board-api';
+import { safeStorage } from './safe-storage';
 import { supabase } from './supabase';
 
 let handlerSet = false;
@@ -28,6 +29,16 @@ export type PushTokenUnregisterResult =
   | { ok: false; retryable: boolean; reason: 'session_unavailable' | 'unregister_failed' };
 
 const PUSH_TOKEN_UNREGISTER_TIMEOUT_MS = 5_000;
+// The Expo token this device last registered, so logout can remove only this device.
+const REGISTERED_EXPO_TOKEN_KEY = 'garamin.push.registeredExpoToken';
+
+async function readRegisteredExpoToken() {
+  try {
+    return (await safeStorage.getItem(REGISTERED_EXPO_TOKEN_KEY))?.trim() || null;
+  } catch {
+    return null;
+  }
+}
 
 export async function getPushPermissionStatus(): Promise<PushPermissionStatus> {
   if (Platform.OS === 'web') return 'unavailable';
@@ -52,19 +63,16 @@ export async function openPushNotificationSettings() {
   }
 }
 
-export async function unregisterAllPushTokens(
-  providedSessionToken?: string,
+async function deletePushTokens(
+  sessionToken: string,
+  body: { disableAll: true } | { expoPushToken: string },
 ): Promise<PushTokenUnregisterResult> {
-  const sessionToken = providedSessionToken?.trim() || await getStoredAppSessionToken();
-  if (!sessionToken) {
-    return { ok: false, retryable: true, reason: 'session_unavailable' };
-  }
   try {
     const { data, error } = await supabase.functions.invoke<{ ok?: boolean }>(
       'device-token-register',
       {
         method: 'DELETE',
-        body: { disableAll: true },
+        body,
         headers: { 'x-app-session-token': sessionToken },
         timeout: PUSH_TOKEN_UNREGISTER_TIMEOUT_MS,
       },
@@ -75,6 +83,40 @@ export async function unregisterAllPushTokens(
   } catch {
     return { ok: false, retryable: true, reason: 'unregister_failed' };
   }
+}
+
+/** Global push OFF: removes every device token of the signed actor. */
+export async function unregisterAllPushTokens(
+  providedSessionToken?: string,
+): Promise<PushTokenUnregisterResult> {
+  const sessionToken = providedSessionToken?.trim() || await getStoredAppSessionToken();
+  if (!sessionToken) {
+    return { ok: false, retryable: true, reason: 'session_unavailable' };
+  }
+  return deletePushTokens(sessionToken, { disableAll: true });
+}
+
+/**
+ * Logout: removes only this device's token so the account's other devices keep
+ * receiving push. Without a remembered token, every token is removed so a
+ * logged-out device never keeps receiving the account's notifications.
+ */
+export async function unregisterDevicePushToken(
+  providedSessionToken?: string,
+): Promise<PushTokenUnregisterResult> {
+  const sessionToken = providedSessionToken?.trim() || await getStoredAppSessionToken();
+  if (!sessionToken) {
+    return { ok: false, retryable: true, reason: 'session_unavailable' };
+  }
+  const expoPushToken = await readRegisteredExpoToken();
+  const result = await deletePushTokens(
+    sessionToken,
+    expoPushToken ? { expoPushToken } : { disableAll: true },
+  );
+  if (result.ok && expoPushToken) {
+    await safeStorage.removeItem(REGISTERED_EXPO_TOKEN_KEY).catch(() => undefined);
+  }
+  return result;
 }
 
 export async function registerPushToken(
@@ -183,6 +225,7 @@ export async function registerPushToken(
       logger.warn('[push] trusted register failed', { reason: 'registration_failed' });
       return { ok: false, retryable: true, reason: 'registration_failed' };
     }
+    await safeStorage.setItem(REGISTERED_EXPO_TOKEN_KEY, expoToken).catch(() => undefined);
     return { ok: true, retryable: false, reason: 'registered' };
   } catch {
     logger.warn('registerPushToken failed', { reason: 'registration_failed' });

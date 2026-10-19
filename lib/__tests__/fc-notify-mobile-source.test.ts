@@ -127,14 +127,20 @@ describe('fc-notify mobile source ownership', () => {
     expect(source).not.toContain('if (!data?.ok)');
   });
 
-  it('builds direct-chat URLs and sender metadata for every message recipient role', () => {
+  it('builds direct-chat URLs for every message recipient role without phone or name push data', () => {
     const source = readFileSync(edgeFunctionPath, 'utf8');
 
     expect(source).toContain("body.type === 'message' && !body.url && body.sender_id?.trim()");
     expect(source).not.toContain("body.type === 'message' && target_role === 'admin' && !body.url");
     expect(source).toContain('url = `/chat?targetId=${encodeURIComponent(body.sender_id)}&targetName=${encodeURIComponent(resolvedSenderName)}`');
-    expect(source).toContain('sender_id: body.sender_id.trim()');
-    expect(source).toContain("sender_name: redactSensitiveText(body.sender_name ?? '', '')");
+    // The app opens a push by notificationId + target; Expo/APNs/FCM never get phones or names.
+    const pushDataBlocks = [...source.matchAll(/to: t\.expo_push_token,[\s\S]*?\n\s*data: \{([\s\S]*?)\n\s*\},\n/g)]
+      .map((match) => match[1]);
+    expect(pushDataBlocks.length).toBeGreaterThanOrEqual(2);
+    for (const data of pushDataBlocks) {
+      expect(data).toContain('notificationId');
+      expect(data).not.toMatch(/\b(resident_id|sender_id|sender_name|name|phone):/);
+    }
   });
 
   it('routes approval and approval release through the server transition that sends push after commit', () => {

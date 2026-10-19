@@ -25,6 +25,14 @@ describe('session push registration retry boundary', () => {
     expect(source).toContain('lastPushRegistrationKeyRef.current = null;');
   });
 
+  test('never opens the OS permission prompt at app start', () => {
+    // Only the notification settings switch may request permission (registerPushToken
+    // with requestPermission); the root layout only creates the Android channel.
+    const layoutSource = fs.readFileSync(path.join(root, 'app', '_layout.tsx'), 'utf8');
+    expect(layoutSource).not.toContain('requestPermissionsAsync');
+    expect(layoutSource).toContain('setNotificationChannelAsync(ALERTS_CHANNEL_ID');
+  });
+
   test('keeps one global registration owner instead of a second home-screen attempt loop', () => {
     expect(source).toContain("state.requestBoardRole === 'designer'");
     expect(source).toContain("? 'manager'");

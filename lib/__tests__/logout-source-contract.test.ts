@@ -40,6 +40,7 @@ describe('explicit mobile logout source contract', () => {
 
     expect(source).toContain('startSessionLogout({');
     expect(source).toContain('sessionToken: appSessionToken');
-    expect(source).toContain('unregisterPushTokens: unregisterAllPushTokens');
+    // Logout removes only this device's token; global OFF owns the all-device delete.
+    expect(source).toContain('unregisterPushTokens: unregisterDevicePushToken');
   });
 });

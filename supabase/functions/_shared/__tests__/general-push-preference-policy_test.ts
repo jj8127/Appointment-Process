@@ -15,6 +15,8 @@ Deno.test('maps raw notification categories into the four app push categories', 
     ['request_board_arbitrary', 'request_activity'],
     ['notice', 'notices'],
     ['공지사항', 'notices'],
+    ['board_post', 'notices'],
+    ['board_comment_like', 'operations'],
     ['exam_apply', 'operations'],
     ['app_event', 'operations'],
   ]);

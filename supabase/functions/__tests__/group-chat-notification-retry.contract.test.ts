@@ -165,9 +165,7 @@ describe('group-chat notification-only retry contract', () => {
     expect(notify).toContain(
       'collectGroupChatDataApiBatches(legacyActorIds',
     );
-    expect(notify).toContain(
-      'collectGroupChatDataApiBatches(\n    recipientPhones',
-    );
+    expect(notify).toMatch(/collectGroupChatDataApiBatches\(\s*recipientPhones/);
     expect(notify).not.toContain(".in('actor_id', immutableActorIds)");
     expect(notify).not.toContain(".in('resident_id', recipientPhones)");
   });

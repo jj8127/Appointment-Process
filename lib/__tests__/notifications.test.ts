@@ -43,12 +43,22 @@ jest.mock('../supabase', () => ({
   supabase: { functions: { invoke: invokeMock } },
 }));
 
+const storedValues = new Map<string, string>();
+jest.mock('../safe-storage', () => ({
+  safeStorage: {
+    getItem: jest.fn(async (key: string) => storedValues.get(key) ?? null),
+    setItem: jest.fn(async (key: string, value: string) => { storedValues.set(key, value); }),
+    removeItem: jest.fn(async (key: string) => { storedValues.delete(key); }),
+  },
+}));
+
 // The module must load after Jest installs its native-module mocks.
 // eslint-disable-next-line import/first
 import {
   getPushPermissionStatus,
   registerPushToken,
   unregisterAllPushTokens,
+  unregisterDevicePushToken,
 } from '../notifications';
 
 describe('registerPushToken', () => {
@@ -125,6 +135,31 @@ describe('registerPushToken', () => {
       body: { disableAll: true },
       headers: { 'x-app-session-token': 'captured-session-token' },
       timeout: 5_000,
+    }));
+  });
+
+  test('logout removes only the token this device registered', async () => {
+    storedValues.clear();
+    await registerPushToken('fc', '01000000000', 'Test User');
+    invokeMock.mockClear();
+    invokeMock.mockResolvedValue({ data: { ok: true }, error: null });
+
+    await expect(unregisterDevicePushToken('captured-session-token')).resolves.toEqual({
+      ok: true,
+      retryable: false,
+      reason: 'unregistered',
+    });
+    expect(invokeMock).toHaveBeenCalledWith('device-token-register', expect.objectContaining({
+      method: 'DELETE',
+      body: { expoPushToken: 'ExponentPushToken[test]' },
+      headers: { 'x-app-session-token': 'captured-session-token' },
+    }));
+
+    // Once forgotten, a later logout falls back to removing every token of the actor.
+    invokeMock.mockClear();
+    await unregisterDevicePushToken('captured-session-token');
+    expect(invokeMock).toHaveBeenCalledWith('device-token-register', expect.objectContaining({
+      body: { disableAll: true },
     }));
   });
 

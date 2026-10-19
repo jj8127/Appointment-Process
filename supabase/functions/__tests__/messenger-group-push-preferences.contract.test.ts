@@ -161,12 +161,11 @@ describe('group-chat global/category native-push suppression contract', () => {
     expect(notify).toContain(
       'nativePushRecipients.map((member) => member.phone)',
     );
-    expect(notify).toContain(
-      'tokenResult.data as DeviceTokenRow[],\n    nativePushRecipients,',
+    // Whitespace-insensitive so CRLF checkouts and reformatting do not break the contract.
+    expect(notify).toMatch(
+      /selectEligibleRecipientTokens\(\s*tokenResult\.data,\s*nativePushRecipients,/,
     );
-    expect(notify).toContain(
-      'collectGroupChatDataApiBatches(\n    recipientPhones',
-    );
+    expect(notify).toMatch(/collectGroupChatDataApiBatches\(\s*recipientPhones/);
     expect(notify).toContain(
       'nativePushRecipients.map((member) => [',
     );

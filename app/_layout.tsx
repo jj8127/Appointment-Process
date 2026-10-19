@@ -630,15 +630,8 @@ function RootLayout() {
     if (Platform.OS !== 'android') return;
     (async () => {
       try {
-        // 권한 요청 (Android 13+)
-        const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        let finalStatus = existingStatus;
-        if (existingStatus !== 'granted') {
-          const { status } = await Notifications.requestPermissionsAsync();
-          finalStatus = status;
-        }
-        logger.debug('[notifications] permission status', { finalStatus });
-
+        // The OS permission prompt opens only from the notification settings switch
+        // (registerPushToken with requestPermission), never at app start.
         // 채널 생성
         await Notifications.setNotificationChannelAsync(ALERTS_CHANNEL_ID, {
           name: '중요 알림',

@@ -145,6 +145,13 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 
 # Backend Runbook: Notifications, Inbox, And Push
 
+## 2026-10-19 알림 분류·로그아웃·권한·푸시 data 정리
+
+- 게시글 알림(`category='board_post'`)은 '공지 알림'(`notices`) 설정을 따른다. 서버(`_shared/general-push-preference-policy.ts`)와 웹(`web/src/lib/app-push-preference-policy.ts`) 매핑은 같아야 하며, 웹 테스트가 두 매핑을 같은 사례로 함께 검사한다.
+- 로그아웃은 이 기기가 마지막으로 등록한 Expo 토큰만 지운다(`unregisterDevicePushToken`, `device-token-register` DELETE `{ expoPushToken }`). 기억한 토큰이 없을 때만 모든 토큰을 지운다. `disableAll`은 전체 알림 끄기용이다.
+- 앱 시작(루트 레이아웃)은 OS 알림 권한을 묻지 않고 Android 채널만 만든다. 권한 요청은 알림 설정의 '알림 받기' 켜기에서만 한다.
+- 푸시 data에는 전화번호(`resident_id`, `sender_id`)와 이름(`name`, `sender_name`)을 넣지 않는다. 앱은 `notificationId`와 `target`으로만 이동한다.
+
 ## 2026-10-19 만료 토큰 정리와 관리자 웹 1:1 알림 설정
 
 - Expo ticket이 `status:'error'`이고 `details.error:'DeviceNotRegistered'`이면 그 토큰을 `device_tokens`에서 바로 지운다. 이 판정은 `collectUnregisteredExpoTokens`(`_shared/expo-push-delivery.ts`, 웹 복사본 `web/src/lib/expo-push-delivery.ts`)가 맡는다.

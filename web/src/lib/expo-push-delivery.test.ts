@@ -136,6 +136,26 @@ test('merges chunk summaries into bounded aggregate counts', () => {
   );
 });
 
+test('maps raw notification categories like the Edge push preference policy', async () => {
+  const edgePolicy = await import('../../../supabase/functions/_shared/general-push-preference-policy.ts');
+  const cases: Array<[string, string]> = [
+    ['message', 'messages'],
+    ['group_chat_message', 'messages'],
+    ['request_board_message', 'messages'],
+    ['request_board_completed', 'request_activity'],
+    ['notice', 'notices'],
+    ['공지사항', 'notices'],
+    ['board_post', 'notices'],
+    ['board_comment_like', 'operations'],
+    ['exam_apply', 'operations'],
+    ['app_event', 'operations'],
+  ];
+  for (const [rawCategory, expected] of cases) {
+    assert.equal(pushPreferencePolicy.mapNotificationCategoryToAppPushCategory(rawCategory), expected, rawCategory);
+    assert.equal(edgePolicy.mapNotificationCategoryToAppPushCategory(rawCategory), expected, `edge ${rawCategory}`);
+  }
+});
+
 test('collects only DeviceNotRegistered destinations from a successful Expo response', () => {
   const messages = [{ to: 'ExponentPushToken[a]' }, { to: 'ExponentPushToken[b]' }, { to: 'ExponentPushToken[c]' }];
   assert.deepEqual(

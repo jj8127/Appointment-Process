@@ -5,7 +5,7 @@ import { getNotificationPreferences } from '@/lib/notification-preferences-api';
 import {
   getPushPermissionStatus,
   registerPushToken,
-  unregisterAllPushTokens,
+  unregisterDevicePushToken,
 } from '@/lib/notifications';
 import {
   captureAppSessionOwner,
@@ -182,7 +182,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     startSessionLogout({
       sessionToken: appSessionToken,
       clearLocalSession: () => { cleanup = clearSessionState(); return cleanup; },
-      unregisterPushTokens: unregisterAllPushTokens,
+      unregisterPushTokens: unregisterDevicePushToken,
       onLocalClearFailure: () => logger.warn('[session] local logout cleanup failed'),
       onPushUnregisterFailure: reason => logger.warn('[push] logout token unregister failed', { reason }),
     });

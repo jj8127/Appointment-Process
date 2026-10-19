@@ -6509,20 +6509,15 @@ async function handleFcNotifyRequest(req: Request, timing: ServerTiming): Promis
       to: t.expo_push_token,
       title: pushTitle,
       body: message,
+      // The app opens a push by notificationId + target only; phone numbers and
+      // names stay out of the provider payload (Expo, APNs, FCM).
       data: {
         url,
         type: category,
         source: notificationSource,
-        resident_id: target_id || null,
         notificationId,
         target: notificationTarget,
         ...(directConversationId ? { conversationId: directConversationId } : {}),
-        ...(body.sender_id?.trim()
-          ? {
-              sender_id: body.sender_id.trim(),
-              sender_name: redactSensitiveText(body.sender_name ?? '', ''),
-            }
-          : {}),
       },
       sound: 'default',
       priority: 'high',
@@ -6856,8 +6851,6 @@ async function handleFcNotifyRequest(req: Request, timing: ServerTiming): Promis
     body: message,
     data: {
       fc_id: fcRow.id,
-      resident_id: fcRow.phone ?? fcRow.resident_id_masked,
-      name: fcRow.name,
       url: targetUrl,
       notificationId: notificationIdByRecipient.get(String(t.resident_id ?? '')),
       target: lifecycleTarget,
