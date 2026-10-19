@@ -1776,16 +1776,16 @@ export default function DashboardPage() {
     const approvalStatusColor = isConfirmed ? 'green' : isSubmitted ? 'orange' : 'gray';
 
     return (
-      <Stack gap="xs" mt="sm">
+      <Stack gap={10} className={fcm.apptBlock}>
         <Group justify="space-between" gap="xs" align="center">
-          <Text size="sm" fw={700} c={isConfirmed ? 'green' : isSubmitted ? 'orange' : 'dimmed'}>
+          <Text size="sm" fw={650} c="var(--dashboard-ink)">
             {sectionTitle}
           </Text>
           <Badge variant={isConfirmed ? 'filled' : 'light'} color={approvalStatusColor} size="sm">
             승인 상태: {approvalStatusLabel}
           </Badge>
         </Group>
-        <Group align="flex-end" grow>
+        <Group align="flex-end" gap="sm" wrap="nowrap">
           <TextInput
             label="예정(Plan)"
             placeholder="예: 12월 2차 / 1월 1차"
@@ -1797,6 +1797,7 @@ export default function DashboardPage() {
             }}
             readOnly={!insuranceStageOpen}
             disabled={!insuranceStageOpen}
+            style={{ flex: 1, minWidth: 0 }}
           />
           {isLife && !!selectedFc.appointment_reject_reason_life && (
             <Badge variant="light" color="red" size="xs">
@@ -1829,6 +1830,7 @@ export default function DashboardPage() {
             placeholder="YYYY-MM-DD"
             valueFormat="YYYY-MM-DD"
             clearable={false}
+            w={200}
             disabled={isReadOnly || !insuranceStageOpen}
             leftSection={<IconCalendar size={16} />}
             previousIcon={<IconChevronLeft size={16} />}
@@ -1844,27 +1846,17 @@ export default function DashboardPage() {
             }}
           />
         </Group>
-        <Button
-          fullWidth
-          variant="light"
-          color={isReadOnly ? 'gray' : 'orange'}
-          leftSection={<IconDeviceFloppy size={14} />}
-          loading={updateAppointmentDateMutation.isPending}
-          disabled={isReadOnly || appointmentBusy || !insuranceStageOpen || !date}
-          onClick={() => updateAppointmentDateMutation.mutate({ category })}
-        >
-          완료일 저장
-        </Button>
         {isSubmitted && (
           <Text size="xs" c="orange">
             FC 제출일: {dayjs(submittedDate).format('YYYY-MM-DD')}
           </Text>
         )}
-        <Stack gap={6}>
+        <Group gap={6} wrap="wrap">
           <Button
-            fullWidth
+            radius="xl"
+            size="sm"
             variant={isReadOnly ? "default" : "filled"}
-            color={isReadOnly ? "gray" : "blue"}
+            color={isReadOnly ? "gray" : "dark"}
             leftSection={<IconDeviceFloppy size={14} />}
             loading={isAppointmentPending}
             disabled={isReadOnly || appointmentBusy || !insuranceStageOpen}
@@ -1872,28 +1864,40 @@ export default function DashboardPage() {
           >
             일정 저장
           </Button>
-          <Group grow gap={6}>
-            <Button
+          <Button
+          radius="xl"
+          size="sm"
+          variant="light"
+          color={isReadOnly ? 'gray' : 'dark'}
+          leftSection={<IconDeviceFloppy size={14} />}
+          loading={updateAppointmentDateMutation.isPending}
+          disabled={isReadOnly || appointmentBusy || !insuranceStageOpen || !date}
+          onClick={() => updateAppointmentDateMutation.mutate({ category })}
+        >
+          완료일 저장
+        </Button>
+          <Button
               variant={isConfirmed ? "filled" : "light"}
               color="green"
-              size="xs"
+              radius="xl"
+              size="sm"
               disabled={isConfirmed || isReadOnly || appointmentBusy || !date || !insuranceStageOpen}
               loading={isAppointmentPending}
               onClick={(e) => handleAppointmentAction(e, 'confirm', category)}
             >
               {isConfirmed ? '승인 완료됨' : '승인 처리'}
             </Button>
-            <Button
+          <Button
               variant="light"
               color="red"
-              size="xs"
+              radius="xl"
+              size="sm"
               disabled={isReadOnly || appointmentBusy || (!isConfirmed && !isSubmitted && !date) || !insuranceStageOpen}
               onClick={() => openRejectModal({ kind: 'appointment', category })}
             >
               반려
             </Button>
-          </Group>
-        </Stack>
+        </Group>
       </Stack>
     );
   };
@@ -2559,7 +2563,7 @@ export default function DashboardPage() {
         opened={opened}
         onClose={close}
         title={<Text fw={700} size="lg">FC 상세 관리</Text>}
-        size={1040}
+        size={920}
         padding="xl"
         radius={28}
         centered
@@ -2638,11 +2642,13 @@ export default function DashboardPage() {
                 <Stack gap="md">
                   <section className={fcm.section}>
                     <Text className={fcm.sectionTitle}>기본 정보</Text>
-                    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
-                      <Stack gap={6}>
-                      <TextInput
-                        label="임시사번"
+                    <div className={fcm.fieldRow}>
+                      <Text className={fcm.fieldLabel}>임시사번</Text>
+                      <div className={fcm.fieldControl}>
+                        <TextInput
+                        aria-label="임시사번"
                         placeholder="T-123456"
+                        className={fcm.w200}
                         classNames={{ input: 'muted-placeholder-input' }}
                         value={tempIdInput}
                         onChange={(e) => {
@@ -2650,9 +2656,9 @@ export default function DashboardPage() {
                           setTempIdInput(val);
                         }}
                       />
-                      {canResetToLookup && (
-                      <>
-                        <Button radius="xl"
+                        {canResetToLookup && (
+                          <Tooltip label="잘못 입력한 임시사번을 비우고 이전 단계로 되돌릴 때 사용합니다." multiline w={220} withArrow>
+                            <Button radius="xl"
                           variant="subtle"
                           color="gray"
                           size="compact-xs"
@@ -2671,17 +2677,15 @@ export default function DashboardPage() {
                         >
                           조회중 단계로 되돌리기
                         </Button>
-                        <Text size="xs" c="dimmed">
-                          잘못 입력한 임시사번을 비우고 이전 단계로 되돌릴 때 사용합니다.
-                        </Text>
-                      </>
-                    )}
-                      </Stack>
-                      <Box>
-                        <Text size="sm" fw={500} mb={6}>
-                          경력 구분 {careerInput === null && <Text span c="red" size="xs">(선택 필요)</Text>}
-                        </Text>
-                        <Chip.Group value={careerInput || ''} onChange={(v) => setCareerInput(v as '신입' | '경력' | null)}>
+                          </Tooltip>
+                        )}
+                      </div>
+                    </div>
+                    <div className={fcm.fieldRow}>
+                      <Text className={fcm.fieldLabel}>
+                        경력 구분 {careerInput === null && <Text span c="red" size="xs">(선택 필요)</Text>}
+                      </Text>
+                      <Chip.Group value={careerInput || ''} onChange={(v) => setCareerInput(v as '신입' | '경력' | null)}>
                           <Group gap="xs">
                             <Chip value="신입" color="orange" variant="light">
                               신입
@@ -2691,8 +2695,7 @@ export default function DashboardPage() {
                             </Chip>
                           </Group>
                         </Chip.Group>
-                      </Box>
-                    </SimpleGrid>
+                    </div>
                   </section>
 
                   <Box>
@@ -2789,7 +2792,7 @@ export default function DashboardPage() {
                               <div className={fcm.flowBody}>
                                 <Text className={fcm.flowLabel}>보증보험 조회 동의일</Text>
                                 <Group gap="xs" wrap="nowrap" align="flex-start">
-                                  <Box style={{ flex: 1, minWidth: 0 }}>
+                                  <Box className={fcm.w200}>
                                     <DateInput
                                       aria-label="보증보험 조회 동의일"
                                       value={allowanceDateInput}
@@ -2799,7 +2802,7 @@ export default function DashboardPage() {
                                       disabled={isReadOnly || !hasTempIdForAllowance}
                                       clearable={false}
                                       radius="lg"
-                                      size="md"
+                                      size="sm"
                                       leftSection={<IconCalendar size={16} />}
                                       previousIcon={<IconChevronLeft size={16} />}
                                       nextIcon={<IconChevronRight size={16} />}
@@ -2808,7 +2811,7 @@ export default function DashboardPage() {
                                     />
                                   </Box>
                                   <Button radius="xl"
-                                    size="md"
+                                    size="sm"
                                     color={isReadOnly ? 'gray' : 'dark'}
                                     variant="filled"
                                     leftSection={<IconDeviceFloppy size={16} />}
@@ -2841,7 +2844,7 @@ export default function DashboardPage() {
                               <span className={fcm.flowNo}>3</span>
                               <div className={fcm.flowBody}>
                                 <Text className={fcm.flowLabel}>승인</Text>
-                                <StatusToggle
+                                <Box className={fcm.w260}><StatusToggle
                                   value={allowanceDisplay.key === 'approved' ? 'approved' : 'pending'}
                                   onChange={(val) => {
                                     if (val === 'approved') {
@@ -2858,7 +2861,7 @@ export default function DashboardPage() {
                                   readOnly={allowanceStateDisabled}
                                   allowPendingPress
                                   isManagerMode={isReadOnly}
-                                />
+                                /></Box>
                               </div>
                             </div>
                             </div>
@@ -2965,9 +2968,9 @@ export default function DashboardPage() {
 
               <Tabs.Panel value="docs">
                 <Stack gap="md">
-                  <Card radius={16} p="sm" bg="var(--dashboard-panel)">
-                    <Group justify="space-between" mb="xs">
-                      <Text fw={600} size="sm">
+                  <section className={fcm.section}>
+                    <Group justify="space-between">
+                      <Text className={fcm.sectionTitle}>
                         요청 서류 ({selectedFc.fc_documents?.length || 0}건)
                       </Text>
                     </Group>
@@ -2979,23 +2982,24 @@ export default function DashboardPage() {
                             <Card
                               key={idx}
                               radius={16}
-                              shadow="sm"
                               p={0}
                               style={{
                                 overflow: 'hidden',
-                                borderColor: isSubmitted ? '#339af0' : '#fd7e14',
-                                borderWidth: 1,
+                                boxShadow: `inset 3px 0 0 ${isSubmitted ? '#3b5bdb' : 'var(--primary-color)'}`,
                               }}
                             >
                               <Group
                                 justify="space-between"
-                                p="sm"
+                                py={8}
+                                px="sm"
                                 bg="white"
+                                wrap="nowrap"
                               >
                                 <Group gap="sm">
                                   <ThemeIcon
                                     variant="light"
-                                    size="lg"
+                                    radius="xl"
+                                    size="md"
                                     color={d.status === 'approved' ? 'teal' : d.status === 'rejected' ? 'red' : 'gray'}
                                   >
                                     {d.status === 'approved' ? (
@@ -3130,17 +3134,17 @@ export default function DashboardPage() {
                         제출된 서류가 없습니다.
                       </Text>
                     )}
-                  </Card>
-
-                  <Box>
-                    <Text fw={600} size="sm" mb="xs">
+                  </section>
+                  <section className={fcm.section}>
+                    <Text className={fcm.sectionTitle}>
                       필수 서류 요청 목록
                     </Text>
-                    <Box mb="md">
-                      <Text size="xs" c="dimmed" fw={500} mb={6}>
+                    <div className={fcm.fieldRow}>
+                      <Text className={fcm.fieldLabel}>
                         서류 마감일 (알림용)
                       </Text>
                       <DateInput
+                        className={fcm.w200}
                         value={docsDeadlineInput}
                         onChange={handleDocsDeadlineChange}
                         placeholder="YYYY-MM-DD"
@@ -3173,7 +3177,7 @@ export default function DashboardPage() {
                           monthCell: { padding: 4 },
                         }}
                       />
-                    </Box>
+                    </div>
                     {(() => {
                       const submittedDocTypes = new Set(
                         (selectedFc.fc_documents ?? [])
@@ -3211,9 +3215,7 @@ export default function DashboardPage() {
                         </Chip.Group>
                       );
                     })()}
-                  </Box>
-
-                  <Group align="flex-end" gap={6}>
+                  <Group align="flex-end" gap={6} wrap="nowrap" style={{ maxWidth: 380 }}>
                     <TextInput
                       placeholder="기타 서류 입력"
                       classNames={{ input: 'muted-placeholder-input' }}
@@ -3246,20 +3248,21 @@ export default function DashboardPage() {
                     </Button>
                   </Group>
 
+                  <div className={fcm.sectionFoot}>
                   <Button radius="xl"
-                    fullWidth
                     color={isReadOnly ? "gray" : "dark"}
-                    mt="md"
                     disabled={isReadOnly}
                     onClick={() => updateDocsRequestMutation.mutate({ types: selectedDocs, deadline: docsDeadlineInput })}
                     loading={updateDocsRequestMutation.isPending}
                   >
                     서류 요청 업데이트
                   </Button>
-
-                  <Divider my="md" />
-
-                  <Text fw={600} size="sm" mb="xs">서류 심사 완료</Text>
+                  </div>
+                  </section>
+                  <section className={fcm.section}>
+                  <div className={fcm.fieldRow}>
+                  <Text className={fcm.fieldLabel}>서류 심사 완료</Text>
+                  <Box className={fcm.w260}>
                   <StatusToggle
                     value={['docs-approved', 'hanwha-commission-review', 'hanwha-commission-rejected', 'hanwha-commission-approved', 'appointment-completed', 'final-link-sent'].includes(selectedFc.status) ? 'approved' : 'pending'}
                     onChange={(val) => {
@@ -3291,6 +3294,9 @@ export default function DashboardPage() {
                     readOnly={isReadOnly || DOCS_STAGE_LOCK_STATUSES.includes(selectedFc.status)}
                     isManagerMode={isReadOnly}
                   />
+                  </Box>
+                  </div>
+                  </section>
                 </Stack>
               </Tabs.Panel>
 
@@ -3316,9 +3322,9 @@ export default function DashboardPage() {
                     );
                   })()}
 
-                  <Box mt="md">
-                    <Group justify="space-between" mb="xs">
-                      <Text fw={600} size="sm">다위촉 URL 검토</Text>
+                  <section className={fcm.section}>
+                    <Group justify="space-between">
+                      <Text className={fcm.sectionTitle}>다위촉 URL 검토</Text>
                       <Badge
                         variant="light"
                         color={selectedFc.hanwha_commission_date_sub ? 'green' : 'gray'}
@@ -3327,8 +3333,12 @@ export default function DashboardPage() {
                         {selectedFc.hanwha_commission_date_sub ? '입력됨' : '미입력'}
                       </Badge>
                     </Group>
+                    <div className={fcm.fieldRow}>
+                    <Text className={fcm.fieldLabel}>완료일(다위촉 URL)</Text>
+                    <div className={fcm.fieldControl}>
                     <DateInput
-                      label="완료일(다위촉 URL)"
+                      aria-label="완료일(다위촉 URL)"
+                      className={fcm.w200}
                       value={hanwhaSubmittedDateInput}
                       onChange={handleHanwhaSubmittedDateChange}
                       placeholder="YYYY-MM-DD"
@@ -3336,7 +3346,7 @@ export default function DashboardPage() {
                       clearable={false}
                       disabled={isReadOnly}
                       radius="lg"
-                      size="md"
+                      size="sm"
                       leftSection={<IconCalendar size={16} />}
                       previousIcon={<IconChevronLeft size={16} />}
                       nextIcon={<IconChevronRight size={16} />}
@@ -3344,20 +3354,21 @@ export default function DashboardPage() {
                       styles={getModalDateInputStyles(isReadOnly)}
                     />
                     <Button radius="xl"
-                      fullWidth
-                      mt="sm"
-                      size="xs"
-                      color={isReadOnly ? 'gray' : 'orange'}
-                      variant="light"
+                      size="sm"
+                      color={isReadOnly ? 'gray' : 'dark'}
+                      variant="filled"
                       onClick={() => updateHanwhaSubmissionDateMutation.mutate()}
                       loading={updateHanwhaSubmissionDateMutation.isPending}
                       disabled={isReadOnly || !hanwhaSubmittedDateInput}
                     >
                       완료일 저장
                     </Button>
-                    <Card radius={16} p="sm" mt="sm" bg={selectedFc.dawichok_url_sent_at ? '#ecf9ef' : '#fff6ef'}>
-                      <Group justify="space-between" gap="xs" mb={4}>
-                        <Text size="xs" fw={700} c={selectedFc.dawichok_url_sent_at ? 'teal' : 'orange'}>
+                    </div>
+                    </div>
+                  </section>
+                    <section className={fcm.section}>
+                      <Group justify="space-between" gap="xs">
+                        <Text className={fcm.sectionTitle}>
                           다위촉 URL 발송 안내
                         </Text>
                         <Badge
@@ -3377,9 +3388,8 @@ export default function DashboardPage() {
                         </Text>
                       ) : null}
                       <Button radius="xl"
-                        fullWidth
-                        mt="xs"
-                        size="xs"
+                        size="sm"
+                        w="fit-content"
                         color={isReadOnly ? 'gray' : 'dark'}
                         variant="filled"
                         leftSection={<IconSend size={14} />}
@@ -3389,7 +3399,7 @@ export default function DashboardPage() {
                       >
                         {selectedFc.dawichok_url_sent_at ? 'URL 발송 알림 다시 보내기' : 'URL 발송 알림'}
                       </Button>
-                    </Card>
+                    </section>
                     <input
                       ref={hanwhaPdfUploadInputRef}
                       type="file"
@@ -3397,17 +3407,9 @@ export default function DashboardPage() {
                       style={{ display: 'none' }}
                       onChange={handleHanwhaPdfInputChange}
                     />
-                    <Divider my="sm" />
-                    <Box
-                      p="sm"
-                      style={{
-                        borderRadius: 12,
-                        border: `1px solid ${hasHanwhaApprovedPdf(selectedFc) ? '#12b886' : '#FFD8A8'}`,
-                        backgroundColor: hasHanwhaApprovedPdf(selectedFc) ? '#F0FDF4' : '#FFF7ED',
-                      }}
-                    >
-                      <Group justify="space-between" mb={4}>
-                        <Text size="xs" fw={700} c={hasHanwhaApprovedPdf(selectedFc) ? 'teal' : 'orange'}>
+                    <section className={fcm.section}>
+                      <Group justify="space-between">
+                        <Text className={fcm.sectionTitle}>
                           다위촉 URL PDF
                         </Text>
                         <Badge size="sm" color={hasHanwhaApprovedPdf(selectedFc) ? 'teal' : 'orange'} variant="light">
@@ -3415,11 +3417,11 @@ export default function DashboardPage() {
                         </Badge>
                       </Group>
                       {!!selectedFc.hanwha_commission_pdf_name ? (
-                        <Text size="xs" c="dimmed" mb="xs">
+                        <Text size="xs" c="dimmed">
                           등록 파일: {selectedFc.hanwha_commission_pdf_name}
                         </Text>
                       ) : (
-                        <Text size="xs" c="dimmed" mb="xs">
+                        <Text size="xs" c="dimmed">
                           등록된 다위촉 URL PDF가 없습니다.
                         </Text>
                       )}
@@ -3448,18 +3450,17 @@ export default function DashboardPage() {
                         )}
                       </Group>
                       <Button radius="xl"
-                        mt="xs"
-                        fullWidth
-                        size="xs"
-                        color={isReadOnly ? 'gray' : 'teal'}
-                        variant="light"
+                        size="sm"
+                        w="fit-content"
+                        color={isReadOnly ? 'gray' : 'dark'}
+                        variant="filled"
                         loading={isHanwhaPdfUploading}
                         disabled={isReadOnly || isHanwhaPdfUploading || !hanwhaSubmittedDateInput}
                         onClick={handleApproveHanwha}
                       >
                         다위촉 URL PDF 업로드 및 승인
                       </Button>
-                    </Box>
+                    </section>
                     {!!selectedFc.hanwha_commission_reject_reason && (
                       <Textarea
                         mt="sm"
@@ -3469,15 +3470,14 @@ export default function DashboardPage() {
                         minRows={2}
                       />
                     )}
-                  </Box>
                 </Stack>
               </Tabs.Panel>
 
               <Tabs.Panel value="appointment">
                 <Stack gap="md">
-                  <Card radius={16} p="md" bg="var(--dashboard-panel)">
-                    <Group justify="space-between" mb="xs">
-                      <Text fw={600} size="sm">최종 완료 상태</Text>
+                  <section className={fcm.section}>
+                    <Group justify="space-between">
+                      <Text className={fcm.sectionTitle}>최종 완료 상태</Text>
                       <Badge variant="light" color={commissionSummaryColor} size="sm">
                         {commissionSummaryLabel}
                       </Badge>
@@ -3485,7 +3485,7 @@ export default function DashboardPage() {
                     <Text size="xs" c="dimmed">
                       아래 승인 후 최종 완료 여부를 별도로 저장합니다.
                     </Text>
-                    <Group gap="xs" wrap="wrap" mt="sm">
+                    <Group gap="xs" wrap="wrap">
                       <Chip
                         checked={lifeCommissionSelected}
                         onChange={() => handleCommissionToggle('life')}
@@ -3504,29 +3504,27 @@ export default function DashboardPage() {
                       >
                         손해 최종 완료
                       </Chip>
-                    </Group>
                     <Button radius="xl"
-                      fullWidth
-                      mt="sm"
-                      size="xs"
-                      color={isReadOnly ? 'gray' : 'teal'}
-                      variant="light"
+                      size="sm"
+                      color={isReadOnly ? 'gray' : 'dark'}
+                      variant="filled"
                       onClick={() => updateCommissionMutation.mutate()}
                       loading={updateCommissionMutation.isPending}
                       disabled={isReadOnly}
                     >
                       최종 완료 상태 저장
                     </Button>
-                  </Card>
+                    </Group>
+                  </section>
                   {canOpenInsuranceStage(selectedFc) ? (
-                    <Card radius={16} p="md" bg="var(--dashboard-panel)">
-                      <Text fw={600} size="sm" mb="xs">생명/손해 위촉 심사 및 확정</Text>
+                    <section className={fcm.section}>
+                      <Text className={fcm.sectionTitle}>생명/손해 위촉 심사 및 확정</Text>
                       {renderAppointmentSection('life')}
                       <Divider my="sm" />
                       {renderAppointmentSection('nonlife')}
-                    </Card>
+                    </section>
                   ) : (
-                    <Alert color="yellow" icon={<IconInfoCircle size={16} />} radius="md">
+                    <Alert color="yellow" icon={<IconInfoCircle size={16} />} radius="lg">
                       <Text fw={700} size="sm" mb={4}>
                         생명/손해 위촉 관리 잠금
                       </Text>
