@@ -627,6 +627,8 @@ const commonListMocks = {
     buildBoardActor: () => ({ role: 'admin', residentId: 'synthetic-actor' }),
     fetchBoardList: async () => ({ items: [], nextCursor: null }),
     fetchBoardCategories: async () => [],
+    fetchBoardDetail: async () => null,
+    formatFileSize: () => '',
   },
   '@/lib/logger': { logger: {} },
   '@/lib/show-admin-notification-warning': { showAdminNotificationWarning() {} },

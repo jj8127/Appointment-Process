@@ -26,6 +26,7 @@ import {
     IconMessageCircle,
     IconNews,
     IconPaperclip,
+    IconPhoto,
     IconPinFilled,
     IconPlus,
     IconRefresh,
@@ -41,7 +42,16 @@ import { useMemo, useState, type CSSProperties } from 'react';
 
 import { useSession } from '@/hooks/use-session';
 import { deleteAdminNotice, fetchAdminNotices, type AdminNoticeItem } from '@/lib/admin-notice-client';
-import { buildBoardActor, fetchBoardCategories, fetchBoardList, type BoardCategory, type BoardListItem } from '@/lib/board-api';
+import {
+    buildBoardActor,
+    fetchBoardCategories,
+    fetchBoardDetail,
+    fetchBoardList,
+    formatFileSize,
+    type BoardCategory,
+    type BoardDetail,
+    type BoardListItem,
+} from '@/lib/board-api';
 import styles from './page.module.css';
 import surface from '../surface.module.css';
 
@@ -69,6 +79,57 @@ type FeedItem =
     | { kind: 'post'; id: string; title: string; preview: string; createdAt: string; post: BoardListItem };
 
 type FeedFilter = 'all' | 'notice' | 'post';
+
+type PostAttachment = BoardDetail['attachments'][number];
+
+const isPdfAttachment = (file: PostAttachment) =>
+    file.mimeType === 'application/pdf' || file.fileName.toLowerCase().endsWith('.pdf');
+
+// Attachment strip with a preview of the chosen file: images inline, PDFs in the browser viewer, others as a link.
+function AttachmentPreview({ attachments }: { attachments: PostAttachment[] }) {
+    const [activeId, setActiveId] = useState(attachments[0]?.id ?? null);
+    const active = attachments.find((file) => file.id === activeId) ?? attachments[0];
+    if (!active) return null;
+    return (
+        <div className={styles.attachments}>
+            <div className={styles.attachmentTabs} role="tablist" aria-label="첨부파일">
+                {attachments.map((file) => (
+                    <button
+                        key={file.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={file.id === active.id}
+                        className={styles.attachmentTab}
+                        data-active={file.id === active.id || undefined}
+                        onClick={() => setActiveId(file.id)}
+                    >
+                        {file.fileType === 'image' ? <IconPhoto size={14} /> : <IconPaperclip size={14} />}
+                        <span>{file.fileName}</span>
+                    </button>
+                ))}
+            </div>
+            <div className={styles.attachmentView}>
+                {!active.signedUrl ? (
+                    <Text size="sm" c="dimmed">미리보기 주소를 받지 못했습니다.</Text>
+                ) : active.fileType === 'image' ? (
+                    <Image src={active.signedUrl} alt={active.fileName} fit="contain" mah={420} />
+                ) : isPdfAttachment(active) ? (
+                    <iframe key={active.signedUrl} src={active.signedUrl} title={`${active.fileName} 미리보기`} className={styles.attachmentFrame} />
+                ) : (
+                    <Stack gap={4} align="center">
+                        <IconPaperclip size={22} />
+                        <Text size="sm" fw={600}>미리보기를 지원하지 않는 형식입니다.</Text>
+                    </Stack>
+                )}
+            </div>
+            {active.signedUrl ? (
+                <Anchor href={active.signedUrl} target="_blank" rel="noreferrer" size="xs" c="dimmed" className={styles.openFull}>
+                    <IconExternalLink size={12} /> {active.fileName} · {formatFileSize(active.fileSize)} · 새 창에서 열기
+                </Anchor>
+            ) : null}
+        </div>
+    );
+}
 
 // Composer choice: who receives it and how they are notified decides where it is published.
 const COMPOSE_TARGETS = [
@@ -99,6 +160,8 @@ export default function NotificationsPage() {
     const [keyword, setKeyword] = useState('');
     const [filter, setFilter] = useState<FeedFilter>('all');
     const [postCategory, setPostCategory] = useState<string>('all');
+    // Only a post the user clicks loads its detail; each detail read is recorded as a view.
+    const [openedPostId, setOpenedPostId] = useState<string | null>(null);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [composeOpened, { open: openCompose, close: closeCompose }] = useDisclosure(false);
 
@@ -157,6 +220,11 @@ export default function NotificationsPage() {
         enabled: hydrated && Boolean(boardActor),
     });
     const boardCategories: BoardCategory[] = Array.isArray(categoriesQuery.data) ? categoriesQuery.data : [];
+    const postDetailQuery = useQuery({
+        queryKey: ['board-detail', 'hub', boardActor?.residentId, openedPostId],
+        queryFn: () => fetchBoardDetail(boardActor!, openedPostId!),
+        enabled: Boolean(boardActor && openedPostId),
+    });
     const categoryNameOf = (categoryId: string) => boardCategories.find((category) => category.id === categoryId)?.name ?? '게시글';
 
     // Delete Mutation
@@ -335,7 +403,10 @@ export default function NotificationsPage() {
                                     className={styles.feedRow}
                                     data-kind={item.kind}
                                     data-selected={item.id === selected?.id || undefined}
-                                    onClick={() => setSelectedId(item.id)}
+                                    onClick={() => {
+                                        setSelectedId(item.id);
+                                        if (item.kind === 'post') setOpenedPostId(item.post.id);
+                                    }}
                                 >
                                     <span className={styles.kindIcon}>
                                         {item.kind === 'notice' ? <IconSpeakerphone size={16} /> : <IconNews size={16} />}
@@ -441,9 +512,34 @@ export default function NotificationsPage() {
                             </Group>
                             <Title order={3} className={styles.detailTitle}>{selected.title}</Title>
                             <Text size="sm" c="dimmed">{selected.post.authorName}</Text>
-                            <Text size="sm" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>
-                                {selected.post.contentPreview}
-                            </Text>
+                            {(() => {
+                                const detail = postDetailQuery.data && !Array.isArray(postDetailQuery.data) && postDetailQuery.data.post?.id === selected.post.id
+                                    ? postDetailQuery.data
+                                    : null;
+                                const listImages = (selected.post.attachments ?? []).filter((file) => file.signedUrl) as PostAttachment[];
+                                const attachments = detail?.attachments ?? listImages;
+                                return (
+                                    <>
+                                        <Text size="sm" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>
+                                            {detail?.post.content ?? selected.post.contentPreview}
+                                        </Text>
+                                        {attachments.length > 0 ? <AttachmentPreview key={`${selected.id}:${attachments.length}`} attachments={attachments} /> : null}
+                                        {!detail && selected.post.stats.attachmentCount > attachments.length ? (
+                                            <Button
+                                                variant="default"
+                                                radius="xl"
+                                                size="xs"
+                                                w="fit-content"
+                                                leftSection={<IconPaperclip size={14} />}
+                                                loading={postDetailQuery.isFetching}
+                                                onClick={() => setOpenedPostId(selected.post.id)}
+                                            >
+                                                첨부파일 {selected.post.stats.attachmentCount}개 보기
+                                            </Button>
+                                        ) : null}
+                                    </>
+                                );
+                            })()}
                             <div className={styles.postStats}>
                                 <span>댓글 <b>{selected.post.stats.commentCount}</b></span>
                                 <span>반응 <b>{selected.post.stats.reactionCount}</b></span>

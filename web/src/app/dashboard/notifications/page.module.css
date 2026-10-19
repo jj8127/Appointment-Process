@@ -418,3 +418,66 @@
   outline: 2px solid var(--primary-color);
   outline-offset: 2px;
 }
+
+/* Board post attachments: file tabs above one preview. */
+.attachments {
+  display: grid;
+  gap: 8px;
+}
+
+.attachmentTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.attachmentTab {
+  appearance: none;
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid #e4e4e1;
+  background: #fff;
+  color: var(--dashboard-ink);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.attachmentTab span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attachmentTab[data-active] {
+  border-color: var(--primary-color);
+  background: #fff1e6;
+  color: #c2470d;
+}
+
+.attachmentTab:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+.attachmentView {
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  padding: 10px;
+  border-radius: 16px;
+  background: var(--dashboard-panel);
+}
+
+.attachmentFrame {
+  width: 100%;
+  height: 460px;
+  border: 0;
+  border-radius: 10px;
+  background: #fff;
+}
