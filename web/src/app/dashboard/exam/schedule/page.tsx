@@ -9,7 +9,6 @@ import {
     Badge,
     Box,
     Button,
-    Checkbox,
     Grid,
     Group,
     LoadingOverlay,
@@ -18,6 +17,7 @@ import {
     ScrollArea,
     SegmentedControl,
     SimpleGrid,
+    Switch,
     Stack,
     Table,
     TagsInput,
@@ -26,19 +26,28 @@ import {
     ThemeIcon,
     Title
 } from '@mantine/core';
-import { Calendar, DateInput, MonthPickerInput } from '@mantine/dates';
+import { Calendar, DateInput, MonthPickerInput, type DateInputProps } from '@mantine/dates';
 import { useForm } from '@mantine/form';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { notificationFeedbackColor } from '@/lib/notification-delivery-feedback';
 import {
     IconCalendar,
+    IconCalendarDue,
+    IconCalendarEvent,
+    IconCheck,
     IconChevronLeft,
     IconChevronRight,
+    IconCircleCheckFilled,
     IconEdit,
+    IconHeartbeat,
     IconInfoCircle,
+    IconMapPin,
+    IconNote,
     IconPlus,
-    IconTrash
+    IconTag,
+    IconTrash,
+    IconUmbrella,
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
@@ -54,6 +63,41 @@ import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
 import surface from '../../surface.module.css';
 
 // --- Constants ---
+
+// Calendar dropdown styling shared by the exam date and deadline inputs.
+const MODAL_CALENDAR_STYLES: DateInputProps['styles'] = {
+    calendarHeader: {
+        padding: '6px 4px',
+        borderBottom: '1px solid #eef1f4',
+        display: 'grid',
+        gridTemplateColumns: '28px 1fr 28px',
+        alignItems: 'center',
+    },
+    calendarHeaderControlIcon: { margin: '0 auto' },
+    calendarHeaderLevel: {
+        fontWeight: 700,
+        fontSize: 14,
+        textAlign: 'center',
+        justifySelf: 'center',
+    },
+    calendarHeaderControl: { borderRadius: 8, justifySelf: 'center' },
+    month: {
+        width: '100%',
+        tableLayout: 'fixed',
+        margin: '0 auto',
+    },
+    monthThead: { textAlign: 'center' },
+    monthTbody: { textAlign: 'center' },
+    monthRow: {
+        textAlign: 'center',
+    },
+    weekdaysRow: {
+        textAlign: 'center',
+    },
+    monthCell: { padding: 2, textAlign: 'center' },
+    weekday: { fontWeight: 600, color: '#6b7280', textAlign: 'center' },
+    day: { borderRadius: 8, height: 34, fontWeight: 600, margin: '0 auto' },
+};
 
 // --- Types ---
 type ExamRound = {
@@ -437,6 +481,7 @@ export default function ExamSchedulePage() {
                     <SegmentedControl
                         value={viewMode}
                         onChange={(v) => setViewMode(v as 'list' | 'calendar')}
+                        color="orange"
                         radius="xl"
                         size="md"
                         bg="white"
@@ -618,13 +663,8 @@ export default function ExamSchedulePage() {
                 onClose={() => handleClose()}
                 title={
                     <Group gap="sm">
-                        <ThemeIcon radius="xl" size={40} variant="filled" color="dark">
-                            <IconCalendar size={18} />
-                        </ThemeIcon>
-                        <div>
-                            <Text fw={700} size="lg">{editingId ? '일정 수정' : '새 일정 등록'}</Text>
-                            <Text size="xs" c="dimmed">시험 일정과 접수 정보를 빠르게 정리하세요.</Text>
-                        </div>
+                        <span className={surface.modalIcon}><IconCalendar size={18} /></span>
+                        <Text fw={700} size="lg">{editingId ? '일정 수정' : '새 일정 등록'}</Text>
                     </Group>
                 }
                 size="lg"
@@ -633,223 +673,189 @@ export default function ExamSchedulePage() {
                 centered
             >
                 <form onSubmit={form.onSubmit(handleSubmit)}>
-                    <Stack gap="lg">
+                    <Stack gap="md">
+                        <div className={surface.typeCards} role="radiogroup" aria-label="시험 종류">
+                            {([
+                                { value: 'life', label: '생명 / 제3보험', icon: IconHeartbeat },
+                                { value: 'nonlife', label: '손해보험', icon: IconUmbrella },
+                            ] as const).map((type) => (
+                                <button
+                                    key={type.value}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={form.values.exam_type === type.value}
+                                    className={surface.typeCard}
+                                    data-active={form.values.exam_type === type.value || undefined}
+                                    onClick={() => form.setFieldValue('exam_type', type.value)}
+                                >
+                                    <span className={surface.typeIcon}><type.icon size={20} /></span>
+                                    <span>{type.label}</span>
+                                    {form.values.exam_type === type.value ? <IconCircleCheckFilled size={20} className={surface.typeCheck} /> : null}
+                                </button>
+                            ))}
+                        </div>
+
                         <div className={surface.modalSection}>
-                            <Text className={surface.modalSectionTitle}>시험 일정</Text>
-                            <Checkbox
-                                label="시험일 미정"
-                                description="시험 날짜가 아직 확정되지 않은 경우 체크하세요"
-                                mb="md"
-                                {...form.getInputProps('is_date_tbd', { type: 'checkbox' })}
-                                onChange={(e) => {
-                                    const isTbd = e.currentTarget.checked;
-                                    form.setFieldValue('is_date_tbd', isTbd);
-                                    if (isTbd) {
-                                        const monthSource = form.values.exam_date ?? new Date();
-                                        form.setFieldValue(
-                                            'exam_month',
-                                            dayjs(monthSource).startOf('month').format('YYYY-MM-DD'),
-                                        );
-                                        form.setFieldValue('exam_date', null);
-                                    } else {
-                                        // A month snapshot is not an exact exam date. Require the
-                                        // operator to choose the actual day explicitly.
-                                        form.setFieldValue('exam_date', null);
-                                    }
-                                }}
-                            />
-                            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-                                {form.values.is_date_tbd ? (
-                                    <MonthPickerInput
-                                        required
-                                        label="시험 월"
-                                        description="정확한 시험일이 미정이어도 시험이 속한 월은 반드시 선택해 주세요."
-                                        placeholder="시험 월 선택"
-                                        leftSection={<IconCalendar size={16} />}
-                                        value={form.values.exam_month}
-                                        onChange={(value) => {
-                                            form.setFieldValue(
-                                                'exam_month',
-                                                value
-                                                    ? dayjs(value).startOf('month').format('YYYY-MM-DD')
-                                                    : null,
-                                            );
+                            <div className={surface.formRow}>
+                                <Text className={surface.formLabel}><IconTag size={15} />회차명</Text>
+                                <TextInput
+                                    aria-label="회차명/구분"
+                                    placeholder="예: 9월 1차 생명보험"
+                                    {...form.getInputProps('round_label')}
+                                />
+                            </div>
+                            <div className={surface.formRow}>
+                                <Text className={surface.formLabel}><IconCalendarEvent size={15} />{form.values.is_date_tbd ? '시험 월' : '시험일'}</Text>
+                                <Group gap="sm" wrap="nowrap" align="flex-start">
+                                    <Box style={{ flex: 1, minWidth: 0 }}>
+                                        {form.values.is_date_tbd ? (
+                                                <MonthPickerInput
+                                                    required
+                                                    aria-label="시험 월"
+                                                    placeholder="시험 월 선택 (시험일 미정이어도 필수)"
+                                                    leftSection={<IconCalendar size={16} />}
+                                                    value={form.values.exam_month}
+                                                    onChange={(value) => {
+                                                        form.setFieldValue(
+                                                            'exam_month',
+                                                            value
+                                                                ? dayjs(value).startOf('month').format('YYYY-MM-DD')
+                                                                : null,
+                                                        );
+                                                    }}
+                                                    error={form.errors.exam_month}
+                                                    locale="ko"
+                                                    valueFormat="YYYY년 MM월"
+                                                    popoverProps={{ width: 320, position: 'bottom-start', shadow: 'md' }}
+                                                    size="sm"
+                                                />
+                                        ) : (
+                                                <DateInput
+                                                    required
+                                                    aria-label="시험일"
+                                                    placeholder="시험 날짜 선택"
+                                                    leftSection={<IconCalendar size={16} />}
+                                                    value={form.values.exam_date}
+                                                    disabled={form.values.is_date_tbd}
+                                                    onChange={(value) => {
+                                                        if (!value) {
+                                                            form.setFieldValue('exam_date', null);
+                                                            return;
+                                                        }
+                                                        const nextValue =
+                                                            typeof value === 'string' ? new Date(value) : (value as Date);
+                                                        if (!Number.isNaN(nextValue.getTime())) {
+                                                            form.setFieldValue('exam_date', nextValue);
+                                                            form.setFieldValue(
+                                                                'exam_month',
+                                                                dayjs(nextValue).startOf('month').format('YYYY-MM-DD'),
+                                                            );
+                                                        }
+                                                    }}
+                                                    locale="ko"
+                                                    error={form.errors.exam_date}
+                                                    monthLabelFormat="YYYY년 M월"
+                                                    previousIcon={<IconChevronLeft size={14} />}
+                                                    nextIcon={<IconChevronRight size={14} />}
+                                                    valueFormat="YYYY년 MM월 DD일"
+                                                    popoverProps={{ width: 320, position: 'bottom-start', shadow: 'md' }}
+                                                    size="sm"
+                                                    styles={MODAL_CALENDAR_STYLES}
+                                                />
+                                        )}
+                                    </Box>
+                                    <Switch
+                                        label="미정"
+                                        color="orange"
+                                        mt={8}
+                                        {...form.getInputProps('is_date_tbd', { type: 'checkbox' })}
+                                        onChange={(e) => {
+                                            const isTbd = e.currentTarget.checked;
+                                            form.setFieldValue('is_date_tbd', isTbd);
+                                            if (isTbd) {
+                                                const monthSource = form.values.exam_date ?? new Date();
+                                                form.setFieldValue(
+                                                    'exam_month',
+                                                    dayjs(monthSource).startOf('month').format('YYYY-MM-DD'),
+                                                );
+                                                form.setFieldValue('exam_date', null);
+                                            } else {
+                                                // A month snapshot is not an exact exam date. Require the
+                                                // operator to choose the actual day explicitly.
+                                                form.setFieldValue('exam_date', null);
+                                            }
                                         }}
-                                        error={form.errors.exam_month}
-                                        locale="ko"
-                                        valueFormat="YYYY년 MM월"
-                                        popoverProps={{ width: 320, position: 'bottom-start', shadow: 'md' }}
-                                        size="sm"
                                     />
-                                ) : (
-                                <DateInput
-                                    required
-                                    label="시험일"
-                                    placeholder="시험 날짜 선택"
-                                    leftSection={<IconCalendar size={16} />}
-                                    value={form.values.exam_date}
-                                    disabled={form.values.is_date_tbd}
-                                    onChange={(value) => {
-                                        if (!value) {
-                                            form.setFieldValue('exam_date', null);
-                                            return;
-                                        }
-                                        const nextValue =
-                                            typeof value === 'string' ? new Date(value) : (value as Date);
-                                        if (!Number.isNaN(nextValue.getTime())) {
-                                            form.setFieldValue('exam_date', nextValue);
-                                            form.setFieldValue(
-                                                'exam_month',
-                                                dayjs(nextValue).startOf('month').format('YYYY-MM-DD'),
-                                            );
-                                        }
-                                    }}
-                                    locale="ko"
-                                    error={form.errors.exam_date}
-                                    monthLabelFormat="YYYY년 M월"
-                                    previousIcon={<IconChevronLeft size={14} />}
-                                    nextIcon={<IconChevronRight size={14} />}
-                                    valueFormat="YYYY년 MM월 DD일"
-                                    popoverProps={{ width: 320, position: 'bottom-start', shadow: 'md' }}
-                                    size="sm"
-                                    styles={{
-                                        calendarHeader: {
-                                            padding: '6px 4px',
-                                            borderBottom: '1px solid #eef1f4',
-                                            display: 'grid',
-                                            gridTemplateColumns: '28px 1fr 28px',
-                                            alignItems: 'center',
-                                        },
-                                        calendarHeaderControlIcon: { margin: '0 auto' },
-                                        calendarHeaderLevel: {
-                                            fontWeight: 700,
-                                            fontSize: 14,
-                                            textAlign: 'center',
-                                            justifySelf: 'center',
-                                        },
-                                        calendarHeaderControl: { borderRadius: 8, justifySelf: 'center' },
-                                        month: {
-                                            width: '100%',
-                                            tableLayout: 'fixed',
-                                            margin: '0 auto',
-                                        },
-                                        monthThead: { textAlign: 'center' },
-                                        monthTbody: { textAlign: 'center' },
-                                        monthRow: {
-                                            textAlign: 'center',
-                                        },
-                                        weekdaysRow: {
-                                            textAlign: 'center',
-                                        },
-                                        monthCell: { padding: 2, textAlign: 'center' },
-                                        weekday: { fontWeight: 600, color: '#6b7280', textAlign: 'center' },
-                                        day: { borderRadius: 8, height: 34, fontWeight: 600, margin: '0 auto' },
-                                    }}
-                                />
-                                )}
-                                <DateInput
-                                    label="접수 마감일"
-                                    placeholder="마감 날짜 선택"
-                                    leftSection={<IconCalendar size={16} />}
-                                    value={form.values.registration_deadline}
-                                    onChange={(value) => {
-                                        if (!value) return;
-                                        const nextValue =
-                                            typeof value === 'string' ? new Date(value) : (value as Date);
-                                        if (!Number.isNaN(nextValue.getTime())) {
-                                            form.setFieldValue('registration_deadline', nextValue);
-                                        }
-                                    }}
-                                    locale="ko"
-                                    monthLabelFormat="YYYY년 M월"
-                                    previousIcon={<IconChevronLeft size={14} />}
-                                    nextIcon={<IconChevronRight size={14} />}
-                                    valueFormat="YYYY년 MM월 DD일"
-                                    popoverProps={{ width: 320, position: 'bottom-start', shadow: 'md' }}
-                                    size="sm"
-                                    styles={{
-                                        calendarHeader: {
-                                            padding: '6px 4px',
-                                            borderBottom: '1px solid #eef1f4',
-                                            display: 'grid',
-                                            gridTemplateColumns: '28px 1fr 28px',
-                                            alignItems: 'center',
-                                        },
-                                        calendarHeaderControlIcon: { margin: '0 auto' },
-                                        calendarHeaderLevel: {
-                                            fontWeight: 700,
-                                            fontSize: 14,
-                                            textAlign: 'center',
-                                            justifySelf: 'center',
-                                        },
-                                        calendarHeaderControl: { borderRadius: 8, justifySelf: 'center' },
-                                        month: {
-                                            width: '100%',
-                                            tableLayout: 'fixed',
-                                            margin: '0 auto',
-                                        },
-                                        monthThead: { textAlign: 'center' },
-                                        monthTbody: { textAlign: 'center' },
-                                        monthRow: {
-                                            textAlign: 'center',
-                                        },
-                                        weekdaysRow: {
-                                            textAlign: 'center',
-                                        },
-                                        monthCell: { padding: 2, textAlign: 'center' },
-                                        weekday: { fontWeight: 600, color: '#6b7280', textAlign: 'center' },
-                                        day: { borderRadius: 8, height: 34, fontWeight: 600, margin: '0 auto' },
-                                    }}
-                                />
-                            </SimpleGrid>
+                                </Group>
+                            </div>
+                            <div className={surface.formRow}>
+                                <Text className={surface.formLabel}><IconCalendarDue size={15} />접수 마감일</Text>
+                                <Group gap="sm" wrap="nowrap">
+                                    <Box style={{ flex: 1, minWidth: 0 }}>
+                                        <DateInput
+                                            aria-label="접수 마감일"
+                                            placeholder="마감 날짜 선택"
+                                            leftSection={<IconCalendar size={16} />}
+                                            value={form.values.registration_deadline}
+                                            onChange={(value) => {
+                                                if (!value) return;
+                                                const nextValue =
+                                                    typeof value === 'string' ? new Date(value) : (value as Date);
+                                                if (!Number.isNaN(nextValue.getTime())) {
+                                                    form.setFieldValue('registration_deadline', nextValue);
+                                                }
+                                            }}
+                                            locale="ko"
+                                            monthLabelFormat="YYYY년 M월"
+                                            previousIcon={<IconChevronLeft size={14} />}
+                                            nextIcon={<IconChevronRight size={14} />}
+                                            valueFormat="YYYY년 MM월 DD일"
+                                            popoverProps={{ width: 320, position: 'bottom-start', shadow: 'md' }}
+                                            size="sm"
+                                            styles={MODAL_CALENDAR_STYLES}
+                                        />
+                                    </Box>
+                                    {form.values.registration_deadline ? (() => {
+                                        const daysLeft = dayjs(form.values.registration_deadline).startOf('day').diff(dayjs().startOf('day'), 'day');
+                                        return (
+                                            <span className={surface.pill} data-color={daysLeft < 0 ? undefined : daysLeft <= 3 ? 'orange' : 'green'}>
+                                                {daysLeft < 0 ? '마감' : daysLeft === 0 ? 'D-day' : `D-${daysLeft}`}
+                                            </span>
+                                        );
+                                    })() : null}
+                                </Group>
+                            </div>
                         </div>
 
                         <div className={surface.modalSection}>
-                            <Text className={surface.modalSectionTitle}>시험 정보</Text>
-                            <SegmentedControl
-                                fullWidth
-                                radius="xl"
-                                bg="white"
-                                data={[
-                                    { value: 'life', label: '생명 / 제3보험' },
-                                    { value: 'nonlife', label: '손해보험' },
-                                ]}
-                                {...form.getInputProps('exam_type')}
-                            />
-                            <TextInput
-                                label="회차명/구분"
-                                placeholder="예: 9월 1차 생명보험"
-                                mt="md"
-                                {...form.getInputProps('round_label')}
-                            />
-                        </div>
-
-                        <div className={surface.modalSection}>
-                            <Text className={surface.modalSectionTitle}>고사장 및 비고</Text>
-                            <Box>
-                                <Text size="sm" fw={500} mb={4}>고사장(장소) 관리</Text>
-                                <TagsInput
-                                    placeholder="Enter로 장소 추가 (예: 서울, 부산)"
-                                    {...form.getInputProps('locations')}
-                                    data={['서울', '부산', '대구', '인천', '광주', '대전', '울산', '제주']}
-                                    clearable
+                            <div className={surface.formRow} data-align="start">
+                                <Text className={surface.formLabel}><IconMapPin size={15} />고사장</Text>
+                                <Box>
+                                    <TagsInput
+                                        aria-label="고사장(장소) 관리"
+                                        placeholder="Enter로 장소 추가 (예: 서울, 부산)"
+                                        {...form.getInputProps('locations')}
+                                        data={['서울', '부산', '대구', '인천', '광주', '대전', '울산', '제주']}
+                                        clearable
+                                    />
+                                    <Text size="xs" c="dimmed" mt={6}>
+                                        이미 신청자가 있는 장소는 삭제되지 않을 수 있습니다.
+                                    </Text>
+                                </Box>
+                            </div>
+                            <div className={surface.formRow}>
+                                <Text className={surface.formLabel}><IconNote size={15} />비고</Text>
+                                <TextInput
+                                    aria-label="비고 (선택)"
+                                    placeholder="메모 사항 (선택)"
+                                    {...form.getInputProps('notes')}
                                 />
-                                <Text size="xs" c="dimmed" mt={4}>
-                                    * 이미 신청자가 있는 장소는 삭제되지 않을 수 있습니다.
-                                </Text>
-                            </Box>
-
-                            <TextInput
-                                label="비고 (선택)"
-                                placeholder="메모 사항"
-                                mt="md"
-                                {...form.getInputProps('notes')}
-                            />
+                            </div>
                         </div>
 
                         <Group justify="space-between" mt="xs">
-                            <Button variant="light" color="gray" radius="xl" onClick={() => handleClose()}>취소</Button>
-                            <Button type="submit" color="dark" radius="xl" loading={saveMutation.isPending}>
+                            <Button variant="default" radius="xl" onClick={() => handleClose()}>취소</Button>
+                            <Button type="submit" color="orange" radius="xl" leftSection={<IconCheck size={16} />} loading={saveMutation.isPending}>
                                 {editingId ? '수정 저장' : '등록 하기'}
                             </Button>
                         </Group>

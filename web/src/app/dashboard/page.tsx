@@ -2836,7 +2836,7 @@ export default function DashboardPage() {
                             aria-label="경력 구분"
                             value={careerInput ?? ''}
                             onChange={(v) => setCareerInput(v as '신입' | '경력')}
-                            data={['신입', '경력']}
+                            data={['신입', '경력']} color="orange"
                             radius="xl"
                             size="sm"
                             className={fcm.segment}

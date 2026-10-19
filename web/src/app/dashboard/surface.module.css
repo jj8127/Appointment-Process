@@ -340,6 +340,7 @@ button.statTile:hover {
   }
 
   .softButton,
+  .typeCard,
   button.statTile,
   .table tbody tr td {
     transition: none;
@@ -347,6 +348,124 @@ button.statTile:hover {
 
   button.statTile:hover {
     transform: none;
+  }
+}
+
+/* Modal title icon: the brand orange disc. */
+.modalIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background:
+    radial-gradient(120% 80% at 25% 10%, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0) 55%),
+    linear-gradient(180deg, #ff9a52 0%, var(--primary-color) 55%, #c2470d 100%);
+}
+
+/* Two-choice selection cards (e.g. 생명 / 손해). */
+.typeCards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.typeCard {
+  appearance: none;
+  font: inherit;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1.5px solid #e4e4e1;
+  background: #fff;
+  color: var(--dashboard-ink);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 320ms ease, background-color 320ms ease;
+}
+
+.typeCard:hover {
+  border-color: #cfcec9;
+}
+
+.typeCard:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+.typeCard[data-active] {
+  border-color: var(--primary-color);
+  background: #fff6ef;
+}
+
+.typeIcon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--dashboard-panel);
+  color: #8a8984;
+}
+
+.typeCard[data-active] .typeIcon {
+  background: var(--primary-color);
+  color: #fff;
+}
+
+.typeCheck {
+  margin-left: auto;
+  color: var(--primary-color);
+}
+
+/* Form row: icon + label on the left, control on the right. */
+.formRow {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.formRow[data-align='start'] {
+  align-items: start;
+}
+
+.formRow + .formRow {
+  margin-top: 12px;
+}
+
+.formLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #6b6a65;
+  white-space: nowrap;
+}
+
+.formRow[data-align='start'] .formLabel {
+  padding-top: 8px;
+}
+
+.formLabel svg {
+  flex-shrink: 0;
+  box-sizing: content-box;
+  padding: 5px;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--dashboard-ink);
+}
+
+@media (max-width: 640px) {
+  .formRow,
+  .typeCards {
+    grid-template-columns: 1fr;
   }
 }
 
