@@ -20,7 +20,6 @@ import {
   IconLink,
   IconLogout,
   IconMessage,
-  IconNews,
   IconSettings,
   IconSpeakerphone,
   IconUserPlus,
@@ -44,6 +43,8 @@ type NavGroup = { label: string; items: NavItem[] };
 const NAV_ALIASES: Record<string, string> = {
   '/dashboard/chat': '/dashboard/messenger',
   '/dashboard/group-chat': '/dashboard/messenger',
+  // Board posts open from the combined 공지·게시판 page.
+  '/dashboard/board': '/dashboard/notifications',
 };
 
 // The longest menu href that equals or contains the current path is active, so detail pages keep their menu lit.
@@ -107,8 +108,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           ...(canWrite ? [{ label: '증원수당 관리', icon: IconReceipt, href: '/dashboard/referrals/allowances' }] : []),
         ] },
         { label: '소통', items: [
-          { label: '공지사항', icon: IconSpeakerphone, href: '/dashboard/notifications' },
-          { label: '게시판', icon: IconNews, href: '/dashboard/board' },
+          { label: '공지·게시판', icon: IconSpeakerphone, href: '/dashboard/notifications' },
           { label: '메신저', icon: IconMessage, href: '/dashboard/messenger' },
         ] },
         ...(adminItems.length ? [{ label: '관리', items: adminItems }] : []),

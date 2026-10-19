@@ -4,7 +4,6 @@ import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warn
 import { QueryErrorAlert } from '@/components/QueryErrorAlert';
 
 import {
-    ActionIcon,
     Anchor,
     Button,
     Group,
@@ -12,24 +11,37 @@ import {
     LoadingOverlay,
     Modal,
     ScrollArea,
+    SegmentedControl,
     SimpleGrid,
     Stack,
-    Table,
     Text,
     TextInput,
     Title
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { IconEdit, IconExternalLink, IconPaperclip, IconPlus, IconRefresh, IconSearch, IconTrash } from '@tabler/icons-react';
+import {
+    IconEdit,
+    IconExternalLink,
+    IconMessageCircle,
+    IconNews,
+    IconPaperclip,
+    IconPinFilled,
+    IconPlus,
+    IconRefresh,
+    IconSearch,
+    IconSpeakerphone,
+    IconTrash,
+} from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState, type CSSProperties } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 
 import { useSession } from '@/hooks/use-session';
 import { deleteAdminNotice, fetchAdminNotices, type AdminNoticeItem } from '@/lib/admin-notice-client';
+import { buildBoardActor, fetchBoardCategories, fetchBoardList, type BoardCategory, type BoardListItem } from '@/lib/board-api';
 import styles from './page.module.css';
 import surface from '../surface.module.css';
 
@@ -49,12 +61,46 @@ const resolveNoticePath = (noticeId: string): string => {
     return `/dashboard/notifications/${noticeId}`;
 };
 
+const boardPostPath = (postId: string) => `/dashboard/board?postId=${encodeURIComponent(postId)}`;
+
+// One row of the combined list: an FC notice or a board post.
+type FeedItem =
+    | { kind: 'notice'; id: string; title: string; preview: string; createdAt: string; notice: AdminNoticeItem }
+    | { kind: 'post'; id: string; title: string; preview: string; createdAt: string; post: BoardListItem };
+
+type FeedFilter = 'all' | 'notice' | 'post';
+
+// Composer choice: who receives it and how they are notified decides where it is published.
+const COMPOSE_TARGETS = [
+    {
+        key: 'notice',
+        icon: IconSpeakerphone,
+        title: 'FC 공지',
+        audience: 'FC 전체',
+        delivery: '푸시 알림 + 알림함',
+        place: "앱 '공지'에 게시",
+        href: '/dashboard/notifications/create',
+    },
+    {
+        key: 'post',
+        icon: IconNews,
+        title: '게시판 글',
+        audience: 'FC · 본부장 · 총무',
+        delivery: '푸시 알림 + 알림함',
+        place: '댓글·반응 가능',
+        href: '/dashboard/board?compose=1',
+    },
+] as const;
+
 export default function NotificationsPage() {
     const queryClient = useQueryClient();
     const router = useRouter();
-    const { hydrated, role, residentId } = useSession();
+    const { hydrated, role, residentId, displayName, isReadOnly } = useSession();
     const [keyword, setKeyword] = useState('');
+    const [filter, setFilter] = useState<FeedFilter>('all');
+    const [postCategory, setPostCategory] = useState<string>('all');
     const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [composeOpened, { open: openCompose, close: closeCompose }] = useDisclosure(false);
 
     // 확인 모달 상태
     const [confirmOpened, { open: openConfirm, close: closeConfirm }] = useDisclosure(false);
@@ -79,6 +125,7 @@ export default function NotificationsPage() {
     // 공지 작성/수정/삭제 가능 여부
     // 공지 등록은 관리자만, 본부장(manager)은 본인글 수정-삭제만 허용
     const canCreate = role === 'admin';
+    const canWritePost = role === 'admin' || role === 'manager';
     const canManageNotice = (notice: AdminNoticeItem) => {
         if (role === 'admin') return true;
         // 본부장은 본인 게시글만 수정/삭제 가능
@@ -92,6 +139,25 @@ export default function NotificationsPage() {
         queryFn: fetchAdminNotices,
         enabled: hydrated && (role === 'admin' || role === 'manager'),
     });
+
+    // Latest board posts for the same list; comments and reactions stay on the board page.
+    const boardActor = useMemo(
+        () => buildBoardActor({ role, residentId, displayName, readOnly: isReadOnly }),
+        [displayName, isReadOnly, residentId, role],
+    );
+    const boardQuery = useQuery({
+        queryKey: ['board-posts', boardActor?.role, boardActor?.residentId, 'hub'],
+        queryFn: () => fetchBoardList(boardActor!, { limit: 50 }),
+        enabled: hydrated && Boolean(boardActor),
+    });
+    const boardPosts: BoardListItem[] = Array.isArray(boardQuery.data?.items) ? boardQuery.data.items : [];
+    const categoriesQuery = useQuery({
+        queryKey: ['board-categories', boardActor?.role, boardActor?.residentId],
+        queryFn: () => fetchBoardCategories(boardActor!),
+        enabled: hydrated && Boolean(boardActor),
+    });
+    const boardCategories: BoardCategory[] = Array.isArray(categoriesQuery.data) ? categoriesQuery.data : [];
+    const categoryNameOf = (categoryId: string) => boardCategories.find((category) => category.id === categoryId)?.name ?? '게시글';
 
     // Delete Mutation
     const deleteMutation = useMutation({
@@ -126,102 +192,56 @@ export default function NotificationsPage() {
         });
     };
 
-    const filteredNotices = (noticesData || []).filter((notice: AdminNoticeItem) => {
-        if (!keyword.trim()) return true;
-        const q = keyword.toLowerCase();
-        return (
-            notice.title?.toLowerCase().includes(q) ||
-            notice.body?.toLowerCase().includes(q) ||
-            notice.category?.toLowerCase().includes(q)
-        );
+    // Board posts already mirrored into the notice list show once, as board posts.
+    const boardPostIds = new Set(boardPosts.map((post) => post.id));
+    const feed: FeedItem[] = [
+        ...(noticesData || [])
+            .filter((notice) => {
+                const postId = extractBoardPostId(notice.id);
+                return !postId || !boardPostIds.has(postId);
+            })
+            .map((notice): FeedItem => ({
+                kind: 'notice', id: notice.id, title: notice.title, preview: notice.body, createdAt: notice.created_at, notice,
+            })),
+        ...boardPosts.map((post): FeedItem => ({
+            kind: 'post', id: `post:${post.id}`, title: post.title, preview: post.contentPreview, createdAt: post.createdAt, post,
+        })),
+    ].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+
+    const query = keyword.trim().toLowerCase();
+    const visibleFeed = feed.filter((item) => {
+        if (filter !== 'all' && item.kind !== filter) return false;
+        if (filter === 'post' && postCategory !== 'all' && item.kind === 'post' && item.post.categoryId !== postCategory) return false;
+        if (!query) return true;
+        const extra = item.kind === 'notice' ? [item.notice.category ?? ''] : [item.post.authorName, categoryNameOf(item.post.categoryId)];
+        return [item.title, item.preview, ...extra].some((value) => value?.toLowerCase().includes(query));
     });
 
-    // The detail pane shows the clicked notice, or the first one in the current list.
-    const selected = filteredNotices.find((notice) => notice.id === selectedId) ?? filteredNotices[0] ?? null;
+    // The detail pane shows the clicked item, or the first one in the current list.
+    const selected = visibleFeed.find((item) => item.id === selectedId) ?? visibleFeed[0] ?? null;
     const editPathOf = (notice: AdminNoticeItem) => {
         const postId = extractBoardPostId(notice.id);
-        return postId ? `/dashboard/board?postId=${encodeURIComponent(postId)}` : `/dashboard/notifications/${notice.id}/edit`;
+        return postId ? boardPostPath(postId) : `/dashboard/notifications/${notice.id}/edit`;
     };
-
-    const rows = filteredNotices.map((notice: AdminNoticeItem) => {
-        const canManage = canManageNotice(notice);
-        const editPath = editPathOf(notice);
-
-        return (
-            <Table.Tr
-                key={notice.id}
-                className={styles.row}
-                data-selected={notice.id === selected?.id || undefined}
-                onClick={() => setSelectedId(notice.id)}
-            >
-                <Table.Td style={{ width: 110 }}>
-                    <Text size="sm" c="dimmed">
-                        {dayjs(notice.created_at).format('YYYY-MM-DD')}
-                    </Text>
-                </Table.Td>
-                <Table.Td style={{ width: 96 }}>
-                    <span className={styles.pill}>
-                        {notice.category}
-                    </span>
-                </Table.Td>
-                <Table.Td>
-                    <Text size="sm" fw={600}>
-                        {notice.title}
-                    </Text>
-                </Table.Td>
-                <Table.Td style={{ maxWidth: 220 }}>
-                    <Text size="sm" truncate c="dimmed">
-                        {notice.body}
-                    </Text>
-                </Table.Td>
-                <Table.Td style={{ width: 80 }} align="right">
-                    {canManage ? (
-                        <Group gap={4} justify="flex-end" wrap="nowrap">
-                            <ActionIcon aria-label="공지 수정"
-                                variant="subtle"
-                                color="dark"
-                                radius="xl"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    router.push(editPath);
-                                }}
-                            >
-                                <IconEdit size={16} />
-                            </ActionIcon>
-                            <ActionIcon aria-label="공지 삭제"
-                                variant="subtle"
-                                color="red"
-                                radius="xl"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDelete(notice.id);
-                                }}
-                                loading={deleteMutation.isPending && deleteMutation.variables === notice.id}
-                            >
-                                <IconTrash size={16} />
-                            </ActionIcon>
-                        </Group>
-                    ) : null}
-                </Table.Td>
-            </Table.Tr>
-        );
-    });
+    const noticeCount = feed.filter((item) => item.kind === 'notice').length;
+    const postCount = feed.length - noticeCount;
 
     return (
         <div className={styles.page}>
             <div className={styles.head} style={{ '--i': 0 } as CSSProperties}>
                 <div>
                     <Title order={2} className={styles.title} mb={4}>
-                        공지사항 관리
+                        공지·게시판
                     </Title>
                     <Text c="dimmed" size="sm">
-                        앱 사용자에게 전송된 공지 이력을 관리합니다.
+                        FC 공지와 게시판 글을 한곳에서 관리합니다.
                     </Text>
-                    {noticesData ? (
+                    {noticesData || boardQuery.data ? (
                         <div className={surface.headMeta}>
-                            <span className={surface.metaChip}><i />전체 <b>{noticesData.length}</b></span>
+                            <span className={surface.metaChip}><i />공지 <b>{noticeCount}</b></span>
+                            <span className={surface.metaChip}><i />게시글 <b>{postCount}</b></span>
                             <span className={surface.metaChip} data-tone="ok">
-                                <i />이번 달 <b>{noticesData.filter((notice) => dayjs(notice.created_at).isSame(dayjs(), 'month')).length}</b>
+                                <i />이번 달 <b>{feed.filter((item) => dayjs(item.createdAt).isSame(dayjs(), 'month')).length}</b>
                             </span>
                         </div>
                     ) : null}
@@ -229,87 +249,143 @@ export default function NotificationsPage() {
 
                 <Group gap="xs">
                     <TextInput
-                        placeholder="검색어 입력..."
+                        placeholder="제목, 내용, 작성자 검색"
                         leftSection={<IconSearch size={16} />}
                         value={keyword}
                         onChange={(e) => setKeyword(e.currentTarget.value)}
                         radius="xl"
-                        w={260}
+                        w={240}
                         classNames={{ input: styles.searchInput }}
                     />
                     <button
                         type="button"
                         className={styles.softButton}
-                        onClick={() => queryClient.invalidateQueries({ queryKey: ['notices'] })}
+                        onClick={() => {
+                            queryClient.invalidateQueries({ queryKey: ['notices'] });
+                            queryClient.invalidateQueries({ queryKey: ['board-posts'] });
+                        }}
                     >
                         <IconRefresh size={16} stroke={1.8} /> 새로고침
                     </button>
-                    {canCreate ? (
+                    {canCreate || canWritePost ? (
                         <Button
-                            component={Link}
-                            href="/dashboard/notifications/create"
                             leftSection={<IconPlus size={16} />}
-                            color="dark"
+                            color="orange"
                             radius="xl"
                             h={44}
+                            disabled={isReadOnly && !canCreate}
+                            onClick={openCompose}
                         >
-                            새 공지 등록
+                            새 글 쓰기
                         </Button>
                     ) : null}
                 </Group>
             </div>
 
             {isError && <QueryErrorAlert error={error} onRetry={refetch} isFetching={isFetching} hasData={!!noticesData} subject="공지 목록" />}
+            {boardQuery.isError && (
+                <QueryErrorAlert error={boardQuery.error} onRetry={boardQuery.refetch} isFetching={boardQuery.isFetching} hasData={Boolean(boardQuery.data)} subject="게시판 목록" />
+            )}
 
             <div className={styles.split}>
-                <section className={styles.card} style={{ '--i': 1 } as CSSProperties} aria-label="공지 목록">
+                <section className={styles.card} style={{ '--i': 1 } as CSSProperties} aria-label="공지·게시판 목록">
                     <LoadingOverlay visible={isLoading} overlayProps={{ blur: 2 }} />
-                    <ScrollArea>
-                        <Table verticalSpacing="sm" className={styles.table}>
-                            <Table.Thead>
-                                <Table.Tr>
-                                    <Table.Th>작성일</Table.Th>
-                                    <Table.Th>분류</Table.Th>
-                                    <Table.Th>제목</Table.Th>
-                                    <Table.Th>내용</Table.Th>
-                                    <Table.Th style={{ textAlign: 'right' }}>관리</Table.Th>
-                                </Table.Tr>
-                            </Table.Thead>
-                            <Table.Tbody>
-                                {rows.length > 0 ? (
-                                    rows
-                                ) : (
-                                    <Table.Tr>
-                                        <Table.Td colSpan={5} align="center" py={40}>
-                                            <Text c="dimmed">{isLoading ? '공지 목록을 불러오는 중입니다.' : isError ? '공지 목록을 확인할 수 없습니다.' : '등록된 공지사항이 없습니다.'}</Text>
-                                        </Table.Td>
-                                    </Table.Tr>
-                                )}
-                            </Table.Tbody>
-                        </Table>
-                    </ScrollArea>
+                    <div className={styles.feedHead}>
+                        <SegmentedControl
+                            value={filter}
+                            onChange={(value) => setFilter(value as FeedFilter)}
+                            color="orange"
+                            radius="xl"
+                            size="sm"
+                            data={[
+                                { value: 'all', label: `전체 ${feed.length}` },
+                                { value: 'notice', label: `공지 ${noticeCount}` },
+                                { value: 'post', label: `게시글 ${postCount}` },
+                            ]}
+                        />
+                    </div>
+                    {filter === 'post' && boardCategories.length > 0 ? (
+                        <div className={styles.categoryChips} role="group" aria-label="게시글 카테고리">
+                            {[{ id: 'all', name: '전체' }, ...boardCategories].map((category) => {
+                                const count = category.id === 'all'
+                                    ? postCount
+                                    : boardPosts.filter((post) => post.categoryId === category.id).length;
+                                return (
+                                    <button
+                                        key={category.id}
+                                        type="button"
+                                        className={styles.categoryChip}
+                                        data-active={postCategory === category.id || undefined}
+                                        aria-pressed={postCategory === category.id}
+                                        onClick={() => setPostCategory(category.id)}
+                                    >
+                                        {category.name} <span>{count}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ) : null}
+                    <ScrollArea.Autosize mah="calc(100dvh - 330px)">
+                        <div className={styles.feed} role="list">
+                            {visibleFeed.length > 0 ? visibleFeed.map((item) => (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    role="listitem"
+                                    className={styles.feedRow}
+                                    data-kind={item.kind}
+                                    data-selected={item.id === selected?.id || undefined}
+                                    onClick={() => setSelectedId(item.id)}
+                                >
+                                    <span className={styles.kindIcon}>
+                                        {item.kind === 'notice' ? <IconSpeakerphone size={16} /> : <IconNews size={16} />}
+                                    </span>
+                                    <span className={styles.feedBody}>
+                                        <span className={styles.feedTitle}>
+                                            {item.kind === 'post' && item.post.isPinned ? <IconPinFilled size={13} className={styles.pin} /> : null}
+                                            {item.title}
+                                        </span>
+                                        <span className={styles.feedPreview}>{item.preview}</span>
+                                    </span>
+                                    <span className={styles.feedMeta}>
+                                        <span className={styles.kindPill} data-kind={item.kind}>
+                                            {item.kind === 'notice' ? item.notice.category || '공지' : categoryNameOf(item.post.categoryId)}
+                                        </span>
+                                        <span>{dayjs(item.createdAt).format('MM.DD')}</span>
+                                        {item.kind === 'post' && item.post.stats.commentCount > 0 ? (
+                                            <span className={styles.comments}><IconMessageCircle size={12} />{item.post.stats.commentCount}</span>
+                                        ) : null}
+                                    </span>
+                                </button>
+                            )) : (
+                                <Text c="dimmed" ta="center" py={40}>
+                                    {isLoading ? '목록을 불러오는 중입니다.' : isError && boardQuery.isError ? '목록을 확인할 수 없습니다.' : '등록된 글이 없습니다.'}
+                                </Text>
+                            )}
+                        </div>
+                    </ScrollArea.Autosize>
                 </section>
 
-                {/* Detail of the selected notice, beside the list */}
+                {/* Detail of the selected item, beside the list */}
                 <section key={selected?.id ?? 'empty'} className={`${styles.card} ${styles.detail}`} style={{ '--i': 2 } as CSSProperties} aria-label="공지 상세">
-                    {selected ? (
+                    {selected?.kind === 'notice' ? (
                         <Stack gap="md">
                             <Group justify="space-between" align="center">
-                                <span className={styles.pill}>{selected.category || '공지'}</span>
+                                <span className={styles.kindPill} data-kind="notice">{selected.notice.category || '공지'}</span>
                                 <Text size="sm" c="dimmed">
-                                    {selected.created_at ? dayjs(selected.created_at).format('YYYY-MM-DD HH:mm') : '-'}
+                                    {selected.createdAt ? dayjs(selected.createdAt).format('YYYY-MM-DD HH:mm') : '-'}
                                 </Text>
                             </Group>
                             <Title order={3} className={styles.detailTitle}>{selected.title}</Title>
                             <Text size="sm" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>
-                                {selected.body}
+                                {selected.notice.body}
                             </Text>
 
-                            {Array.isArray(selected.images) && selected.images.length > 0 ? (
+                            {Array.isArray(selected.notice.images) && selected.notice.images.length > 0 ? (
                                 <Stack gap="xs">
                                     <Text fw={600} size="sm">이미지</Text>
                                     <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                                        {selected.images.map((url, idx) => (
+                                        {selected.notice.images.map((url, idx) => (
                                             <Anchor key={`${url}-${idx}`} href={url} target="_blank" rel="noreferrer">
                                                 <Image src={url} alt={`notice-image-${idx + 1}`} className={styles.image} />
                                             </Anchor>
@@ -318,10 +394,10 @@ export default function NotificationsPage() {
                                 </Stack>
                             ) : null}
 
-                            {Array.isArray(selected.files) && selected.files.length > 0 ? (
+                            {Array.isArray(selected.notice.files) && selected.notice.files.length > 0 ? (
                                 <Stack gap="xs">
                                     <Text fw={600} size="sm">첨부파일</Text>
-                                    {selected.files.map((file, idx) => (
+                                    {selected.notice.files.map((file, idx) => (
                                         <Anchor key={`${file.url ?? 'file'}-${idx}`} href={file.url ?? '#'} target="_blank" rel="noreferrer" className={styles.file}>
                                             <IconPaperclip size={14} />
                                             <span>{file.name ?? `첨부파일 ${idx + 1}`}</span>
@@ -331,12 +407,12 @@ export default function NotificationsPage() {
                             ) : null}
 
                             <Group justify="space-between" mt="xs">
-                                <Anchor component={Link} href={resolveNoticePath(selected.id)} size="sm" c="dimmed" className={styles.openFull}>
-                                    <IconExternalLink size={14} /> {extractBoardPostId(selected.id) ? '게시판에서 보기' : '상세 화면으로 열기'}
+                                <Anchor component={Link} href={resolveNoticePath(selected.notice.id)} size="sm" c="dimmed" className={styles.openFull}>
+                                    <IconExternalLink size={14} /> {extractBoardPostId(selected.notice.id) ? '게시판에서 보기' : '상세 화면으로 열기'}
                                 </Anchor>
-                                {canManageNotice(selected) ? (
+                                {canManageNotice(selected.notice) ? (
                                     <Group gap="xs">
-                                        <Button component={Link} href={editPathOf(selected)} variant="light" color="gray" c="dark" radius="xl" size="xs" leftSection={<IconEdit size={14} />}>
+                                        <Button component={Link} href={editPathOf(selected.notice)} variant="default" radius="xl" size="xs" leftSection={<IconEdit size={14} />}>
                                             수정
                                         </Button>
                                         <Button
@@ -345,8 +421,8 @@ export default function NotificationsPage() {
                                             radius="xl"
                                             size="xs"
                                             leftSection={<IconTrash size={14} />}
-                                            loading={deleteMutation.isPending && deleteMutation.variables === selected.id}
-                                            onClick={() => handleDelete(selected.id)}
+                                            loading={deleteMutation.isPending && deleteMutation.variables === selected.notice.id}
+                                            onClick={() => handleDelete(selected.notice.id)}
                                         >
                                             삭제
                                         </Button>
@@ -354,13 +430,74 @@ export default function NotificationsPage() {
                                 ) : null}
                             </Group>
                         </Stack>
+                    ) : selected?.kind === 'post' ? (
+                        <Stack gap="md">
+                            <Group justify="space-between" align="center">
+                                <Group gap={6}>
+                                    <span className={styles.kindPill} data-kind="post">{categoryNameOf(selected.post.categoryId)}</span>
+                                    {selected.post.isPinned ? <span className={styles.kindPill} data-kind="pinned"><IconPinFilled size={11} />필독</span> : null}
+                                </Group>
+                                <Text size="sm" c="dimmed">{dayjs(selected.createdAt).format('YYYY-MM-DD HH:mm')}</Text>
+                            </Group>
+                            <Title order={3} className={styles.detailTitle}>{selected.title}</Title>
+                            <Text size="sm" c="dimmed">{selected.post.authorName}</Text>
+                            <Text size="sm" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>
+                                {selected.post.contentPreview}
+                            </Text>
+                            <div className={styles.postStats}>
+                                <span>댓글 <b>{selected.post.stats.commentCount}</b></span>
+                                <span>반응 <b>{selected.post.stats.reactionCount}</b></span>
+                                <span>첨부 <b>{selected.post.stats.attachmentCount}</b></span>
+                                <span>조회 <b>{selected.post.stats.viewCount}</b></span>
+                            </div>
+                            <Group justify="flex-end" mt="xs">
+                                <Button component={Link} href={boardPostPath(selected.post.id)} variant="default" radius="xl" size="xs" leftSection={<IconExternalLink size={14} />}>
+                                    게시판에서 열기 (댓글·수정)
+                                </Button>
+                            </Group>
+                        </Stack>
                     ) : (
                         <Text c="dimmed" size="sm" ta="center" py={40}>
-                            {isLoading ? '공지 목록을 불러오는 중입니다.' : '선택한 공지가 없습니다.'}
+                            {isLoading ? '목록을 불러오는 중입니다.' : '선택한 글이 없습니다.'}
                         </Text>
                     )}
                 </section>
             </div>
+
+            {/* 새 글: 받는 사람과 알림 방식을 먼저 고른다 */}
+            <Modal
+                opened={composeOpened}
+                onClose={closeCompose}
+                title={<Text fw={700} size="lg">누구에게 알릴까요?</Text>}
+                size="lg"
+                radius={28}
+                padding="xl"
+                centered
+            >
+                <div className={styles.composeChoices}>
+                    {COMPOSE_TARGETS.map((target) => {
+                        const allowed = target.key === 'notice' ? canCreate : canWritePost && !isReadOnly;
+                        return (
+                            <button
+                                key={target.key}
+                                type="button"
+                                className={styles.composeChoice}
+                                disabled={!allowed}
+                                onClick={() => {
+                                    closeCompose();
+                                    router.push(target.href);
+                                }}
+                            >
+                                <span className={styles.composeIcon}><target.icon size={22} /></span>
+                                <span className={styles.composeTitle}>{target.title}</span>
+                                <span className={styles.composeFact}><b>받는 사람</b>{target.audience}</span>
+                                <span className={styles.composeFact}><b>알림</b>{target.delivery}</span>
+                                <span className={styles.composeFact}><b>게시</b>{target.place}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+            </Modal>
 
             {/* 확인 모달 */}
             <Modal

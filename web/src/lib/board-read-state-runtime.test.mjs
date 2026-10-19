@@ -622,6 +622,12 @@ const commonListMocks = {
     fetchAdminNotice: async () => ({}),
     fetchAdminNotices: async () => [],
   },
+  // 공지·게시판 also lists board posts; the shared query state stands in for both reads.
+  '@/lib/board-api': {
+    buildBoardActor: () => ({ role: 'admin', residentId: 'synthetic-actor' }),
+    fetchBoardList: async () => ({ items: [], nextCursor: null }),
+    fetchBoardCategories: async () => [],
+  },
   '@/lib/logger': { logger: {} },
   '@/lib/show-admin-notification-warning': { showAdminNotificationWarning() {} },
   '@/lib/notification-delivery-feedback': { notificationFeedbackColor: () => 'green' },
@@ -637,7 +643,7 @@ const commonListMocks = {
 for (const [path, emptyText, subject] of [
   ['appointment', '조건에 맞는 FC가 없습니다.', '위촉 대상 FC'],
   ['docs', '해당 조건의 서류가 존재하지 않습니다.', '서류 목록'],
-  ['notifications', '등록된 공지사항이 없습니다.', '공지 목록'],
+  ['notifications', '등록된 글이 없습니다.', '공지 목록'],
   ['exam/schedule', '등록된 일정이 없습니다.', '시험 일정'],
   ['audit', '기록이 없습니다.', '처리 이력'],
 ]) {

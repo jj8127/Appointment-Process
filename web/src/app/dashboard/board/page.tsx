@@ -404,7 +404,7 @@ function BoardContent() {
 
   const canManagePost = (post?: BoardPost | null) =>
     actor?.role === 'admin' || (actor?.role === 'manager' && !!post?.isMine);
-  const handleOpenCreate = () => {
+  const handleOpenCreate = useCallback(() => {
     setPendingAttachmentRetry(null);
     setEditingPostId(null);
     setLoadedEditPostId(null);
@@ -418,7 +418,16 @@ function BoardContent() {
     });
     setExistingAttachments([]);
     open();
-  };
+  }, [categories, open]);
+  // Arriving from 공지·게시판 "새 글 쓰기 → 게시판 글" opens the composer once categories are known.
+  const composeRequested = searchParams.get('compose') === '1';
+  const composeHandled = useRef(false);
+  useEffect(() => {
+    if (!composeRequested || composeHandled.current || !canWrite || categoriesQuery.isLoading) return;
+    composeHandled.current = true;
+    router.replace('/dashboard/board');
+    handleOpenCreate();
+  }, [composeRequested, canWrite, categoriesQuery.isLoading, router, handleOpenCreate]);
   const handleCloseComposer = (force = false) => {
     if (!force && (saveSubmitting.current || createPostMutation.isPending || updatePostMutation.isPending)) return;
     if (pendingAttachmentRetry && !force) {
