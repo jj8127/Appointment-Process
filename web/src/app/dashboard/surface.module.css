@@ -349,3 +349,23 @@ button.statTile:hover {
     transform: none;
   }
 }
+
+/* Form modals: grey sections holding white, borderless inputs. */
+.modalSection {
+  background: var(--dashboard-panel);
+  border-radius: 18px;
+  padding: 16px;
+}
+
+.modalSection [class*='Input-input'] {
+  background: #fff;
+  border: 0;
+  border-radius: 12px;
+}
+
+.modalSectionTitle {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--dashboard-ink);
+  margin-bottom: 12px;
+}

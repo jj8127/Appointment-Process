@@ -613,7 +613,7 @@ export default function ExamSchedulePage() {
                 onClose={() => handleClose()}
                 title={
                     <Group gap="sm">
-                        <ThemeIcon radius="md" variant="light" color="orange">
+                        <ThemeIcon radius="xl" size={40} variant="filled" color="dark">
                             <IconCalendar size={18} />
                         </ThemeIcon>
                         <div>
@@ -623,12 +623,14 @@ export default function ExamSchedulePage() {
                     </Group>
                 }
                 size="lg"
+                radius={28}
+                padding="xl"
                 centered
             >
                 <form onSubmit={form.onSubmit(handleSubmit)}>
                     <Stack gap="lg">
-                        <Paper withBorder radius="lg" p="md" bg="gray.0">
-                            <Text fw={700} size="sm" mb="sm">시험 일정</Text>
+                        <div className={surface.modalSection}>
+                            <Text className={surface.modalSectionTitle}>시험 일정</Text>
                             <Checkbox
                                 label="시험일 미정"
                                 description="시험 날짜가 아직 확정되지 않은 경우 체크하세요"
@@ -795,13 +797,14 @@ export default function ExamSchedulePage() {
                                     }}
                                 />
                             </SimpleGrid>
-                        </Paper>
+                        </div>
 
-                        <Paper withBorder radius="lg" p="md">
-                            <Text fw={700} size="sm" mb="sm">시험 정보</Text>
+                        <div className={surface.modalSection}>
+                            <Text className={surface.modalSectionTitle}>시험 정보</Text>
                             <SegmentedControl
                                 fullWidth
-                                radius="md"
+                                radius="xl"
+                                bg="white"
                                 data={[
                                     { value: 'life', label: '생명 / 제3보험' },
                                     { value: 'nonlife', label: '손해보험' },
@@ -814,10 +817,10 @@ export default function ExamSchedulePage() {
                                 mt="md"
                                 {...form.getInputProps('round_label')}
                             />
-                        </Paper>
+                        </div>
 
-                        <Paper withBorder radius="lg" p="md">
-                            <Text fw={700} size="sm" mb="sm">고사장 및 비고</Text>
+                        <div className={surface.modalSection}>
+                            <Text className={surface.modalSectionTitle}>고사장 및 비고</Text>
                             <Box>
                                 <Text size="sm" fw={500} mb={4}>고사장(장소) 관리</Text>
                                 <TagsInput
@@ -837,10 +840,10 @@ export default function ExamSchedulePage() {
                                 mt="md"
                                 {...form.getInputProps('notes')}
                             />
-                        </Paper>
+                        </div>
 
                         <Group justify="space-between" mt="xs">
-                            <Button variant="default" onClick={() => handleClose()}>취소</Button>
+                            <Button variant="light" color="gray" radius="xl" onClick={() => handleClose()}>취소</Button>
                             <Button type="submit" color="dark" radius="xl" loading={saveMutation.isPending}>
                                 {editingId ? '수정 저장' : '등록 하기'}
                             </Button>
@@ -850,14 +853,14 @@ export default function ExamSchedulePage() {
             </Modal>
 
             {/* Delete Confirm */}
-            <Modal opened={deleteOpened} onClose={closeDelete} title="일정 삭제" centered>
+            <Modal opened={deleteOpened} onClose={closeDelete} title="일정 삭제" radius={28} padding="xl" centered>
                 <Stack gap="md">
                     <Text size="sm" c="dimmed">
                         {deleteTarget ? `'${deleteTarget.label}' 일정을 삭제하시겠습니까?\n신청자가 있는 회차는 삭제할 수 없으며 신청 이력은 보존됩니다.` : '일정을 삭제하시겠습니까?'}
                     </Text>
                     <Group justify="flex-end">
-                        <Button variant="default" onClick={closeDelete}>취소</Button>
-                        <Button color="red" onClick={handleConfirmDelete} loading={deleteMutation.isPending}>
+                        <Button variant="light" color="gray" radius="xl" onClick={closeDelete}>취소</Button>
+                        <Button color="red" radius="xl" onClick={handleConfirmDelete} loading={deleteMutation.isPending}>
                             삭제
                         </Button>
                     </Group>

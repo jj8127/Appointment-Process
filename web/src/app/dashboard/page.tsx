@@ -2552,7 +2552,7 @@ export default function DashboardPage() {
         title={<Text fw={700} size="lg">FC 상세 관리</Text>}
         size="lg"
         padding="xl"
-        radius="md"
+        radius={28}
         centered
         overlayProps={{ blur: 3 }}
       >
@@ -2561,10 +2561,10 @@ export default function DashboardPage() {
             {documentCleanupStatus.isError && !isReadOnly ? <QueryErrorAlert error={documentCleanupStatus.error} onRetry={() => documentCleanupStatus.refetch()} subject="파일 정리 상태" /> : null}
             {(documentCleanupFcId === selectedFc.id || documentCleanupStatus.data?.cleanupPending) ? <Alert color="yellow" mb="md" title="일부 파일 정리가 남아 있습니다">
               서류 변경은 완료됐습니다. 삭제나 요청 변경을 반복하지 마세요.
-              <Button size="xs" mt="xs" disabled={isReadOnly} loading={retryDocumentCleanupMutation.isPending} onClick={() => retryDocumentCleanupMutation.mutate(selectedFc.id)}>파일 정리만 다시 시도</Button>
+              <Button radius="xl" size="xs" mt="xs" disabled={isReadOnly} loading={retryDocumentCleanupMutation.isPending} onClick={() => retryDocumentCleanupMutation.mutate(selectedFc.id)}>파일 정리만 다시 시도</Button>
             </Alert> : null}
             <Group mb="xl" align="flex-start">
-              <Avatar size="lg" color="orange" radius="xl">
+              <Avatar size="lg" variant="gradient" gradient={{ from: '#ff9a52', to: '#c2470d', deg: 180 }} radius="xl">
                 {selectedFc.name?.slice(0, 1) || '?'}
               </Avatar>
               <div>
@@ -2593,10 +2593,10 @@ export default function DashboardPage() {
               </div>
             </Group>
 
-            <Tabs value={modalTab} onChange={setModalTab} color="orange" variant="outline" radius="md">
+            <Tabs value={modalTab} onChange={setModalTab} color="dark" variant="pills" radius="xl">
               <Tabs.List
                 mb="lg"
-                style={{ display: 'flex', flexWrap: 'nowrap', gap: 8, overflowX: 'auto' }}
+                style={{ display: 'flex', flexWrap: 'nowrap', gap: 4, overflowX: 'auto', background: 'var(--dashboard-panel)', borderRadius: 999, padding: 4 }}
               >
                 <Tabs.Tab
                   value="info"
@@ -2644,16 +2644,13 @@ export default function DashboardPage() {
                             return (
                               <Paper
                                 key={step.key}
-                                withBorder
-                                radius="md"
+                                radius={16}
                                 p="sm"
                                 style={{
-                                  borderColor: active
-                                    ? 'var(--mantine-color-orange-3)'
-                                    : 'var(--mantine-color-gray-3)',
+                                  boxShadow: active ? 'inset 0 0 0 1.5px var(--primary-color)' : undefined,
                                   backgroundColor: active
-                                    ? 'var(--mantine-color-orange-0)'
-                                    : 'var(--mantine-color-white)',
+                                    ? '#fff6ef'
+                                    : 'var(--dashboard-panel)',
                                 }}
                               >
                                 <Group justify="space-between" align="flex-start" gap="xs">
@@ -2693,7 +2690,7 @@ export default function DashboardPage() {
                   />
                     {canResetToLookup && (
                     <>
-                      <Button
+                      <Button radius="xl"
                         variant="light"
                         color="gray"
                         size="xs"
@@ -2780,7 +2777,7 @@ export default function DashboardPage() {
 
                       return (
                         <>
-                          <Paper withBorder radius="lg" p="md">
+                          <Paper radius={18} p="md" bg="var(--dashboard-panel)">
                             <Text fw={600} size="sm" mb="xs">
                               보증 보험 동의 관리
                             </Text>
@@ -2791,7 +2788,7 @@ export default function DashboardPage() {
                               <Alert
                                 mb="md"
                                 color="red"
-                                radius="md"
+                                radius="lg"
                                 icon={<IconInfoCircle size={16} />}
                               >
                                 <Text size="sm">
@@ -2803,7 +2800,7 @@ export default function DashboardPage() {
                               <Alert
                                 mb="md"
                                 color="orange"
-                                radius="md"
+                                radius="lg"
                                 icon={<IconInfoCircle size={16} />}
                               >
                                 <Text size="sm">
@@ -2816,7 +2813,7 @@ export default function DashboardPage() {
                               <Alert
                                 mb="md"
                                 color="gray"
-                                radius="md"
+                                radius="lg"
                                 icon={<IconInfoCircle size={16} />}
                               >
                                 <Text size="sm">
@@ -2835,7 +2832,7 @@ export default function DashboardPage() {
                                   valueFormat="YYYY-MM-DD"
                                   disabled={isReadOnly || !hasTempIdForAllowance}
                                   clearable={false}
-                                  radius="md"
+                                  radius="lg"
                                   size="md"
                                   leftSection={<IconCalendar size={16} />}
                                   previousIcon={<IconChevronLeft size={16} />}
@@ -2843,7 +2840,7 @@ export default function DashboardPage() {
                                   popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
                                   styles={getModalDateInputStyles(isReadOnly || !hasTempIdForAllowance)}
                                 />
-                                <Button
+                                <Button radius="xl"
                                   fullWidth
                                   size="sm"
                                   color={isReadOnly ? 'gray' : 'orange'}
@@ -2868,7 +2865,7 @@ export default function DashboardPage() {
                                   >
                                     상태 조작
                                   </Text>
-                                  <Button
+                                  <Button radius="xl"
                                     fullWidth
                                     color="blue"
                                     variant={allowanceDisplay.key === 'prescreen' ? 'filled' : 'light'}
@@ -2905,16 +2902,16 @@ export default function DashboardPage() {
                     })()}
                   </Box>
 
-                  <Button fullWidth mt="md" onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} disabled={isReadOnly || (selectedFc.status !== 'draft' && selectedFc.status !== 'temp-id-issued' && selectedFc.status !== 'allowance-pending')} color={isReadOnly ? "gray" : "dark"}>
+                  <Button radius="xl" fullWidth mt="md" onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} disabled={isReadOnly || (selectedFc.status !== 'draft' && selectedFc.status !== 'temp-id-issued' && selectedFc.status !== 'allowance-pending')} color={isReadOnly ? "gray" : "dark"}>
                     변경사항 저장
                   </Button>
 
                   <Divider my="sm" />
 
                   <Group grow>
-                    <Button
+                    <Button radius="xl"
                       variant="light"
-                      color={isReadOnly ? "gray" : "orange"}
+                      color={isReadOnly ? "gray" : "dark"}
                       leftSection={<IconSend size={16} />}
                       loading={reminderPending} disabled={isReadOnly || reminderPending}
                       onClick={async () => {
@@ -2976,7 +2973,7 @@ export default function DashboardPage() {
                     >
                       재촉 알림
                     </Button>
-                    <Button
+                    <Button radius="xl"
                       variant="subtle"
                       color={isReadOnly ? "gray" : "red"}
                       leftSection={<IconTrash size={16} />}
@@ -3003,7 +3000,7 @@ export default function DashboardPage() {
 
               <Tabs.Panel value="docs">
                 <Stack gap="md">
-                  <Card withBorder radius="md" p="sm" bg="gray.0">
+                  <Card radius={16} p="sm" bg="var(--dashboard-panel)">
                     <Group justify="space-between" mb="xs">
                       <Text fw={600} size="sm">
                         요청 서류 ({selectedFc.fc_documents?.length || 0}건)
@@ -3016,8 +3013,7 @@ export default function DashboardPage() {
                           return (
                             <Card
                               key={idx}
-                              radius="md"
-                              withBorder
+                              radius={16}
                               shadow="sm"
                               p={0}
                               style={{
@@ -3068,7 +3064,7 @@ export default function DashboardPage() {
                                 </Group>
                                 <Group gap={4}>
                                   {isSubmitted && (
-                                    <Button
+                                    <Button radius="xl"
                                       variant="default"
                                       size="xs"
                                       onClick={() => handleOpenDoc(d.storage_path ?? '')}
@@ -3265,7 +3261,7 @@ export default function DashboardPage() {
                         setCustomDocInput(cleaned.trim().length === 0 ? '' : cleaned);
                       }}
                     />
-                    <Button
+                    <Button radius="xl"
                       variant="default"
                       size="xs"
                       disabled={isReadOnly}
@@ -3285,9 +3281,9 @@ export default function DashboardPage() {
                     </Button>
                   </Group>
 
-                  <Button
+                  <Button radius="xl"
                     fullWidth
-                    color={isReadOnly ? "gray" : "orange"}
+                    color={isReadOnly ? "gray" : "dark"}
                     mt="md"
                     disabled={isReadOnly}
                     onClick={() => updateDocsRequestMutation.mutate({ types: selectedDocs, deadline: docsDeadlineInput })}
@@ -3343,7 +3339,7 @@ export default function DashboardPage() {
                       <Alert
                         color={hanwhaStatus?.color ?? 'blue'}
                         icon={<IconInfoCircle size={16} />}
-                        radius="md"
+                        radius="lg"
                       >
                         <Text fw={700} size="sm" mb={4}>
                           {hanwhaStatus?.label ?? '다위촉 URL 대기'}
@@ -3374,7 +3370,7 @@ export default function DashboardPage() {
                       valueFormat="YYYY-MM-DD"
                       clearable={false}
                       disabled={isReadOnly}
-                      radius="md"
+                      radius="lg"
                       size="md"
                       leftSection={<IconCalendar size={16} />}
                       previousIcon={<IconChevronLeft size={16} />}
@@ -3382,7 +3378,7 @@ export default function DashboardPage() {
                       popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
                       styles={getModalDateInputStyles(isReadOnly)}
                     />
-                    <Button
+                    <Button radius="xl"
                       fullWidth
                       mt="sm"
                       size="xs"
@@ -3394,7 +3390,7 @@ export default function DashboardPage() {
                     >
                       완료일 저장
                     </Button>
-                    <Card withBorder radius="md" p="sm" mt="sm" bg={selectedFc.dawichok_url_sent_at ? 'teal.0' : 'orange.0'}>
+                    <Card radius={16} p="sm" mt="sm" bg={selectedFc.dawichok_url_sent_at ? '#ecf9ef' : '#fff6ef'}>
                       <Group justify="space-between" gap="xs" mb={4}>
                         <Text size="xs" fw={700} c={selectedFc.dawichok_url_sent_at ? 'teal' : 'orange'}>
                           다위촉 URL 발송 안내
@@ -3415,11 +3411,11 @@ export default function DashboardPage() {
                           최근 발송: {dayjs(selectedFc.dawichok_url_sent_at).format('YYYY-MM-DD HH:mm')}
                         </Text>
                       ) : null}
-                      <Button
+                      <Button radius="xl"
                         fullWidth
                         mt="xs"
                         size="xs"
-                        color={isReadOnly ? 'gray' : 'teal'}
+                        color={isReadOnly ? 'gray' : 'dark'}
                         variant="filled"
                         leftSection={<IconSend size={14} />}
                         onClick={() => markDawichokUrlSentMutation.mutate()}
@@ -3464,7 +3460,7 @@ export default function DashboardPage() {
                       )}
                       <Group gap="xs">
                         {!!selectedFc.hanwha_commission_pdf_path && (
-                          <Button
+                          <Button radius="xl"
                             size="xs"
                             color="blue"
                             variant="light"
@@ -3474,7 +3470,7 @@ export default function DashboardPage() {
                           </Button>
                         )}
                         {!!selectedFc.hanwha_commission_pdf_path && (
-                          <Button
+                          <Button radius="xl"
                             size="xs"
                             color="red"
                             variant="light"
@@ -3486,7 +3482,7 @@ export default function DashboardPage() {
                           </Button>
                         )}
                       </Group>
-                      <Button
+                      <Button radius="xl"
                         mt="xs"
                         fullWidth
                         size="xs"
@@ -3514,7 +3510,7 @@ export default function DashboardPage() {
 
               <Tabs.Panel value="appointment">
                 <Stack gap="md">
-                  <Card withBorder radius="md" p="md" bg="gray.0">
+                  <Card radius={16} p="md" bg="var(--dashboard-panel)">
                     <Group justify="space-between" mb="xs">
                       <Text fw={600} size="sm">최종 완료 상태</Text>
                       <Badge variant="light" color={commissionSummaryColor} size="sm">
@@ -3544,7 +3540,7 @@ export default function DashboardPage() {
                         손해 최종 완료
                       </Chip>
                     </Group>
-                    <Button
+                    <Button radius="xl"
                       fullWidth
                       mt="sm"
                       size="xs"
@@ -3558,7 +3554,7 @@ export default function DashboardPage() {
                     </Button>
                   </Card>
                   {canOpenInsuranceStage(selectedFc) ? (
-                    <Card withBorder radius="md" p="md" bg="gray.0">
+                    <Card radius={16} p="md" bg="var(--dashboard-panel)">
                       <Text fw={600} size="sm" mb="xs">생명/손해 위촉 심사 및 확정</Text>
                       {renderAppointmentSection('life')}
                       <Divider my="sm" />
