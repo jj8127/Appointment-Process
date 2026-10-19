@@ -333,6 +333,16 @@
   padding: 16px;
 }
 
+/* PDF preview fills the viewer; the browser supplies paging and zoom. */
+.pdfFrame {
+  align-self: stretch;
+  width: 100%;
+  min-height: 560px;
+  border: 0;
+  border-radius: 12px;
+  background: #fff;
+}
+
 .viewerState {
   display: grid;
   justify-items: center;

@@ -54,6 +54,10 @@ const isImage = (path: string | null | undefined) => {
     return lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp');
 };
 
+// PDFs preview in the browser's built-in viewer; the stored path or the original file name may carry the extension.
+const isPdf = (...names: Array<string | null | undefined>) =>
+    names.some((name) => Boolean(name) && String(name).toLowerCase().endsWith('.pdf'));
+
 const TABS = [
     { value: 'pending', label: '미처리' },
     { value: 'approved', label: '승인됨' },
@@ -422,6 +426,13 @@ export default function DocumentsPage() {
                                 {signedUrl ? (
                                     isImage(selectedDoc.storage_path) ? (
                                         <Image src={signedUrl} alt={`${selectedDoc.doc_type} 미리보기`} fit="contain" mah={560} w="auto" />
+                                    ) : isPdf(selectedDoc.storage_path, selectedDoc.file_name) ? (
+                                        <iframe
+                                            key={signedUrl}
+                                            src={signedUrl}
+                                            title={`${selectedDoc.doc_type} PDF 미리보기`}
+                                            className={styles.pdfFrame}
+                                        />
                                     ) : (
                                         <div className={styles.viewerState}>
                                             <span className={styles.viewerIcon}><IconFileText size={30} stroke={1.5} /></span>
