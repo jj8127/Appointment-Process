@@ -38,6 +38,7 @@ import {
   issueGroupChatNotificationRetryToken,
   verifyGroupChatNotificationRetryToken,
 } from '../_shared/group-chat-notification-event.ts';
+import { collectUnregisteredExpoTokens } from '../_shared/expo-push-delivery.ts';
 import {
   drainMessengerAttachmentCleanup,
   finalizeMessengerAttachmentBatch,
@@ -1413,6 +1414,16 @@ function countAcceptedExpoTickets(value: unknown, expectedCount: number) {
   return Math.min(expectedCount, acceptedCount);
 }
 
+// Expo marks uninstalled devices permanently; keeping them would fail every later send.
+async function deleteUnregisteredDeviceTokens(tokens: string[]) {
+  if (tokens.length === 0) return;
+  const { error } = await supabase.from('device_tokens').delete().in('expo_push_token', tokens)
+    .then((result) => result, () => ({ error: true }));
+  if (error) {
+    console.warn('[group-chat] device token cleanup failed', { reason: 'delete_failed' });
+  }
+}
+
 async function sendExpoPushPayloads(pushPayload: Record<string, unknown>[]): Promise<ExpoPushSummary> {
   const summary: ExpoPushSummary = {
     requested_count: pushPayload.length,
@@ -1439,6 +1450,9 @@ async function sendExpoPushPayloads(pushPayload: Record<string, unknown>[]): Pro
       }
 
       const providerPayload = await response.json().catch(() => null);
+      await deleteUnregisteredDeviceTokens(
+        collectUnregisteredExpoTokens(chunk, response.status, providerPayload),
+      );
       const acceptedCount = countAcceptedExpoTickets(providerPayload, chunk.length);
       summary.accepted_count += acceptedCount;
       summary.rejected_count += chunk.length - acceptedCount;

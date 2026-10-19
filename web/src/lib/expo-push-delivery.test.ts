@@ -7,10 +7,13 @@ import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 
 import * as pushPreferencePolicy from './app-push-preference-policy.ts';
+import * as expoPushDelivery from './expo-push-delivery.ts';
 import {
   classifyExpoPushDelivery,
+  collectUnregisteredExpoTokens,
   mergeExpoPushDeliverySummaries,
 } from './expo-push-delivery.ts';
+import * as pushDeliveryResult from './push-notification-delivery-result.ts';
 import * as queryContract from './supabase-query-contract.ts';
 
 const require = createRequire(import.meta.url);
@@ -131,6 +134,153 @@ test('merges chunk summaries into bounded aggregate counts', () => {
     ]),
     { attempted: 5, accepted: 3, rejected: 2 },
   );
+});
+
+test('collects only DeviceNotRegistered destinations from a successful Expo response', () => {
+  const messages = [{ to: 'ExponentPushToken[a]' }, { to: 'ExponentPushToken[b]' }, { to: 'ExponentPushToken[c]' }];
+  assert.deepEqual(
+    collectUnregisteredExpoTokens(messages, 200, {
+      data: [
+        { status: 'ok' },
+        { status: 'error', details: { error: 'DeviceNotRegistered' } },
+        { status: 'error', details: { error: 'MessageRateExceeded' } },
+      ],
+    }),
+    ['ExponentPushToken[b]'],
+  );
+  const unregistered = { data: [{ status: 'error', details: { error: 'DeviceNotRegistered' } }] };
+  assert.deepEqual(collectUnregisteredExpoTokens(messages, 503, unregistered), []);
+  assert.deepEqual(collectUnregisteredExpoTokens(messages, 200, { data: null }), []);
+  assert.deepEqual(collectUnregisteredExpoTokens([{}], 200, unregistered), []);
+});
+
+const RESIDENT_PHONE = '01011112222';
+const RESIDENT_ACTOR_ID = '11111111-1111-4111-8111-111111111111';
+const NOTIFICATION_ID = '33333333-3333-4333-8333-333333333333';
+
+function residentDeliveryHarness({
+  preference,
+  tokens,
+  expoTickets = [],
+}: {
+  preference: { enabled: boolean; lookupFailed: boolean };
+  tokens: string[];
+  expoTickets?: unknown[];
+}) {
+  const fetchCalls: unknown[][] = [];
+  const deletedTokens: unknown[][] = [];
+  const preferenceCalls: unknown[][] = [];
+  const adminSupabase = {
+    from(table: string) {
+      let deleting = false;
+      const query = {
+        select() { return query; },
+        eq() { return query; },
+        maybeSingle() { return query; },
+        delete() { deleting = true; return query; },
+        in(_column: string, values: unknown[]) {
+          if (deleting) deletedTokens.push(values);
+          return query;
+        },
+        then(resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) {
+          const data = deleting
+            ? null
+            : table === 'fc_profiles'
+              ? { id: RESIDENT_ACTOR_ID, phone: RESIDENT_PHONE }
+              : tokens.map((token) => ({ expo_push_token: token }));
+          return Promise.resolve({ data, error: null }).then(resolve, reject);
+        },
+      };
+      return query;
+    },
+  };
+  const source = readFileSync(path.join(sourceRoot, 'lib/push-notification-service.ts'), 'utf8');
+  const code = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const exports: Record<string, (...args: unknown[]) => Promise<unknown>> = {};
+  const noop = () => undefined;
+  vm.runInNewContext(code, {
+    exports,
+    AbortSignal,
+    fetch: async (...args: unknown[]) => {
+      fetchCalls.push(args);
+      return { ok: true, status: 200, json: async () => ({ data: expoTickets }) };
+    },
+    require: (id: string) => {
+      if (id === 'server-only') return {};
+      if (id === '@/lib/admin-supabase') return { adminSupabase };
+      if (id === '@/lib/logger') return { logger: { info: noop, warn: noop, error: noop, debug: noop } };
+      if (id === '@/lib/push-notification-delivery-result') return pushDeliveryResult;
+      if (id === '@/lib/expo-push-delivery') return expoPushDelivery;
+      if (id === '@/lib/app-push-preference-service') {
+        return {
+          loadExactFcExpoPreference: async (...args: unknown[]) => {
+            preferenceCalls.push(args);
+            return { ...preference, category: 'operations' };
+          },
+        };
+      }
+      throw new Error(`Missing push service mock: ${id}`);
+    },
+  });
+  const send = () => exports.sendPushNotificationToResidentDevices(
+    RESIDENT_PHONE,
+    {
+      title: '서류 승인 안내',
+      body: '서류가 승인되었습니다.',
+      target: { version: 1, kind: 'onboarding_section', fcId: RESIDENT_ACTOR_ID, section: 'docs_upload' },
+      category: 'app_event',
+    },
+    NOTIFICATION_ID,
+    RESIDENT_ACTOR_ID,
+  ) as Promise<{
+    delivery: { notificationStored: boolean; pushStatus: string };
+    failures: string[];
+    expo: { attempted: number; accepted: number; rejected: number };
+  }>;
+  return { send, fetchCalls, deletedTokens, preferenceCalls };
+}
+
+test('resident push keeps the inbox row but skips devices when the FC turned app push off', async () => {
+  const harness = residentDeliveryHarness({
+    preference: { enabled: false, lookupFailed: false },
+    tokens: ['ExponentPushToken[a]'],
+  });
+  const result = await harness.send();
+  assert.equal(harness.fetchCalls.length, 0);
+  assert.deepEqual(harness.preferenceCalls, [[RESIDENT_ACTOR_ID, 'app_event']]);
+  assert.equal(result.delivery.notificationStored, true);
+  assert.equal(result.delivery.pushStatus, 'no_registered_device');
+  assert.equal(JSON.stringify(result.failures), '[]');
+});
+
+test('resident push fails closed when the app push preference cannot be read', async () => {
+  const harness = residentDeliveryHarness({
+    preference: { enabled: false, lookupFailed: true },
+    tokens: ['ExponentPushToken[a]'],
+  });
+  const result = await harness.send();
+  assert.equal(harness.fetchCalls.length, 0);
+  assert.equal(result.delivery.notificationStored, true);
+  assert.equal(result.delivery.pushStatus, 'provider_rejected');
+  assert.equal(JSON.stringify(result.failures), JSON.stringify(['preference_lookup_failed']));
+});
+
+test('resident push deletes tokens Expo reports as no longer registered', async () => {
+  const harness = residentDeliveryHarness({
+    preference: { enabled: true, lookupFailed: false },
+    tokens: ['ExponentPushToken[a]', 'ExponentPushToken[b]'],
+    expoTickets: [
+      { status: 'ok' },
+      { status: 'error', details: { error: 'DeviceNotRegistered' } },
+    ],
+  });
+  const result = await harness.send();
+  assert.equal(harness.fetchCalls.length, 1);
+  assert.deepEqual(harness.deletedTokens, [['ExponentPushToken[b]']]);
+  assert.equal(result.expo.attempted, 2);
+  assert.equal(result.expo.accepted, 1);
 });
 
 test('admin notice delivery stays inside the Vercel web deployment root', () => {

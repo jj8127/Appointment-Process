@@ -1,6 +1,8 @@
 import 'server-only';
 
 import { adminSupabase } from '@/lib/admin-supabase';
+import { loadExactFcExpoPreference } from '@/lib/app-push-preference-service';
+import { collectUnregisteredExpoTokens } from '@/lib/expo-push-delivery';
 import { logger } from '@/lib/logger';
 import {
   classifyExpoResponse,
@@ -93,6 +95,7 @@ function finalizeDeliveryResult(
   const notificationStored = result.inbox.logged;
   const providerFailed = result.failures.some((failure) =>
     failure === 'token_query_failed'
+    || failure === 'preference_lookup_failed'
     || failure === 'expo_http_failed'
     || failure === 'expo_invalid_response'
     || failure === 'expo_ticket_rejected'
@@ -204,13 +207,32 @@ async function isCanonicalFcRecipient(userId: string, recipientActorId: string) 
   return String(data.phone ?? '').replace(/\D/g, '') === userId;
 }
 
+// Expo marks uninstalled devices permanently; keeping them would fail every later send.
+export async function deleteUnregisteredExpoTokens(tokens: string[]) {
+  if (tokens.length === 0) return;
+  const { error } = await adminSupabase
+    .from('device_tokens')
+    .delete()
+    .in('expo_push_token', tokens)
+    .then((result) => result, () => ({ error: true }));
+  if (error) {
+    logger.warn('[push-notification-service] device token cleanup failed', {
+      category: 'push_delivery',
+      reason: 'device_token_cleanup_failed',
+      status: 'failed',
+    });
+  }
+}
+
 async function deliverToRegisteredTargets(
   userId: string,
+  recipientActorId: string,
   {
     title,
     body,
     data,
     target,
+    category,
   }: PushPayload,
   delivery: MutablePushNotificationResult,
   notificationId: string | null,
@@ -221,6 +243,15 @@ async function deliverToRegisteredTargets(
     ...(notificationId ? { notificationId } : {}),
   };
   try {
+    // Same rule as Edge fc-notify: the inbox row stays, but a recipient who turned
+    // off all or this category of app push gets no device push.
+    const preference = await loadExactFcExpoPreference(recipientActorId, category);
+    if (preference.lookupFailed) {
+      addFailure(delivery, 'preference_lookup_failed');
+      return;
+    }
+    if (!preference.enabled) return;
+
     const { data: tokens, error: tokensError } = await adminSupabase
       .from('device_tokens')
       .select('expo_push_token')
@@ -267,6 +298,9 @@ async function deliverToRegisteredTargets(
             response.ok,
             providerBody,
             uniqueTokens.length,
+          );
+          await deleteUnregisteredExpoTokens(
+            collectUnregisteredExpoTokens(messages, response.status, providerBody),
           );
           delivery.expo.accepted = expoResult.accepted;
           delivery.expo.rejected = expoResult.rejected;
@@ -367,7 +401,7 @@ export async function sendPushNotificationToResidentDevices(
 
   delivery.inbox.attempted = true;
   delivery.inbox.logged = true;
-  await deliverToRegisteredTargets(userId, payload, delivery, notificationId);
+  await deliverToRegisteredTargets(userId, recipientActorId, payload, delivery, notificationId);
 
   const result = finalizeDeliveryResult(delivery, notificationId);
   logDeliveryResult(result);
@@ -403,7 +437,7 @@ export async function sendPushNotificationToResident(
       delivery,
     );
     if (delivery.inbox.logged && notificationId) {
-      await deliverToRegisteredTargets(userId, payload, delivery, notificationId);
+      await deliverToRegisteredTargets(userId, recipientActorId, payload, delivery, notificationId);
     }
   } catch {
     addFailure(delivery, 'unexpected_failure');

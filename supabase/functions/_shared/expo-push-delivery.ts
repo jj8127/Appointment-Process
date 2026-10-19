@@ -60,6 +60,37 @@ export function classifyExpoPushDelivery(
   };
 }
 
+/**
+ * Returns the destination tokens whose ticket says the device is no longer
+ * registered. Expo reports this permanently, so callers delete these tokens.
+ * Tickets map to messages by position; anything malformed yields no tokens.
+ */
+export function collectUnregisteredExpoTokens(
+  messages: readonly Readonly<{ to?: unknown }>[],
+  httpStatus: number,
+  responseBody: unknown,
+): string[] {
+  if (httpStatus < 200 || httpStatus >= 300 || !isRecord(responseBody)) return [];
+  const tickets = responseBody.data;
+  if (!Array.isArray(tickets)) return [];
+
+  const tokens = new Set<string>();
+  tickets.slice(0, messages.length).forEach((ticket, index) => {
+    const to = messages[index]?.to;
+    if (
+      isRecord(ticket)
+      && ticket.status === 'error'
+      && isRecord(ticket.details)
+      && ticket.details.error === 'DeviceNotRegistered'
+      && typeof to === 'string'
+      && to.length > 0
+    ) {
+      tokens.add(to);
+    }
+  });
+  return [...tokens];
+}
+
 export function mergeExpoPushDeliverySummaries(
   summaries: readonly ExpoPushDeliverySummary[],
 ): ExpoPushDeliverySummary {

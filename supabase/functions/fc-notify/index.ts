@@ -12,6 +12,7 @@ import { filterManagerTokensForNotification } from '../_shared/notification-deli
 import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
 import {
   classifyExpoPushDelivery,
+  collectUnregisteredExpoTokens,
   type ExpoPushDeliverySummary,
   mergeExpoPushDeliverySummaries,
   toExpoPushDeliveryOutcome,
@@ -2067,6 +2068,21 @@ async function fetchBoardHomeCategories(): Promise<BoardNoticeCategoryRow[]> {
   return rows;
 }
 
+// Expo marks uninstalled devices permanently; keeping them would fail every later send.
+async function deleteUnregisteredDeviceTokens(tokens: string[]) {
+  if (tokens.length === 0) return;
+  const { error } = await supabase.from('device_tokens').delete().in('expo_push_token', tokens)
+    .then((result) => result, () => ({ error: true }));
+  if (error) {
+    reportEdgeDiagnostic({
+      event: 'fc_notify.device_token_cleanup',
+      reason: 'delete_failed',
+      retryable: true,
+      errorClass: 'database',
+    });
+  }
+}
+
 async function sendExpoPushPayloads(
   pushPayload: Array<Record<string, unknown>>,
 ): Promise<ExpoPushDeliverySummary> {
@@ -2090,6 +2106,9 @@ async function sendExpoPushPayloads(
         responseBody = null;
       }
       chunks.push(classifyExpoPushDelivery(chunk.length, resp.status, responseBody));
+      await deleteUnregisteredDeviceTokens(
+        collectUnregisteredExpoTokens(chunk, resp.status, responseBody),
+      );
     } catch (error: unknown) {
       const timedOut = isTimeoutError(error);
       reportEdgeDiagnostic({

@@ -12,10 +12,12 @@ import { loadActorScopedFcExpoTargets } from '@/lib/app-push-preference-service'
 import { collectSupabaseRows } from '@/lib/supabase-query-contract';
 import {
     classifyExpoPushDelivery,
+    collectUnregisteredExpoTokens,
     mergeExpoPushDeliverySummaries,
     type ExpoPushDeliverySummary,
 } from '@/lib/expo-push-delivery';
 import { recordAdminAuditEvent } from '@/lib/admin-audit-server';
+import { deleteUnregisteredExpoTokens } from '@/lib/push-notification-service';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const EXPO_PUSH_CHUNK_SIZE = 100;
 const EXTERNAL_PUSH_TIMEOUT_MS = 8_000;
@@ -274,6 +276,9 @@ export async function createNoticeAction(
                 });
                 const responseBody = await resp.json().catch(() => null) as unknown;
                 chunkDelivery = classifyExpoPushDelivery(chunk.length, resp.status, responseBody);
+                await deleteUnregisteredExpoTokens(
+                    collectUnregisteredExpoTokens(chunk, resp.status, responseBody),
+                );
                 logger.debug('[notice] Expo delivery completed', {
                     category: 'notice',
                     reason: resp.ok ? 'provider_response' : 'provider_http_rejected',

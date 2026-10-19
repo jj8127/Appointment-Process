@@ -63,6 +63,10 @@ type EdgeDiagnosticPair =
       reason: 'request_failed' | 'timeout';
     }
   | {
+      event: 'fc_notify.device_token_cleanup';
+      reason: 'delete_failed';
+    }
+  | {
       event: 'fc_notify.recipient_resolution';
       reason: 'no_admin_recipients';
     }

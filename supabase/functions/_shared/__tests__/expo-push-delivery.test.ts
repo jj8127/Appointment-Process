@@ -1,5 +1,6 @@
 import {
   classifyExpoPushDelivery,
+  collectUnregisteredExpoTokens,
   mergeExpoPushDeliverySummaries,
   toExpoPushDeliveryOutcome,
 } from '../expo-push-delivery';
@@ -33,6 +34,34 @@ describe('Expo push delivery classification', () => {
         details: { error: 'DeviceNotRegistered' },
       }],
     })).toEqual({ attempted: 1, accepted: 0, rejected: 1 });
+  });
+
+  it('collects only the destinations Expo reports as DeviceNotRegistered', () => {
+    const messages = [
+      { to: 'ExponentPushToken[a]' },
+      { to: 'ExponentPushToken[b]' },
+      { to: 'ExponentPushToken[c]' },
+      { to: 'ExponentPushToken[b]' },
+    ];
+    const unregistered = { status: 'error', details: { error: 'DeviceNotRegistered' } };
+    expect(collectUnregisteredExpoTokens(messages, 200, {
+      data: [
+        { status: 'ok' },
+        unregistered,
+        { status: 'error', details: { error: 'MessageRateExceeded' } },
+        unregistered,
+        unregistered,
+      ],
+    })).toEqual(['ExponentPushToken[b]']);
+  });
+
+  it.each([
+    [503, { data: [{ status: 'error', details: { error: 'DeviceNotRegistered' } }] }],
+    [200, null],
+    [200, { data: { status: 'error', details: { error: 'DeviceNotRegistered' } } }],
+    [200, { data: [{ status: 'error', message: 'DeviceNotRegistered' }] }],
+  ])('collects no tokens from an unusable response (%s)', (status, body) => {
+    expect(collectUnregisteredExpoTokens([{ to: 'ExponentPushToken[a]' }], status, body)).toEqual([]);
   });
 
   it('counts mixed tickets and treats missing tickets as rejected', () => {

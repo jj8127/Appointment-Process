@@ -26,7 +26,7 @@ describe('docs deadline reminder delivery confirmation', () => {
     expect(source).toContain("from '../_shared/expo-push-delivery.ts'");
     expect(source).toContain('classifyExpoPushDelivery(chunk.length, resp.status, responseBody)');
     expect(source).toContain('mergeExpoPushDeliverySummaries(chunks)');
-    expect(source).toContain('sent += delivery.accepted');
+    expect(source).toContain('sent += accepted;');
     expect(source).not.toContain('sent += tokens.length');
   });
 
@@ -38,7 +38,7 @@ describe('docs deadline reminder delivery confirmation', () => {
     expect(source).not.toContain('console.error(error');
   });
 
-  it('keeps failed recipients retryable by advancing the reminder date only after full acceptance', () => {
+  it('keeps a fully failed recipient retryable without resending to devices that accepted', () => {
     const acceptanceGuard = source.indexOf('if (!deliveryConfirmed)');
     const reminderUpdate = source.indexOf(
       'markReminderNotified(row.id, today)',
@@ -48,9 +48,11 @@ describe('docs deadline reminder delivery confirmation', () => {
     const noTokenWarning = source.indexOf('warningCounts.no_registered_tokens += 1;');
 
     expect(acceptanceGuard).toBeGreaterThan(-1);
-    expect(source).toContain('delivery.attempted > 0');
-    expect(source).toContain('delivery.accepted === delivery.attempted');
-    expect(source).toContain('delivery.rejected === 0');
+    // Only temporarily failed devices are retried once; uninstalled (DeviceNotRegistered)
+    // tokens are deleted, so a day with an accepted device or only uninstalled tokens is done.
+    expect(source).toContain('collectUnregisteredExpoTokens(chunk, resp.status, responseBody)');
+    expect(source).toContain('sendExpoPushPayloads(first.retryable)');
+    expect(source).toContain('const deliveryConfirmed = accepted > 0 || stillFailed === 0;');
     expect(source.indexOf('continue;', acceptanceGuard)).toBeLessThan(reminderUpdate);
     expect(reminderUpdate).toBeGreaterThan(acceptanceGuard);
     expect(source.indexOf('continue;', tokenLookupWarning)).toBeLessThan(noTokenWarning);

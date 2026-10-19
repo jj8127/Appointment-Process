@@ -2,6 +2,7 @@ import { serveWithConfiguredCors as serve } from '../_shared/serve-with-cors.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
   classifyExpoPushDelivery,
+  collectUnregisteredExpoTokens,
   mergeExpoPushDeliverySummaries,
   type ExpoPushDeliverySummary,
 } from '../_shared/expo-push-delivery.ts';
@@ -117,6 +118,7 @@ type ReminderWarningCounts = {
   no_registered_tokens: number;
   provider_delivery_not_accepted: number;
   provider_ticket_rejected: number;
+  device_token_cleanup_failed: number;
   deadline_update_failed: number;
 };
 
@@ -128,6 +130,7 @@ const createWarningCounts = (): ReminderWarningCounts => ({
   no_registered_tokens: 0,
   provider_delivery_not_accepted: 0,
   provider_ticket_rejected: 0,
+  device_token_cleanup_failed: 0,
   deadline_update_failed: 0,
 });
 
@@ -232,10 +235,47 @@ async function markReminderNotified(fcId: string, today: string): Promise<boolea
   }
 }
 
+// Expo marks uninstalled devices permanently; their tokens are deleted and no longer
+// block today's reminder from counting as delivered.
+async function deleteUnregisteredDeviceTokens(tokens: string[]): Promise<boolean> {
+  if (tokens.length === 0) return true;
+  const { error } = await supabase.from('device_tokens').delete().in('expo_push_token', tokens)
+    .then((result) => result, () => ({ error: true }));
+  return !error;
+}
+
+// Messages whose ticket was neither accepted nor DeviceNotRegistered; a failed or
+// malformed response leaves the whole chunk retryable.
+function collectRetryableMessages(
+  chunk: Record<string, unknown>[],
+  httpStatus: number,
+  responseBody: unknown,
+  unregisteredTokens: string[],
+) {
+  const tickets = httpStatus >= 200 && httpStatus < 300 && isRecord(responseBody)
+    && Array.isArray(responseBody.data)
+    ? responseBody.data
+    : null;
+  if (!tickets) return chunk;
+  return chunk.filter((message, index) => {
+    const ticket = tickets[index];
+    if (isRecord(ticket) && ticket.status === 'ok') return false;
+    return !unregisteredTokens.includes(String(message.to ?? ''));
+  });
+}
+
 async function sendExpoPushPayloads(
   pushPayload: Record<string, unknown>[],
-): Promise<ExpoPushDeliverySummary> {
+): Promise<{
+  delivery: ExpoPushDeliverySummary;
+  unregistered: number;
+  retryable: Record<string, unknown>[];
+  cleanupFailed: boolean;
+}> {
   const chunks: ExpoPushDeliverySummary[] = [];
+  const retryable: Record<string, unknown>[] = [];
+  let unregistered = 0;
+  let cleanupFailed = false;
 
   for (let index = 0; index < pushPayload.length; index += EXPO_PUSH_CHUNK_SIZE) {
     const chunk = pushPayload.slice(index, index + EXPO_PUSH_CHUNK_SIZE);
@@ -254,12 +294,17 @@ async function sendExpoPushPayloads(
         responseBody = null;
       }
       chunks.push(classifyExpoPushDelivery(chunk.length, resp.status, responseBody));
+      const unregisteredTokens = collectUnregisteredExpoTokens(chunk, resp.status, responseBody);
+      unregistered += unregisteredTokens.length;
+      retryable.push(...collectRetryableMessages(chunk, resp.status, responseBody, unregisteredTokens));
+      if (!(await deleteUnregisteredDeviceTokens(unregisteredTokens))) cleanupFailed = true;
     } catch {
       chunks.push(classifyExpoPushDelivery(chunk.length, 0, null));
+      retryable.push(...chunk);
     }
   }
 
-  return mergeExpoPushDeliverySummaries(chunks);
+  return { delivery: mergeExpoPushDeliverySummaries(chunks), unregistered, retryable, cleanupFailed };
 }
 
 async function insertNotificationWithFallback(payload: NotificationInsert) {
@@ -498,15 +543,20 @@ serve(async (req: Request) => {
       priority: 'high',
       channelId: 'alerts',
     }));
-    const delivery = await sendExpoPushPayloads(payload);
-    sent += delivery.accepted;
-    warningCounts.provider_ticket_rejected += delivery.rejected;
+    const first = await sendExpoPushPayloads(payload);
+    // Retry only the temporarily failed devices, once, so accepted devices never get it twice.
+    const retry = first.retryable.length > 0 ? await sendExpoPushPayloads(first.retryable) : null;
+    const accepted = first.delivery.accepted + (retry?.delivery.accepted ?? 0);
+    const stillFailed = (retry ?? first).retryable.length;
+    sent += accepted;
+    warningCounts.provider_ticket_rejected += stillFailed;
+    if (first.cleanupFailed || retry?.cleanupFailed) warningCounts.device_token_cleanup_failed += 1;
+    if (stillFailed > 0) warningCounts.provider_delivery_not_accepted += 1;
 
-    const deliveryConfirmed = delivery.attempted > 0
-      && delivery.accepted === delivery.attempted
-      && delivery.rejected === 0;
+    // The day is done once a device received it, or when every token was uninstalled
+    // (deleted above, so a later run has nothing to retry). Only a fully failed send waits.
+    const deliveryConfirmed = accepted > 0 || stillFailed === 0;
     if (!deliveryConfirmed) {
-      warningCounts.provider_delivery_not_accepted += 1;
       continue;
     }
 

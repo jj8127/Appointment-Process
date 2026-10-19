@@ -145,6 +145,13 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 
 # Backend Runbook: Notifications, Inbox, And Push
 
+## 2026-10-19 만료 토큰 정리와 관리자 웹 1:1 알림 설정
+
+- Expo ticket이 `status:'error'`이고 `details.error:'DeviceNotRegistered'`이면 그 토큰을 `device_tokens`에서 바로 지운다. 이 판정은 `collectUnregisteredExpoTokens`(`_shared/expo-push-delivery.ts`, 웹 복사본 `web/src/lib/expo-push-delivery.ts`)가 맡는다.
+- 지우는 곳: `fc-notify`·`group-chat`·`docs-deadline-reminder`의 발송 함수, 관리자 웹 `push-notification-service.ts`와 공지 발송(`dashboard/notifications/actions.ts`). 삭제 실패는 고정 사유만 남기고 발송 결과를 바꾸지 않는다.
+- 서류 마감 알림은 일시 실패한 기기에만 한 번 바로 다시 보낸다. 받은 기기가 하나라도 있거나 남은 토큰이 모두 만료였으면 당일 완료로 기록한다. 모든 기기가 일시 실패했을 때만 다음 실행을 기다린다. 이미 받은 기기에는 다시 보내지 않는다.
+- 관리자 웹 1:1 업무 알림(서류·위촉·임시사번·상태 변경)도 Edge와 같은 규칙을 따른다. 알림함 행은 저장하고, 수신자가 전체 또는 해당 분류 앱 푸시를 껐으면 기기로 보내지 않는다. 설정 조회가 실패하면 보내지 않고 `preference_lookup_failed`로 기록한다.
+
 ## 2026-10-16 메신저 전송은 저장 뒤 바로 응답 (2단계 시작)
 
 - 1:1(`fc-notify` `direct_message_send`)

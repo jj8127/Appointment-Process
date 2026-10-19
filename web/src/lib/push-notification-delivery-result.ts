@@ -3,6 +3,7 @@ export type PushDeliveryFailure =
   | 'recipient_mismatch'
   | 'inbox_write_failed'
   | 'token_query_failed'
+  | 'preference_lookup_failed'
   | 'expo_http_failed'
   | 'expo_invalid_response'
   | 'expo_ticket_rejected'
@@ -81,6 +82,7 @@ export function classifyDeliverySummary({
 } {
   const targetStateUnknown = failures.some((failure) =>
     failure === 'token_query_failed' ||
+    failure === 'preference_lookup_failed' ||
     failure === 'web_subscription_query_failed' ||
     failure === 'unexpected_failure');
   const noTarget = !targetStateUnknown && expoTargets === 0 && webTargets === 0;

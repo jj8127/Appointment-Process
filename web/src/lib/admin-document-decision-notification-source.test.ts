@@ -53,7 +53,7 @@ test('provider-only delivery cannot insert a duplicate inbox notification', () =
   const providerSource = serviceSource.slice(providerStart, providerEnd);
 
   assert.ok(providerStart >= 0);
-  assert.match(providerSource, /deliverToRegisteredTargets\(userId, payload, delivery, notificationId\)/);
+  assert.match(providerSource, /deliverToRegisteredTargets\(userId, recipientActorId, payload, delivery, notificationId\)/);
   assert.doesNotMatch(providerSource, /persistNotification\(/);
   assert.doesNotMatch(providerSource, /\.from\('notifications'\)/);
 });
