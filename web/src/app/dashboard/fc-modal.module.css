@@ -12,7 +12,10 @@
   }
 
   .fieldRow,
+  .itemRow {
+    grid-template-columns: 1fr;
   }
+}
 
 .side {
   position: sticky;
