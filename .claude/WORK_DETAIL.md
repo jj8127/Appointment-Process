@@ -21,6 +21,7 @@
 - 홈 로딩 표시(`63c3e593`): 목록 데이터도 오류도 없을 때(`isListLoading = !fcs && !isError`) 숫자·막대·목록·대기열·FC 표가 모양을 본뜬 shimmer 블록을 보이고, 로딩 문구와 FC 표 `LoadingOverlay`를 없앴다. 막대는 고정 높이 자리 표시에서 실제 높이로 900ms 동안 이어 변한다. 실패 시에는 `—`와 오류 안내를 유지한다. fixture에서 6초 지연으로 로딩 화면(스켈레톤 147개, 로딩 문구·`—` 0개)과 도착 후 전환을 확인했다. 계약은 `feature-contract-matrix.md`와 `dashboard-lifecycle.md`에 적었다.
 - 재배포(사용자 승인): pre-push 거버넌스가 계약 문서·작업 기록을 요구해 문서 두 커밋을 더한 `da71475cefe331093702096204aa7fb268cdc0e6`(코드는 `63c3e593`과 같음)을 push 후 `vercel deploy --prod --archive=tgz`로 배포했다. `dpl_5HvmxW7niegeaQLb4WNh9N7b5Ptg` READY, `adminweb-red.vercel.app` alias가 이 배포를 가리킨다. 비로그인 응답은 첫 배포와 같다(`/auth` 200, 보호 경로 307, `/api/admin/agent-room` 404). 배포 후 Vercel 오류 로그 0건, Sentry 최근 30분 이슈 0건. 로그인 화면 확인은 사용자 몫으로 남았다.
 - 로드 완료 등장: 스켈레톤이 빠지면 숫자(`reveal`, `--r` 순서), 소속·최근 가입·대기열·FC 표 행(`revealRow`)이 흐림·아래에서 떠오르고, 진행률 막대는 width 전환으로 자란다. fixture 3초 지연에서 도착 직후 단계적 등장과 약 0.6초 뒤 완료를 확인했다.
+- 참고 영상 모션(0.5배속 영상이라 실제 시간은 절반): 영상을 브라우저로 0.1~0.25초 간격 프레임 추출해 순서를 읽었다. 반영: 화면 전체가 강한 흐림에서 제자리로 선명해짐(이동 없음, 560ms), 제목은 왼쪽→오른쪽 흐림 쓸기(mask, 640ms)와 부제 뒤따름, 카드는 빈 패널이 먼저(460ms, 50ms 간격) 오고 안쪽 내용이 160ms 뒤 흐림에서 나타남, 숫자는 새 `components/CountUp.tsx`(0→값, 1초, ease-out, 동작 줄이기 시 즉시), 가장 많은 대기 타일의 주황은 `clip-path` 원형으로 왼쪽 위에서 채움(620ms), 단계 막대는 목록 도착 시 다시 마운트해 왼쪽부터 60ms 간격으로 자람. 다른 페이지도 같은 진입(surface 제목·카드, 서류·위촉·시험 신청자 cardIn 이동 제거)을 쓴다. 검은 테마는 만들지 않았다. fixture 프레임에서 순서와 약 1.2초 안 정착을 확인했고, KPI 런타임 시험은 CountUp 목표값을 읽도록 고쳤다.
 
 <a id="20261019-messenger-unified-line-integration"></a>
 ## 2026-10-19 운영 메신저 통합 모델 계열 통합

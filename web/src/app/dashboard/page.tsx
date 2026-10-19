@@ -10,6 +10,7 @@ import {
   requireMutationSuccess,
   requireProfileMutationReceipt,
 } from '@/lib/user-intent-policy';
+import { CountUp } from '@/components/CountUp';
 import { QueryErrorAlert } from '@/components/QueryErrorAlert';
 import { QueryReadError } from '@/lib/query-read-error';
 import { normalizeAdminTempId } from '@/lib/admin-temp-id-update';
@@ -2261,7 +2262,13 @@ export default function DashboardPage() {
   const isListLoading = !fcs && !isError;
   const skel = (width: number | string, height = 12) => <span className={styles.skel} style={{ width, height }} aria-hidden="true" />;
   // Loaded values rise in where the skeleton stood; --r staggers neighbours.
-  const reveal = (value: ReactNode, order = 0) => <span className={styles.reveal} style={{ '--r': order } as CSSProperties}>{value}</span>;
+  // Numbers count up from 0 as they arrive (about 1s, neighbours a little later).
+  const reveal = (value: ReactNode, order = 0) => (
+    <span className={styles.reveal} style={{ '--r': order } as CSSProperties}>
+      {typeof value === 'number' ? <CountUp value={value} delay={120 + order * 60} /> : value}
+    </span>
+  );
+  const percent = (part: number, order: number) => reveal(<CountUp value={Math.round((part / workSummary.total) * 100)} delay={120 + order * 60} suffix="%" />, order);
   const listValue = (value: ReactNode, width: number, height?: number, order = 0) => (fcs ? reveal(value, order) : isListLoading ? skel(width, height) : '—');
   // The queue with the most waiting FCs gets the single accent tile.
   const hotQueueKey = DASHBOARD_WORK_QUEUES.reduce<DashboardWorkQueueKey | null>(
@@ -2320,7 +2327,7 @@ export default function DashboardPage() {
             </div>
             <div className={styles.deltaRow}>
               <span className={styles.delta} data-tone={workSummary.pending > 0 ? 'warn' : 'ok'}>
-                {fcs && workSummary.total > 0 ? reveal(`${Math.round((workSummary.pending / workSummary.total) * 100)}%`, 1) : isListLoading ? skel(26, 10) : '—'}
+                {fcs && workSummary.total > 0 ? percent(workSummary.pending, 1) : isListLoading ? skel(26, 10) : '—'}
               </span>
               <Text component="span" size="xs" c="dimmed">전체 FC 중 처리 대기</Text>
             </div>
@@ -2412,6 +2419,7 @@ export default function DashboardPage() {
                     <Text size="xs" fw={700} className={styles.barCount}>{listValue(workSummary.stepCounts[index], 14, 10, index + 2)}</Text>
                     <span className={styles.barTrack}>
                       <span
+                        key={isListLoading ? 'skeleton' : 'loaded'}
                         className={styles.bar}
                         data-busiest={(index === busiestStep && workSummary.stepCounts[index] > 0) || undefined}
                         data-loading={isListLoading || undefined}
@@ -2439,7 +2447,7 @@ export default function DashboardPage() {
           <div>
             <div className={styles.progressMeta}>
               <Text component="span" className={styles.progressValue}>
-                {fcs && workSummary.total > 0 ? reveal(`${Math.round((workSummary.stepCounts[5] / workSummary.total) * 100)}%`, 2) : isListLoading ? skel(84, 34) : '—'}
+                {fcs && workSummary.total > 0 ? percent(workSummary.stepCounts[5], 2) : isListLoading ? skel(84, 34) : '—'}
               </Text>
               <Text component="span" size="xs" c="dimmed">{fcs ? reveal(`${workSummary.stepCounts[5]} / ${workSummary.total}명`, 3) : ''}</Text>
             </div>

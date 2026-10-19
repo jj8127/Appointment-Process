@@ -700,6 +700,7 @@ test('dashboard failed FC reads do not display empty-list text or invented zero 
     './page.module.css': { default: { heroNumber: 'heroNumber' } },
     '@/lib/dashboard-table-display': { DASHBOARD_FC_LIST_COLUMNS: [], DASHBOARD_FC_LIST_COLUMN_COUNT: 9 },
     '@/lib/dashboard-work-queue': dashboardWorkQueue,
+    '@/components/CountUp': ui,
     '../../lib/logger': { logger: {} },
   }, { fetch: async () => response, window: { location: { search: '', pathname: '/dashboard' }, history: { state: null, replaceState() {} } } });
   await page.render();
@@ -715,8 +716,12 @@ test('dashboard failed FC reads do not display empty-list text or invented zero 
   await page.setQuery(success([]));
   assert.equal(page.find('QueryErrorAlert'), undefined);
   assert.ok(page.find('Text', (node) => node.props.children === '조건에 맞는 데이터가 없습니다.'));
-  // Loaded numbers sit inside the reveal-animation span.
-  const shown = (node) => node?.props.children?.props?.children ?? node?.props.children;
+  // Loaded numbers sit inside the reveal span as a CountUp whose target is the value.
+  const shown = (node) => {
+    let value = node?.props.children;
+    while (value && typeof value === 'object' && 'props' in value) value = value.props.value ?? value.props.children;
+    return value;
+  };
   assert.deepEqual(page.findAll('Text').filter((node) => node.props.size === '1.9rem').map(shown), [0, 0, 0, 0]);
   assert.equal(shown(page.find('Text', (node) => node.props.className === 'heroNumber')), 0);
   await page.close();
