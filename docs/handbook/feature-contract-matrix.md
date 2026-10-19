@@ -33,6 +33,10 @@ This matrix defines business behavior that must stay consistent across GaramIn m
   must not run on list reads; invalid shapes and HTTP failures remain explicit
   error states. `web/src/lib/board-read-state-runtime.test.mjs` is the runtime
   regression evidence.
+- While the dashboard home FC list has neither data nor an error, the summary
+  numbers, step chart, lists, work queue and FC table show shape-matched
+  skeleton placeholders instead of loading text; a failed read shows `—` with
+  the explicit error state, never a skeleton.
 - Exam applicant tables and exports share separate reception and lifecycle
   status formatters, including rejected and cancelled records.
 - Resident-number cells share the same `value`, `missing`, and `unavailable`
