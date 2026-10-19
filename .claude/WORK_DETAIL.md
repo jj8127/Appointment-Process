@@ -1,5 +1,13 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261019-withdrawal-graph-test-alignment"></a>
+## 2026-10-19 탈퇴·FC 삭제·추천 그래프 시험 정리
+
+- ux-priority-one-handlers: 탈퇴 fixture에 실제 `_shared/request-board-fc-retirement.ts`의 retireRequestBoardFcAccount를 fixture fetch로 실행해 주입했다(서비스 가람in 탈퇴, 계열사 은퇴 수신 확인, 응답 유실 재개 3건). 계정 삭제 수신 확인 시험은 admin-action·delete-account만 검사하고, 웹 /api/fc-delete는 admin-action deleteFc 위임과 자체 삭제 경로 부재를 확인한다.
+- referral-graph-responsive: 61b09637에서 범례·가로 스크롤 줄이 접히는 설정 패널로 바뀌어, 모바일 설정 패널 폭 기준으로 시험을 바꿨다.
+- 운영 DB: admin_audit_events 테이블·제약·인덱스·RLS·트리거·설명이 migration과 같고 45건이 있으나 schema_migrations에 기록이 없다. 동일 SQL 적용은 승인 거절로 하지 않았다.
+- 검증: web node 819/819, edge node 143/143.
+
 <a id="20261019-push-review-fixes"></a>
 ## 2026-10-19 가람in 푸시 알림 검토 후속 수정
 

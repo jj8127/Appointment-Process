@@ -345,7 +345,6 @@ test('all account deletion entrypoints verify the complete receipt before cleanu
   for (const [file, cleanupMarker] of [
     ['supabase/functions/admin-action/index.ts', "supabase.storage.from('exam-payment-proofs').remove"],
     ['supabase/functions/delete-account/index.ts', 'drainAccountDeletionCleanup('],
-    ['web/src/app/api/fc-delete/route.ts', 'removeStorageObjects('],
   ]) {
     const source = await readFile(new URL(file, root), 'utf8');
     const receipt = source.indexOf('requireAccountDeletionReceipt(data)');
@@ -353,6 +352,11 @@ test('all account deletion entrypoints verify the complete receipt before cleanu
     assert.ok(receipt >= 0, `${file} validates the account deletion receipt`);
     assert.ok(cleanup > receipt, `${file} validates before cleanup`);
   }
+  // The admin web delegates deletion to admin-action deleteFc and keeps no second deletion path.
+  const webDelete = await readFile(new URL('web/src/app/api/fc-delete/route.ts', root), 'utf8');
+  assert.match(webDelete, /functions\/v1\/admin-action/);
+  assert.match(webDelete, /action: 'deleteFc'/);
+  assert.doesNotMatch(webDelete, /removeStorageObjects\(|\.rpc\(/);
 });
 
 test('privileged Edge handlers do not expose raw RPC or thrown error messages', async () => {
@@ -513,6 +517,8 @@ async function withdrawalFixture(options={}) {
     json:(body,status=200)=>new Response(JSON.stringify(body),{status}),
     fail:(code,message,status=400)=>new Response(JSON.stringify({ok:false,code,message}),{status}),
   };
+  // platform-service calls the shared GaramLink retirement; run the real helper against this fixture's fetch.
+  context.retireRequestBoardFcAccount=await extract('supabase/functions/_shared/request-board-fc-retirement.ts','retireRequestBoardFcAccount',context);
   context.withdrawalJob=await extract('supabase/functions/platform-service/index.ts','withdrawalJob',context);
   context.withdrawalResponse=await extract('supabase/functions/platform-service/index.ts','withdrawalResponse',context);
   context.finishWithdrawal=await extract('supabase/functions/platform-service/index.ts','finishWithdrawal',context);

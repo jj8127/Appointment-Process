@@ -55,8 +55,8 @@ test('referral graph page keeps desktop copy and adds mobile-friendly controls',
 
   assert.match(source, /const isMobileGraph = responsiveLayout\.mode === 'mobile'/);
   assert.match(source, /isMobileGraph \? '추천 관계 보기' : '추천인 그래프'/);
-  assert.match(source, /isMobileGraph \? '범례' : '색상 범례'/);
-  assert.match(source, /overflowX: isMobileGraph \? 'auto' : undefined/);
+  // The collapsible settings panel replaced the scrolling legend/toolbar rows on mobile.
+  assert.match(source, /width=\{isMobileGraph \? Math\.min\(320, /);
   assert.match(source, /추천인 그래프/);
   assert.match(source, /data\.nodes\.every\(isGraphNode\)/);
   assert.match(source, /data\.edges\.every\(isGraphEdge\)/);
