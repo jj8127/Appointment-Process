@@ -524,6 +524,9 @@ export default function NotificationsPage() {
                                             {detail?.post.content ?? selected.post.contentPreview}
                                         </Text>
                                         {attachments.length > 0 ? <AttachmentPreview key={`${selected.id}:${attachments.length}`} attachments={attachments} /> : null}
+                                        {!detail && openedPostId === selected.post.id && postDetailQuery.isError ? (
+                                            <Text size="xs" c="red">첨부파일을 불러오지 못했습니다. 다시 시도해 주세요.</Text>
+                                        ) : null}
                                         {!detail && selected.post.stats.attachmentCount > attachments.length ? (
                                             <Button
                                                 variant="default"
@@ -532,7 +535,11 @@ export default function NotificationsPage() {
                                                 w="fit-content"
                                                 leftSection={<IconPaperclip size={14} />}
                                                 loading={postDetailQuery.isFetching}
-                                                onClick={() => setOpenedPostId(selected.post.id)}
+                                                onClick={() => {
+                                                    // Same post again means a retry; another post starts its own read.
+                                                    if (openedPostId === selected.post.id) void postDetailQuery.refetch();
+                                                    else setOpenedPostId(selected.post.id);
+                                                }}
                                             >
                                                 첨부파일 {selected.post.stats.attachmentCount}개 보기
                                             </Button>
