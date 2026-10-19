@@ -2017,10 +2017,11 @@ export default function DashboardPage() {
   };
 
   /* Table Rows */
-  const rows = paginatedData.map((fc: FCProfileWithDocuments) => (
+  const rows = paginatedData.map((fc: FCProfileWithDocuments, order: number) => (
     <Table.Tr
       key={fc.id}
-      style={{ cursor: 'pointer' }}
+      className={styles.revealRow}
+      style={{ cursor: 'pointer', '--r': Math.min(order, 12) } as CSSProperties}
       onClick={() => router.push(`/dashboard/profile/${fc.id}`)}
     >
       <Table.Td w={200}>
@@ -2259,7 +2260,9 @@ export default function DashboardPage() {
   // Until the FC list arrives each number, bar and row keeps its shape as a shimmer block; a failed read shows '—'.
   const isListLoading = !fcs && !isError;
   const skel = (width: number | string, height = 12) => <span className={styles.skel} style={{ width, height }} aria-hidden="true" />;
-  const listValue = (value: ReactNode, width: number, height?: number) => (fcs ? value : isListLoading ? skel(width, height) : '—');
+  // Loaded values rise in where the skeleton stood; --r staggers neighbours.
+  const reveal = (value: ReactNode, order = 0) => <span className={styles.reveal} style={{ '--r': order } as CSSProperties}>{value}</span>;
+  const listValue = (value: ReactNode, width: number, height?: number, order = 0) => (fcs ? reveal(value, order) : isListLoading ? skel(width, height) : '—');
   // The queue with the most waiting FCs gets the single accent tile.
   const hotQueueKey = DASHBOARD_WORK_QUEUES.reduce<DashboardWorkQueueKey | null>(
     (best, queue) => (workSummary.counts[queue.key] > (best ? workSummary.counts[best] : 0) ? queue.key : best),
@@ -2317,7 +2320,7 @@ export default function DashboardPage() {
             </div>
             <div className={styles.deltaRow}>
               <span className={styles.delta} data-tone={workSummary.pending > 0 ? 'warn' : 'ok'}>
-                {fcs && workSummary.total > 0 ? `${Math.round((workSummary.pending / workSummary.total) * 100)}%` : isListLoading ? skel(26, 10) : '—'}
+                {fcs && workSummary.total > 0 ? reveal(`${Math.round((workSummary.pending / workSummary.total) * 100)}%`, 1) : isListLoading ? skel(26, 10) : '—'}
               </span>
               <Text component="span" size="xs" c="dimmed">전체 FC 중 처리 대기</Text>
             </div>
@@ -2375,7 +2378,7 @@ export default function DashboardPage() {
                     <span className={styles.tileIcon}><QueueIcon size={16} stroke={1.8} /></span>
                   </span>
                   <span className={styles.tileValue}>
-                    <Text component="span" size="1.9rem" className={styles.tileNumber}>{listValue(workSummary.counts[queue.key], 44, 28)}</Text>
+                    <Text component="span" size="1.9rem" className={styles.tileNumber}>{listValue(workSummary.counts[queue.key], 44, 28, DASHBOARD_WORK_QUEUES.indexOf(queue) + 1)}</Text>
                     <span className={styles.tileUnit}>건</span>
                   </span>
                   <span className={styles.deltaRow}>
@@ -2406,7 +2409,7 @@ export default function DashboardPage() {
                     aria-label={`${label} ${fcs ? workSummary.stepCounts[index] : '—'}명`}
                     onClick={() => handleActiveTabChange(activeTab === key ? 'all' : key)}
                   >
-                    <Text size="xs" fw={700} className={styles.barCount}>{listValue(workSummary.stepCounts[index], 14, 10)}</Text>
+                    <Text size="xs" fw={700} className={styles.barCount}>{listValue(workSummary.stepCounts[index], 14, 10, index + 2)}</Text>
                     <span className={styles.barTrack}>
                       <span
                         className={styles.bar}
@@ -2436,9 +2439,9 @@ export default function DashboardPage() {
           <div>
             <div className={styles.progressMeta}>
               <Text component="span" className={styles.progressValue}>
-                {fcs && workSummary.total > 0 ? `${Math.round((workSummary.stepCounts[5] / workSummary.total) * 100)}%` : isListLoading ? skel(84, 34) : '—'}
+                {fcs && workSummary.total > 0 ? reveal(`${Math.round((workSummary.stepCounts[5] / workSummary.total) * 100)}%`, 2) : isListLoading ? skel(84, 34) : '—'}
               </Text>
-              <Text component="span" size="xs" c="dimmed">{fcs ? `${workSummary.stepCounts[5]} / ${workSummary.total}명` : ''}</Text>
+              <Text component="span" size="xs" c="dimmed">{fcs ? reveal(`${workSummary.stepCounts[5]} / ${workSummary.total}명`, 3) : ''}</Text>
             </div>
             <div className={styles.progressTrack} role="presentation">
               <span
@@ -2457,10 +2460,11 @@ export default function DashboardPage() {
               ) : null}
             </div>
             <div className={styles.affiliationList}>
-              {fcs ? workSummary.affiliations.slice(0, 5).map(([name, count]) => (
+              {fcs ? workSummary.affiliations.slice(0, 5).map(([name, count], order) => (
                 <UnstyledButton
                   key={name}
                   className={styles.affiliationRow}
+                  style={{ '--r': order + 2 } as CSSProperties}
                   data-active={keyword === name || undefined}
                   aria-pressed={keyword === name}
                   onClick={() => { setKeyword(keyword === name ? '' : name); setCurrentPage(1); }}
@@ -2483,8 +2487,8 @@ export default function DashboardPage() {
           <div className={`${styles.well} ${styles.affiliationWell}`}>
             <Text size="xs" fw={600} c="dimmed" mb={8}>최근 가입</Text>
             <div className={styles.affiliationList}>
-              {fcs ? workSummary.recentSignups.map((fc: FCProfileWithDocuments) => (
-                <UnstyledButton key={fc.id} className={styles.signupRow} onClick={() => router.push(`/dashboard/profile/${fc.id}`)}>
+              {fcs ? workSummary.recentSignups.map((fc: FCProfileWithDocuments, order: number) => (
+                <UnstyledButton key={fc.id} className={styles.signupRow} style={{ '--r': order + 3 } as CSSProperties} onClick={() => router.push(`/dashboard/profile/${fc.id}`)}>
                   <span className={styles.personAvatar}>{fc.name?.[0] ?? 'F'}</span>
                   <span className={styles.signupText}>
                     <span className={styles.affiliationName}>{fc.name}</span>
@@ -2523,12 +2527,12 @@ export default function DashboardPage() {
               <span>발생</span>
               <span />
             </div>
-            {visibleWorkItems.length > 0 ? visibleWorkItems.slice(0, 6).map(({ fc, queue }) => {
+            {visibleWorkItems.length > 0 ? visibleWorkItems.slice(0, 6).map(({ fc, queue }, order) => {
               const stepDisplay = getAdminStepDisplay(fc);
               const occurredAt = getDashboardWorkOccurredAt(queue.key, fc);
               const waitingDays = occurredAt ? dayjs().startOf('day').diff(dayjs(occurredAt).startOf('day'), 'day') : null;
               return (
-                <div key={`${queue.key}:${fc.id}`} className={styles.queueRow}>
+                <div key={`${queue.key}:${fc.id}`} className={`${styles.queueRow} ${styles.revealRow}`} style={{ '--r': order + 1 } as CSSProperties}>
                   <span className={styles.person}>
                     <span className={styles.personAvatar}>{fc.name?.[0] ?? 'F'}</span>
                     <span>
