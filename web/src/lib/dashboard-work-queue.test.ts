@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   countDashboardWork,
+  getDashboardWorkOccurredAt,
   getDashboardWorkQueueKey,
   isDashboardMetricFilter,
   type DashboardWorkSignals,
@@ -47,4 +48,28 @@ test('URL metric filters accept every queue key and reject unknown values', () =
   }
   assert.equal(isDashboardMetricFilter('pendingExam'), false);
   assert.equal(isDashboardMetricFilter(null), false);
+});
+
+test('queue items carry the time the FC submission started waiting', () => {
+  assert.equal(
+    getDashboardWorkOccurredAt('pendingAllowance', { allowance_date: '2026-10-10', allowance_prescreen_requested_at: '2026-10-12T03:00:00Z' }),
+    '2026-10-12T03:00:00Z',
+  );
+  assert.equal(getDashboardWorkOccurredAt('pendingAllowance', { allowance_date: '2026-10-10' }), '2026-10-10');
+  assert.equal(getDashboardWorkOccurredAt('pendingHanwha', { hanwha_commission_date_sub: '2026-10-05' }), '2026-10-05');
+  assert.equal(
+    getDashboardWorkOccurredAt('pendingAppointment', { appointment_date_life_sub: '2026-10-01', appointment_date_nonlife_sub: '2026-10-08' }),
+    '2026-10-08',
+  );
+  assert.equal(
+    getDashboardWorkOccurredAt('pendingDocs', {
+      fc_documents: [
+        { storage_path: 'a.pdf', status: 'pending', created_at: '2026-10-03T00:00:00Z' },
+        { storage_path: 'b.pdf', status: 'approved', created_at: '2026-10-09T00:00:00Z' },
+        { storage_path: null, status: 'pending', created_at: '2026-10-11T00:00:00Z' },
+      ],
+    }),
+    '2026-10-03T00:00:00Z',
+  );
+  assert.equal(getDashboardWorkOccurredAt('pendingHanwha', {}), null);
 });

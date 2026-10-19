@@ -49,3 +49,28 @@ export function countDashboardWork(keys: Iterable<DashboardWorkQueueKey | null>)
   }
   return { counts, pending };
 }
+
+// Fields that tell when a queue item started waiting on the admin.
+export type DashboardWorkTimingFields = {
+  allowance_date?: string | null;
+  allowance_prescreen_requested_at?: string | null;
+  hanwha_commission_date_sub?: string | null;
+  appointment_date_life_sub?: string | null;
+  appointment_date_nonlife_sub?: string | null;
+  fc_documents?: Array<{ storage_path: string | null; status?: string | null; created_at?: string }> | null;
+};
+
+const latest = (values: Array<string | null | undefined>) =>
+  values.filter((value): value is string => Boolean(value) && Number.isFinite(Date.parse(String(value))))
+    .sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
+
+// When the item entered the queue: the FC's latest submission for that step, or null when unknown.
+export function getDashboardWorkOccurredAt(key: DashboardWorkQueueKey, fc: DashboardWorkTimingFields): string | null {
+  if (key === 'pendingAllowance') return latest([fc.allowance_prescreen_requested_at ?? fc.allowance_date]);
+  if (key === 'pendingHanwha') return latest([fc.hanwha_commission_date_sub]);
+  if (key === 'pendingAppointment') return latest([fc.appointment_date_life_sub, fc.appointment_date_nonlife_sub]);
+  const waiting = (fc.fc_documents ?? []).filter(
+    (doc) => doc.storage_path && doc.storage_path !== 'deleted' && doc.status !== 'approved' && doc.status !== 'rejected',
+  );
+  return latest(waiting.map((doc) => doc.created_at));
+}

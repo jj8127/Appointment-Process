@@ -613,6 +613,24 @@ button.softPill:hover,
 }
 
 /* Work queue table, styled like the reference's recent activity list. */
+/* When the item started waiting; three days or more turns orange. */
+.queueWhen {
+  display: grid;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--dashboard-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.queueWhen small {
+  font-size: 11px;
+  color: #8a8984;
+}
+
+.queueWhen[data-stale] b {
+  color: #c2470d;
+}
+
 .queueTable {
   display: grid;
   gap: 2px;
@@ -621,7 +639,7 @@ button.softPill:hover,
 .queueHead,
 .queueRow {
   display: grid;
-  grid-template-columns: minmax(150px, 1.2fr) minmax(120px, 1fr) minmax(150px, 1fr) 72px;
+  grid-template-columns: minmax(150px, 1.2fr) minmax(120px, 1fr) minmax(150px, 1fr) 76px 72px;
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
@@ -716,7 +734,8 @@ button.softPill:hover,
   }
 
   .queueRow > :nth-child(2),
-  .queueRow > :nth-child(3) {
+  .queueRow > :nth-child(3),
+  .queueRow > :nth-child(4) {
     grid-column: 1;
   }
 

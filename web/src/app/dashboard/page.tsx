@@ -115,6 +115,7 @@ import {
 import {
   DASHBOARD_WORK_QUEUES,
   countDashboardWork,
+  getDashboardWorkOccurredAt,
   getDashboardWorkQueueKey,
   isDashboardMetricFilter,
   type DashboardMetricFilter,
@@ -2500,10 +2501,13 @@ export default function DashboardPage() {
               <span>FC</span>
               <span>처리할 일</span>
               <span>진행 단계</span>
+              <span>발생</span>
               <span />
             </div>
             {visibleWorkItems.length > 0 ? visibleWorkItems.slice(0, 6).map(({ fc, queue }) => {
               const stepDisplay = getAdminStepDisplay(fc);
+              const occurredAt = getDashboardWorkOccurredAt(queue.key, fc);
+              const waitingDays = occurredAt ? dayjs().startOf('day').diff(dayjs(occurredAt).startOf('day'), 'day') : null;
               return (
                 <div key={`${queue.key}:${fc.id}`} className={styles.queueRow}>
                   <span className={styles.person}>
@@ -2515,6 +2519,14 @@ export default function DashboardPage() {
                   </span>
                   <Text size="sm">{queue.task}</Text>
                   <span className={styles.statusDot} data-color={stepDisplay.color}>{stepDisplay.label}</span>
+                  <span className={styles.queueWhen} data-stale={waitingDays !== null && waitingDays >= 3 ? true : undefined} title={occurredAt ? dayjs(occurredAt).format('YYYY-MM-DD HH:mm') : undefined}>
+                    {occurredAt ? (
+                      <>
+                        <b>{waitingDays === 0 ? '오늘' : waitingDays === 1 ? '어제' : `${waitingDays}일 전`}</b>
+                        <small>{dayjs(occurredAt).format('MM.DD')}</small>
+                      </>
+                    ) : '-'}
+                  </span>
                   <span className={styles.rowAction}>
                     <button type="button" className={styles.inkButtonSmall} onClick={() => openWorkItem(fc, queue.key)}>
                       {isReadOnly ? '보기' : '처리'}
