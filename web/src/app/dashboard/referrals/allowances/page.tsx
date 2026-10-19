@@ -3,7 +3,8 @@
 import { Alert, Badge, Button, Checkbox, Container, Divider, FileInput, Group, Loader, Paper, Select, Stack, Table, Text, TextInput, Title } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
+import surface from '../../surface.module.css';
 
 import { useSession } from '@/hooks/use-session';
 import { QueryErrorAlert } from '@/components/QueryErrorAlert';
@@ -16,7 +17,6 @@ import {
 } from '@shared/lib/referral-allowance-response.ts';
 import type { ReferralAllowanceAdminMutationExpectation } from '@shared/lib/referral-allowance-response.ts';
 import type { ReferralAllowanceStatement } from '@shared/types/referral-allowance';
-import { CHARCOAL } from '@/lib/brand-colors';
 
 const API = '/api/admin/referral-allowance';
 type Pilot = { manager_account_id: string | null; beneficiary_fc_id: string; employee_code: string; enabled: boolean; revision: number; name: string };
@@ -213,13 +213,13 @@ function AllowanceAdminWorkspace({ sessionKey }: { sessionKey: string }) {
   const statement = detail.data?.import.snapshot;
   const reviewed = detail.data?.import;
   return (
-    <Container size="lg" py="xl">
-      <Stack gap="xl">
-        <Group justify="space-between" align="flex-start">
-          <div><Title order={2} c={CHARCOAL}>증원수당 월별 관리</Title><Text c="dimmed" mt={6}>대상자를 선택하고 월별 자료를 검토·게시합니다. 각 계정은 본인 수당만 조회합니다.</Text></div>
-          <Badge color="orange" variant="light" size="lg">등록 대상 {query.data ? `${query.data.recipients.length}명` : query.isPending ? '조회 중' : '확인 불가'}</Badge>
-        </Group>
-        <Alert color="orange" title="당월 신규 산정 내역">
+    <div className={surface.page} style={{ maxWidth: 1200 }}>
+      <Stack gap={14}>
+        <div className={surface.head} style={{ '--i': 0 } as CSSProperties}>
+          <div><Title order={1} className={surface.title}>증원수당 월별 관리</Title><Text className={surface.subtitle}>대상자를 선택하고 월별 자료를 검토·게시합니다. 각 계정은 본인 수당만 조회합니다.</Text></div>
+          <Badge color="dark" variant="white" size="xl" radius="xl">등록 대상 {query.data ? `${query.data.recipients.length}명` : query.isPending ? '조회 중' : '확인 불가'}</Badge>
+        </div>
+        <Alert color="orange" radius="lg" title="당월 신규 산정 내역">
           하위 FP별 최종 대상업적의 10%를 만원 단위로 절사하고 업로드한 계보 기준 상위 10단계에 반영합니다.
           전월 이월금 합산, 본부지원금과 별도 시상은 포함하지 않습니다. 앱 게시는 실제 지급 승인이 아닙니다.
         </Alert>
@@ -227,7 +227,7 @@ function AllowanceAdminWorkspace({ sessionKey }: { sessionKey: string }) {
         {query.error ? <QueryErrorAlert error={query.error} onRetry={query.refetch} isFetching={query.isFetching} hasData={Boolean(query.data)} subject="수당 설정" /> : null}
         {mutate.error ? <Alert color="red" title="저장하지 못했습니다">{mutate.error.message}</Alert> : null}
         {message ? <Alert color="green" role="status">{message}</Alert> : null}
-        <Paper withBorder p="lg" radius="md">
+        <Paper p="lg" radius={24} className={surface.card} style={{ '--i': 1 } as CSSProperties}>
           <Stack>
             <Title order={3}>대상자 계정 연결</Title>
             <Select label="조회·업로드할 대상자" searchable value={pilot?.beneficiary_fc_id ?? recipientId}
@@ -243,13 +243,13 @@ function AllowanceAdminWorkspace({ sessionKey }: { sessionKey: string }) {
             <TextInput label="원본 파일의 사번" description="추천코드나 임시사번이 아닌, 월별 엑셀의 사번입니다." value={employeeCode} onChange={(event) => { setEmployeeCode(event.currentTarget.value); setMappingConfirmed(false); }} autoComplete="off" />
             <Checkbox label="선택한 계정과 원본 사번이 같은 사람임을 확인했습니다." checked={mappingConfirmed} onChange={(event) => setMappingConfirmed(event.currentTarget.checked)} />
             <Group>
-              <Button color="orange" disabled={!selected || !employeeCode.trim() || !mappingConfirmed || !query.data} loading={mutate.isPending}
+              <Button color="dark" radius="xl" disabled={!selected || !employeeCode.trim() || !mappingConfirmed || !query.data} loading={mutate.isPending}
                 onClick={() => selected && mutate.mutate({ action: 'configure', managerAccountId: selected.managerAccountId, beneficiaryFcId: selected.beneficiaryFcId, employeeCode: employeeCode.trim(), enabled: true, expectedRevision: selectedRevision, mappingConfirmed: true })}>대상자 등록·갱신</Button>
               {pilot?.enabled ? <Button variant="default" loading={mutate.isPending} onClick={() => mutate.mutate({ action: 'configure', managerAccountId: pilot.manager_account_id, beneficiaryFcId: pilot.beneficiary_fc_id, employeeCode: pilot.employee_code, enabled: false, expectedRevision: pilot.revision, mappingConfirmed: true })}>이 대상자 조회 중지</Button> : null}
             </Group>
           </Stack>
         </Paper>
-        <Paper withBorder p="lg" radius="md">
+        <Paper p="lg" radius={24} className={surface.card} style={{ '--i': 2 } as CSSProperties}>
           <Stack>
             <Group justify="space-between"><Title order={3}>월별 엑셀 업로드</Title><Button component="a" href={`${API}/template`} variant="subtle">입력 양식 내려받기</Button></Group>
             <Text size="sm" c="dimmed">월별 산정자료 양식 또는 ‘FP 기초산정’과 ‘계보 매핑’이 포함된 계보10단계 재계산 파일을 지원합니다. 납기별 보험료를 그대로 넣지 말고, 검토된 최종 대상업적을 입력해주세요.</Text>
@@ -261,14 +261,14 @@ function AllowanceAdminWorkspace({ sessionKey }: { sessionKey: string }) {
             </Group>
             <FileInput label="산정자료 엑셀" placeholder=".xlsx 파일 선택 (최대 8MB)" accept=".xlsx" value={file} onChange={(value) => { setFile(value); setSourceConfirmed(false); }} clearable />
             <Checkbox label="업적월과 실제 지급일을 확인했고, 업로드한 계보 기준 재적·직급·계보가 반영된 자료입니다." checked={sourceConfirmed} onChange={(event) => setSourceConfirmed(event.currentTarget.checked)} />
-            <Group><Button color="orange" onClick={upload} loading={mutate.isPending} disabled={!pilot?.enabled || !file || !month || !paymentDate || !genealogyAsOf || !personnelSourceDate || !sourceConfirmed || !query.data}>검증하고 검토 자료 저장</Button><Text size="sm" c="dimmed">업로드만으로 앱에 게시되지 않습니다.</Text></Group>
+            <Group><Button color="dark" radius="xl" onClick={upload} loading={mutate.isPending} disabled={!pilot?.enabled || !file || !month || !paymentDate || !genealogyAsOf || !personnelSourceDate || !sourceConfirmed || !query.data}>검증하고 검토 자료 저장</Button><Text size="sm" c="dimmed">업로드만으로 앱에 게시되지 않습니다.</Text></Group>
           </Stack>
         </Paper>
-        <Paper withBorder p="lg" radius="md">
+        <Paper p="lg" radius={24} className={surface.card} style={{ '--i': 3 } as CSSProperties}>
           <Stack>
             <Title order={3}>검토 및 앱 게시</Title>
             {!query.data ? <Text c="dimmed">검토 자료를 확인하지 못했습니다.</Text> : !query.data.imports.length ? <Text c="dimmed">아직 검토할 자료가 없습니다. 먼저 월별 엑셀을 업로드해주세요.</Text> : (
-              <Table.ScrollContainer minWidth={600}><Table highlightOnHover><Table.Thead><Table.Tr><Table.Th>업적월</Table.Th><Table.Th>지급일</Table.Th><Table.Th>신규 지급예정</Table.Th><Table.Th>상태</Table.Th><Table.Th>검토</Table.Th></Table.Tr></Table.Thead>
+              <Table.ScrollContainer minWidth={600}><Table className={surface.table}><Table.Thead><Table.Tr><Table.Th>업적월</Table.Th><Table.Th>지급일</Table.Th><Table.Th>신규 지급예정</Table.Th><Table.Th>상태</Table.Th><Table.Th>검토</Table.Th></Table.Tr></Table.Thead>
                 <Table.Tbody>{query.data!.imports.map((row) => <Table.Tr key={row.id}><Table.Td>{row.performance_month}</Table.Td><Table.Td>{row.payment_date}</Table.Td><Table.Td>{row.summary ? krw(row.summary.newPaymentKrw) : '확인 필요'}</Table.Td><Table.Td>{statusLabel[row.status]}</Table.Td><Table.Td><Button size="compact-sm" variant="subtle" onClick={() => { setSelectedImportId(row.id); setReviewConfirmed(false); }}>내역 보기</Button></Table.Td></Table.Tr>)}</Table.Tbody>
               </Table></Table.ScrollContainer>
             )}
@@ -281,15 +281,15 @@ function AllowanceAdminWorkspace({ sessionKey }: { sessionKey: string }) {
               <Text size="sm" c="dimmed">기여 인원 {statement.validation.contributorCount}명 · 계보 기준일 {statement.genealogyAsOf} · 전월 이월금 미포함</Text>
               <Text size="sm" c="dimmed">계보·인사 원본 기준일: {statement.sourceSnapshotDates.join(', ')}</Text>
               {statement.usesLaterSnapshot ? <Alert color="orange">산정 기준일 이후에 작성된 계보가 포함된 시범 산정입니다. 과거 시점의 확정 내역이 아닙니다.</Alert> : null}
-              <Table.ScrollContainer minWidth={600} h={360}><Table stickyHeader><Table.Thead><Table.Tr><Table.Th>기여자</Table.Th><Table.Th>단계</Table.Th><Table.Th>최종 대상업적</Table.Th><Table.Th>만원 절사액</Table.Th><Table.Th>귀속액</Table.Th></Table.Tr></Table.Thead><Table.Tbody>
+              <Table.ScrollContainer minWidth={600} h={360}><Table stickyHeader className={surface.table}><Table.Thead><Table.Tr><Table.Th>기여자</Table.Th><Table.Th>단계</Table.Th><Table.Th>최종 대상업적</Table.Th><Table.Th>만원 절사액</Table.Th><Table.Th>귀속액</Table.Th></Table.Tr></Table.Thead><Table.Tbody>
                 {statement.nodes.filter((node) => !node.isBeneficiary).map((node) => <Table.Tr key={node.id}><Table.Td>{node.name}</Table.Td><Table.Td>{node.depth}단계</Table.Td><Table.Td>{krw(node.finalTargetPerformanceKrw)}</Table.Td><Table.Td>{krw(node.fpRoundedAmountKrw)}</Table.Td><Table.Td>{krw(node.contributionKrw)}</Table.Td></Table.Tr>)}
               </Table.Tbody></Table></Table.ScrollContainer>
               {reviewed.status === 'draft' ? <><Checkbox label="원본 자료, 대상 계정, 업적월, 지급일, 계보와 산정 금액을 검토했습니다. 당월 신규 산정 내역으로 게시합니다." checked={reviewConfirmed} onChange={(event) => setReviewConfirmed(event.currentTarget.checked)} />
-                <Group><Button color="orange" disabled={!reviewConfirmed || !pilot?.enabled} loading={mutate.isPending} onClick={() => mutate.mutate({ action: 'publish', importId: reviewed.id, sourceSha256: reviewed.source_sha256, expectedRevision: reviewed.revision, expectedPilotRevision: reviewed.pilot_revision, reviewConfirmed: true })}>지정 계정 앱에 게시</Button></Group></> : <Text c="dimmed">{statusLabel[reviewed.status]} · 수정하려면 검토한 엑셀을 다시 업로드해주세요.</Text>}
+                <Group><Button color="dark" radius="xl" disabled={!reviewConfirmed || !pilot?.enabled} loading={mutate.isPending} onClick={() => mutate.mutate({ action: 'publish', importId: reviewed.id, sourceSha256: reviewed.source_sha256, expectedRevision: reviewed.revision, expectedPilotRevision: reviewed.pilot_revision, reviewConfirmed: true })}>지정 계정 앱에 게시</Button></Group></> : <Text c="dimmed">{statusLabel[reviewed.status]} · 수정하려면 검토한 엑셀을 다시 업로드해주세요.</Text>}
             </> : null}
           </Stack>
         </Paper>
       </Stack>
-    </Container>
+    </div>
   );
 }

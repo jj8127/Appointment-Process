@@ -10,6 +10,7 @@ import {
     Box,
     Button,
     Checkbox,
+    Grid,
     Group,
     LoadingOverlay,
     Modal,
@@ -41,6 +42,7 @@ import {
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
+import 'dayjs/locale/ko';
 import { useState, type CSSProperties } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { z } from 'zod';
@@ -351,6 +353,40 @@ export default function ExamSchedulePage() {
         );
     });
 
+    const renderExamDay = (date: string | Date) => {
+        const dayStr = dayjs(date).format('YYYY-MM-DD');
+        const round = rounds?.find(r => r.exam_date && r.exam_date === dayStr);
+        const isToday = dayjs(date).isSame(dayjs(), 'day');
+        const dotColor = round?.exam_type === 'life' ? '#f59f00' : '#4dabf7';
+
+        return (
+            <div style={{ height: '100%', width: '100%', display: 'grid', placeItems: 'center' }}>
+                <span style={{
+                    fontWeight: 700,
+                    color: isToday ? HANWHA_ORANGE : '#111827',
+                    width: 28,
+                    height: 28,
+                    display: 'grid',
+                    placeItems: 'center',
+                    borderRadius: 10,
+                    background: round ? '#fff' : 'transparent',
+                    boxShadow: round ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                }}>
+                    {dayjs(date).date()}
+                </span>
+                {round && (
+                    <span style={{
+                        marginTop: 4,
+                        width: 6,
+                        height: 6,
+                        borderRadius: 999,
+                        background: dotColor,
+                    }} />
+                )}
+            </div>
+        );
+    };
+
     const openRounds = sortedRounds.filter((round) => !dayjs().isAfter(deadlineCutoff(round.registration_deadline)));
     const statTiles = [
         { key: 'all', label: '전체 회차', value: sortedRounds.length },
@@ -411,6 +447,8 @@ export default function ExamSchedulePage() {
             {isError && <QueryErrorAlert error={error} onRetry={refetch} isFetching={isFetching} hasData={!!rounds} subject="시험 일정" />}
 
             {viewMode === 'list' ? (
+                <Grid gutter={14} align="flex-start">
+                <Grid.Col span={{ base: 12, lg: 8 }}>
                 <div className={surface.tableCard} style={{ '--i': 2 } as CSSProperties}>
                     <ScrollArea>
                         <Table verticalSpacing="md" className={surface.table}>
@@ -435,6 +473,34 @@ export default function ExamSchedulePage() {
                         </Table>
                     </ScrollArea>
                 </div>
+                </Grid.Col>
+                <Grid.Col span={{ base: 12, lg: 4 }}>
+                <div className={surface.card} style={{ '--i': 3 } as CSSProperties}>
+                    <Group justify="space-between" mb="sm">
+                        <Text className={surface.cardTitle}>시험 일정 캘린더</Text>
+                        <Group gap={10}>
+                            <Group gap={4}><Box w={8} h={8} bg="orange.5" style={{ borderRadius: 999 }} /><Text size="xs" c="dimmed">생명</Text></Group>
+                            <Group gap={4}><Box w={8} h={8} bg="blue.5" style={{ borderRadius: 999 }} /><Text size="xs" c="dimmed">손해</Text></Group>
+                        </Group>
+                    </Group>
+                    <Calendar
+                        static
+                        size="md"
+                        previousIcon={<IconChevronLeft size={16} />}
+                        nextIcon={<IconChevronRight size={16} />}
+                        locale="ko"
+                        monthLabelFormat="YYYY년 M월"
+                        styles={{
+                            calendarHeader: { maxWidth: 'none' },
+                            month: { width: '100%' },
+                            day: { borderRadius: 12, width: '100%', height: 44, fontWeight: 600 },
+                            weekday: { color: MUTED, fontWeight: 600 },
+                        }}
+                        renderDay={renderExamDay}
+                    />
+                </div>
+                </Grid.Col>
+                </Grid>
             ) : (
                 <div className={surface.card} style={{ '--i': 2 } as CSSProperties}>
                     <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
@@ -464,39 +530,7 @@ export default function ExamSchedulePage() {
                                     weekday: { color: MUTED, fontWeight: 700 },
                                     month: { fontWeight: 800 },
                                 }}
-                                renderDay={(date) => {
-                                    const dayStr = dayjs(date).format('YYYY-MM-DD');
-                                    const round = rounds?.find(r => r.exam_date && r.exam_date === dayStr);
-                                    const isToday = dayjs(date).isSame(dayjs(), 'day');
-                                    const dotColor = round?.exam_type === 'life' ? '#f59f00' : '#4dabf7';
-
-                                    return (
-                                        <div style={{ height: '100%', width: '100%', display: 'grid', placeItems: 'center' }}>
-                                            <span style={{
-                                                fontWeight: 700,
-                                                color: isToday ? HANWHA_ORANGE : '#111827',
-                                                width: 28,
-                                                height: 28,
-                                                display: 'grid',
-                                                placeItems: 'center',
-                                                borderRadius: 10,
-                                                background: round ? '#fff' : 'transparent',
-                                                boxShadow: round ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                                            }}>
-                                                {dayjs(date).date()}
-                                            </span>
-                                            {round && (
-                                                <span style={{
-                                                    marginTop: 4,
-                                                    width: 6,
-                                                    height: 6,
-                                                    borderRadius: 999,
-                                                    background: dotColor,
-                                                }} />
-                                            )}
-                                        </div>
-                                    );
-                                }}
+                                renderDay={renderExamDay}
                             />
                         </div>
 

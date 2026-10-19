@@ -501,6 +501,7 @@ function simplePage(path, moduleMocks = {}, globals = {}, exportName = 'default'
     '@mantine/dates': ui,
     '@mantine/form': { useForm: ({ initialValues }) => ({ values: initialValues, errors: {}, onSubmit: () => () => {}, getInputProps: () => ({}) }) },
     dayjs: { default: webRequire('dayjs') },
+    'dayjs/locale/ko': {},
     zod: webRequire('zod'),
     'next/navigation': { useRouter: () => ({ replace() {} }), useSearchParams: () => new URLSearchParams() },
     ...moduleMocks,
