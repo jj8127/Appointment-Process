@@ -27,7 +27,6 @@ import {
   Button,
   Card,
   Chip,
-  Divider,
   Group,
   LoadingOverlay,
   Modal,
@@ -59,6 +58,7 @@ import {
   IconCertificate,
   IconInfoCircle,
   IconLink,
+  IconPlus,
   IconRefresh,
   IconSearch,
   IconSend,
@@ -83,7 +83,6 @@ import type { FCDocument, FCProfileWithDocuments } from '@/types/dashboard';
 import type { CommissionCompletionStatus, FcProfile, FcStatus } from '@/types/fc';
 import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
-import { StatusToggle } from '../../components/StatusToggle';
 import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import {
@@ -1799,132 +1798,137 @@ export default function DashboardPage() {
       : isSubmitted
         ? 'FC 제출, 승인 대기'
         : '미입력';
-    const approvalStatusColor = isConfirmed ? 'green' : isSubmitted ? 'orange' : 'gray';
 
     return (
-      <Stack gap={10} className={fcm.apptBlock}>
-        <Group justify="space-between" gap="xs" align="center">
-          <Text size="sm" fw={650} c="var(--dashboard-ink)">
-            {sectionTitle}
-          </Text>
-          <Badge variant={isConfirmed ? 'filled' : 'light'} color={approvalStatusColor} size="sm">
-            승인 상태: {approvalStatusLabel}
-          </Badge>
-        </Group>
-        <Group align="flex-end" gap="sm" wrap="nowrap">
-          <TextInput
-            label="예정(Plan)"
-            placeholder="예: 12월 2차 / 1월 1차"
-            classNames={{ input: 'muted-placeholder-input' }}
-            value={schedule ?? ''}
-            onChange={(e) => {
-              const val = e.currentTarget?.value || '';
-              setAppointmentInputs(prev => ({ ...prev, [isLife ? 'life' : 'nonlife']: val }));
-            }}
-            readOnly={!insuranceStageOpen}
-            disabled={!insuranceStageOpen}
-            style={{ flex: 1, minWidth: 0 }}
-          />
-          {isLife && !!selectedFc.appointment_reject_reason_life && (
-            <Badge variant="light" color="red" size="xs">
-              생명 반려
-            </Badge>
-          )}
-          {!isLife && !!selectedFc.appointment_reject_reason_nonlife && (
-            <Badge variant="light" color="red" size="xs">
-              손해 반려
-            </Badge>
-          )}
-          <DateInput
-            label={
-              <Group gap={6}>
-                <Text size="sm">확정일(Actual)</Text>
-                <Badge variant="light" color={approvalStatusColor} size="xs">
-                  {approvalStatusLabel}
-                </Badge>
-              </Group>
-            }
-            value={date}
-            onChange={(value) => {
-              const nextValue = !value ? null : new Date(value);
-              const parsed = nextValue && !Number.isNaN(nextValue.getTime()) ? nextValue : null;
-              setAppointmentInputs((prev) => ({
-                ...prev,
-                [isLife ? 'lifeDate' : 'nonLifeDate']: parsed,
-              }));
-            }}
-            placeholder="YYYY-MM-DD"
-            valueFormat="YYYY-MM-DD"
-            clearable={false}
-            w={200}
-            disabled={isReadOnly || !insuranceStageOpen}
-            leftSection={<IconCalendar size={16} />}
-            previousIcon={<IconChevronLeft size={16} />}
-            nextIcon={<IconChevronRight size={16} />}
-            popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
-            styles={{
-              ...getModalDateInputStyles(isReadOnly || !insuranceStageOpen),
-              input: {
-                ...(getModalDateInputStyles(isReadOnly || !insuranceStageOpen).input ?? {}),
-                backgroundColor: isConfirmed ? '#EBFBEE' : isSubmitted ? '#fff4e6' : undefined,
-                borderColor: isConfirmed ? '#40C057' : isSubmitted ? '#ff922b' : undefined,
-              },
-            }}
-          />
-        </Group>
-        {isSubmitted && (
-          <Text size="xs" c="orange">
-            FC 제출일: {dayjs(submittedDate).format('YYYY-MM-DD')}
-          </Text>
-        )}
-        <Group gap={6} wrap="wrap">
+      <div className={fcm.apptCard} data-state={isConfirmed ? 'done' : isSubmitted ? 'submitted' : undefined}>
+        <div className={fcm.apptHead}>
+          <Text className={fcm.apptTitle}>{sectionTitle}</Text>
+          <Group gap={6}>
+            {isLife && !!selectedFc.appointment_reject_reason_life && (
+              <Badge variant="light" color="red" size="xs">
+                생명 반려
+              </Badge>
+            )}
+            {!isLife && !!selectedFc.appointment_reject_reason_nonlife && (
+              <Badge variant="light" color="red" size="xs">
+                손해 반려
+              </Badge>
+            )}
+            <span className={fcm.itemState} data-done={isConfirmed || undefined} data-warn={isSubmitted || undefined}>
+              승인 상태: {approvalStatusLabel}
+            </span>
+          </Group>
+        </div>
+        <div className={fcm.itemRow}>
+          <Text className={fcm.fieldLabel}>예정(Plan)</Text>
+          <div className={fcm.fieldControl}>
+            <TextInput
+              aria-label={`${sectionTitle} 예정(Plan)`}
+              placeholder="예: 12월 2차 / 1월 1차"
+              classNames={{ input: 'muted-placeholder-input' }}
+              className={fcm.w200}
+              value={schedule ?? ''}
+              onChange={(e) => {
+                const val = e.currentTarget?.value || '';
+                setAppointmentInputs(prev => ({ ...prev, [isLife ? 'life' : 'nonlife']: val }));
+              }}
+              readOnly={!insuranceStageOpen}
+              disabled={!insuranceStageOpen}
+            />
+            <Tooltip label="일정 저장" withArrow>
+              <ActionIcon
+                aria-label={`${sectionTitle} 일정 저장`}
+                variant="filled"
+                color={isReadOnly ? 'gray' : 'dark'}
+                radius="xl"
+                size={34}
+                loading={isAppointmentPending}
+                disabled={isReadOnly || appointmentBusy || !insuranceStageOpen}
+                onClick={(e) => handleAppointmentAction(e, 'schedule', category)}
+              >
+                <IconDeviceFloppy size={16} />
+              </ActionIcon>
+            </Tooltip>
+          </div>
+          <span />
+        </div>
+        <div className={fcm.itemRow}>
+          <Text className={fcm.fieldLabel}>확정일(Actual)</Text>
+          <div className={fcm.fieldControl}>
+            <DateInput
+              aria-label={`${sectionTitle} 확정일(Actual)`}
+              value={date}
+              onChange={(value) => {
+                const nextValue = !value ? null : new Date(value);
+                const parsed = nextValue && !Number.isNaN(nextValue.getTime()) ? nextValue : null;
+                setAppointmentInputs((prev) => ({
+                  ...prev,
+                  [isLife ? 'lifeDate' : 'nonLifeDate']: parsed,
+                }));
+              }}
+              placeholder="YYYY-MM-DD"
+              valueFormat="YYYY-MM-DD"
+              clearable={false}
+              className={fcm.w200}
+              disabled={isReadOnly || !insuranceStageOpen}
+              leftSection={<IconCalendar size={16} />}
+              previousIcon={<IconChevronLeft size={16} />}
+              nextIcon={<IconChevronRight size={16} />}
+              popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
+              styles={{
+                ...getModalDateInputStyles(isReadOnly || !insuranceStageOpen),
+                input: {
+                  ...(getModalDateInputStyles(isReadOnly || !insuranceStageOpen).input ?? {}),
+                  backgroundColor: isConfirmed ? '#EBFBEE' : isSubmitted ? '#fff4e6' : undefined,
+                },
+              }}
+            />
+            <Tooltip label="완료일 저장" withArrow>
+              <ActionIcon
+                aria-label={`${sectionTitle} 완료일 저장`}
+                variant="light"
+                color={isReadOnly ? 'gray' : 'dark'}
+                radius="xl"
+                size={34}
+                loading={updateAppointmentDateMutation.isPending}
+                disabled={isReadOnly || appointmentBusy || !insuranceStageOpen || !date}
+                onClick={() => updateAppointmentDateMutation.mutate({ category })}
+              >
+                <IconDeviceFloppy size={16} />
+              </ActionIcon>
+            </Tooltip>
+          </div>
+          {isSubmitted ? (
+            <Text size="xs" c="orange" ta="right">
+              FC 제출일: {dayjs(submittedDate).format('YYYY-MM-DD')}
+            </Text>
+          ) : <span />}
+        </div>
+        <div className={fcm.apptFoot}>
           <Button
+            variant="subtle"
+            color={isReadOnly ? 'gray' : 'red'}
             radius="xl"
             size="sm"
-            variant={isReadOnly ? "default" : "filled"}
-            color={isReadOnly ? "gray" : "dark"}
-            leftSection={<IconDeviceFloppy size={14} />}
-            loading={isAppointmentPending}
-            disabled={isReadOnly || appointmentBusy || !insuranceStageOpen}
-            onClick={(e) => handleAppointmentAction(e, 'schedule', category)}
+            disabled={isReadOnly || appointmentBusy || (!isConfirmed && !isSubmitted && !date) || !insuranceStageOpen}
+            onClick={() => openRejectModal({ kind: 'appointment', category })}
           >
-            일정 저장
+            반려
           </Button>
           <Button
-          radius="xl"
-          size="sm"
-          variant="light"
-          color={isReadOnly ? 'gray' : 'dark'}
-          leftSection={<IconDeviceFloppy size={14} />}
-          loading={updateAppointmentDateMutation.isPending}
-          disabled={isReadOnly || appointmentBusy || !insuranceStageOpen || !date}
-          onClick={() => updateAppointmentDateMutation.mutate({ category })}
-        >
-          완료일 저장
-        </Button>
-          <Button
-              variant={isConfirmed ? "filled" : "light"}
-              color="green"
-              radius="xl"
-              size="sm"
-              disabled={isConfirmed || isReadOnly || appointmentBusy || !date || !insuranceStageOpen}
-              loading={isAppointmentPending}
-              onClick={(e) => handleAppointmentAction(e, 'confirm', category)}
-            >
-              {isConfirmed ? '승인 완료됨' : '승인 처리'}
-            </Button>
-          <Button
-              variant="light"
-              color="red"
-              radius="xl"
-              size="sm"
-              disabled={isReadOnly || appointmentBusy || (!isConfirmed && !isSubmitted && !date) || !insuranceStageOpen}
-              onClick={() => openRejectModal({ kind: 'appointment', category })}
-            >
-              반려
-            </Button>
-        </Group>
-      </Stack>
+            variant="filled"
+            color={isConfirmed ? 'teal' : 'dark'}
+            radius="xl"
+            size="sm"
+            leftSection={<IconCheck size={16} />}
+            disabled={isConfirmed || isReadOnly || appointmentBusy || !date || !insuranceStageOpen}
+            loading={isAppointmentPending}
+            onClick={(e) => handleAppointmentAction(e, 'confirm', category)}
+          >
+            {isConfirmed ? '승인 완료됨' : '승인 처리'}
+          </Button>
+        </div>
+      </div>
     );
   };
 
@@ -1938,14 +1942,6 @@ export default function DashboardPage() {
         : commissionInput === 'nonlife_only'
           ? '손해 최종 완료'
           : '미완료';
-  const commissionSummaryColor =
-    commissionInput === 'both'
-      ? 'green'
-      : commissionInput === 'life_only'
-        ? 'orange'
-        : commissionInput === 'nonlife_only'
-          ? 'blue'
-          : 'gray';
 
   const getStepSummary = (tab: string | null): StepSummaryItem[] => {
     if (!selectedFc) return [];
@@ -2704,331 +2700,293 @@ export default function DashboardPage() {
                 </div>
                 <StepSummary items={getStepSummary(modalTab)} />
               <Tabs.Panel value="info">
-                <Stack gap="md">
-                  <section className={fcm.section}>
-                    <Text className={fcm.sectionTitle}>기본 정보</Text>
-                    <div className={fcm.fieldRow}>
-                      <Text className={fcm.fieldLabel}>임시사번</Text>
-                      <div className={fcm.fieldControl}>
-                        <TextInput
-                        aria-label="임시사번"
-                        placeholder="T-123456"
-                        className={fcm.w200}
-                        classNames={{ input: 'muted-placeholder-input' }}
-                        value={tempIdInput}
-                        onChange={(e) => {
-                          const val = e.currentTarget?.value || '';
-                          setTempIdInput(val);
-                        }}
-                      />
-                        {canResetToLookup && (
-                          <Tooltip label="잘못 입력한 임시사번을 비우고 이전 단계로 되돌릴 때 사용합니다." multiline w={220} withArrow>
-                            <Button radius="xl"
-                          variant="subtle"
-                          color="gray"
-                          size="compact-xs"
-                          w="fit-content"
-                          leftSection={<IconRefresh size={14} />}
-                          loading={resetToLookupMutation.isPending}
-                          onClick={() => {
-                            showConfirm({
-                              title: '조회중 단계로 되돌리기',
-                              message: '임시사번과 보증보험 조회 동의일을 비우고 조회중(임시사번 미입력) 단계로 되돌릴까요?',
-                              confirmLabel: '되돌리기',
-                              color: 'orange',
-                              onConfirm: () => resetToLookupMutation.mutate(),
-                            });
-                          }}
-                        >
-                          조회중 단계로 되돌리기
-                        </Button>
-                          </Tooltip>
-                        )}
-                      </div>
-                    </div>
-                    <div className={fcm.fieldRow}>
-                      <Text className={fcm.fieldLabel}>
-                        경력 구분 {careerInput === null && <Text span c="red" size="xs">(선택 필요)</Text>}
-                      </Text>
-                      <Chip.Group value={careerInput || ''} onChange={(v) => setCareerInput(v as '신입' | '경력' | null)}>
-                          <Group gap="xs">
-                            <Chip value="신입" color="orange" variant="light">
-                              신입
-                            </Chip>
-                            <Chip value="경력" color="blue" variant="light">
-                              경력
-                            </Chip>
-                          </Group>
-                        </Chip.Group>
-                    </div>
-                  </section>
-
-                  <Box>
-                    {(() => {
-                      const allowanceDisplay = getAllowanceDisplayState(selectedFc);
-                      const effectiveAllowanceDate = allowanceDateInput
-                        ? dayjs(allowanceDateInput).format('YYYY-MM-DD')
-                        : selectedFc.allowance_date ?? null;
-                      const hasTempIdForAllowance = Boolean(String(selectedFc.temp_id ?? '').trim());
-                      const allowanceStateButtons = [
-                        {
-                          key: 'prescreen',
-                          label: '사전 심사 요청 하기',
-                          active: allowanceDisplay.key === 'prescreen',
-                          color: 'blue' as const,
-                          onClick: () =>
-                            updateStatusMutation.mutate({
-                              status: 'allowance-pending',
-                              title: '사전 심사 요청',
-                              msg: '사전 심사 요청을 보냈습니다.',
-                              extra: {
-                                allowance_date: effectiveAllowanceDate,
-                                allowance_prescreen_requested_at: new Date().toISOString(),
-                                allowance_reject_reason: null,
-                              },
-                            }),
-                        },
-                        {
-                          key: 'approved',
-                          label: '승인 완료',
-                          active: allowanceDisplay.key === 'approved',
-                          color: 'green' as const,
-                          onClick: () =>
-                            updateStatusMutation.mutate({
-                              status: 'allowance-consented',
-                              title: '보증 보험 동의 승인',
-                              msg: '보증 보험 동의가 승인되었습니다. 서류 제출 단계로 진행해주세요.',
-                              extra: {
-                                allowance_date: effectiveAllowanceDate,
-                                allowance_reject_reason: null,
-                              },
-                            }),
-                        },
-                      ] as const;
-                      const hasAllowanceDateForAction = Boolean(effectiveAllowanceDate);
-                      const allowanceStateDisabled =
-                        isReadOnly || updateStatusMutation.isPending || !hasTempIdForAllowance || !hasAllowanceDateForAction;
-
-                      return (
-                        <>
-                          <section className={fcm.section}>
-                            <Text className={fcm.sectionTitle}>보증보험 조회 동의</Text>
-                            {!hasTempIdForAllowance ? (
-                              <Alert
-                                mb="md"
-                                color="red"
-                                radius="lg"
-                                icon={<IconInfoCircle size={16} />}
-                              >
-                                <Text size="sm">
-                                  임시사번 발급 후 보증보험 조회 동의일 저장과 승인 처리를 진행할 수 있습니다.
-                                </Text>
-                              </Alert>
-                            ) : null}
-                            {!hasAllowanceDateForAction ? (
-                              <Alert
-                                mb="md"
-                                color="orange"
-                                radius="lg"
-                                icon={<IconInfoCircle size={16} />}
-                              >
-                                <Text size="sm">
-                                  보증보험 조회 동의일을 입력해야 사전 심사 요청과 승인 완료를 저장할 수 있습니다.
-                                </Text>
-                              </Alert>
-                            ) : null}
-
-                            {isReadOnly ? (
-                              <Alert
-                                mb="md"
-                                color="gray"
-                                radius="lg"
-                                icon={<IconInfoCircle size={16} />}
-                              >
-                                <Text size="sm">
-                                  본부장 계정은 현재 상태 확인만 가능하며, 저장과 상태 변경 버튼은 비활성화됩니다.
-                                </Text>
-                              </Alert>
-                            ) : null}
-
-                            <div className={fcm.flow}>
-                            <div className={fcm.flowRow} data-done={(Boolean(selectedFc.allowance_date)) || undefined}>
-                              <span className={fcm.flowNo}>1</span>
-                              <div className={fcm.flowBody}>
-                                <Text className={fcm.flowLabel}>보증보험 조회 동의일</Text>
-                                <Group gap="xs" wrap="nowrap" align="flex-start">
-                                  <Box className={fcm.w200}>
-                                    <DateInput
-                                      aria-label="보증보험 조회 동의일"
-                                      value={allowanceDateInput}
-                                      onChange={handleAllowanceDateChange}
-                                      placeholder="YYYY-MM-DD"
-                                      valueFormat="YYYY-MM-DD"
-                                      disabled={isReadOnly || !hasTempIdForAllowance}
-                                      clearable={false}
-                                      radius="lg"
-                                      size="sm"
-                                      leftSection={<IconCalendar size={16} />}
-                                      previousIcon={<IconChevronLeft size={16} />}
-                                      nextIcon={<IconChevronRight size={16} />}
-                                      popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
-                                      styles={getModalDateInputStyles(isReadOnly || !hasTempIdForAllowance)}
-                                    />
-                                  </Box>
-                                  <Button radius="xl"
-                                    size="sm"
-                                    color={isReadOnly ? 'gray' : 'dark'}
-                                    variant="filled"
-                                    leftSection={<IconDeviceFloppy size={16} />}
-                                    onClick={() => updateAllowanceDateMutation.mutate()}
-                                    loading={updateAllowanceDateMutation.isPending}
-                                    disabled={isReadOnly || !hasTempIdForAllowance || !allowanceDateInput}
-                                  >
-                                    저장
-                                  </Button>
-                                </Group>
-                              </div>
-                            </div>
-                            <div className={fcm.flowRow} data-done={(allowanceDisplay.key === 'prescreen' || allowanceDisplay.key === 'approved') || undefined}>
-                              <span className={fcm.flowNo}>2</span>
-                              <div className={fcm.flowBody}>
-                                <Text className={fcm.flowLabel}>사전 심사</Text>
-                                  <Button radius="xl"
-                                    color="dark"
-                                    w="fit-content"
-                                    variant={allowanceDisplay.key === 'prescreen' ? 'filled' : 'light'}
-                                    onClick={() => allowanceStateButtons[0].onClick()}
-                                    disabled={allowanceStateDisabled}
-                                    leftSection={<IconSend size={16} />}
-                                  >
-                                    사전 심사 요청 하기
-                                  </Button>
-                              </div>
-                            </div>
-                            <div className={fcm.flowRow} data-done={(allowanceDisplay.key === 'approved') || undefined}>
-                              <span className={fcm.flowNo}>3</span>
-                              <div className={fcm.flowBody}>
-                                <Text className={fcm.flowLabel}>승인</Text>
-                                <Box className={fcm.w260}><StatusToggle
-                                  value={allowanceDisplay.key === 'approved' ? 'approved' : 'pending'}
-                                  onChange={(val) => {
-                                    if (val === 'approved') {
-                                      allowanceStateButtons[1].onClick();
-                                      return;
-                                    }
-                                    if (allowanceDisplay.key === 'rejected') {
-                                      return;
-                                    }
-                                    openRejectModal({ kind: 'allowance' });
-                                  }}
-                                  labelPending="미승인"
-                                  labelApproved="승인 완료"
-                                  readOnly={allowanceStateDisabled}
-                                  allowPendingPress
-                                  isManagerMode={isReadOnly}
-                                /></Box>
-                              </div>
-                            </div>
-                            </div>
-                          </section>
-                        </>
-                      );
-                    })()}
-                  </Box>
-
-                  <div className={fcm.actionBar}>
-                    <Button radius="xl"
-                      variant="subtle"
-                      color={isReadOnly ? "gray" : "red"}
-                      leftSection={<IconTrash size={16} />}
-                      disabled={isReadOnly}
-                      onClick={() => {
-                        logger.debug('[Web][deleteFc] click', { requestCount: 1 });
-                        showConfirm({
-                          title: 'FC 삭제',
-                          message: '정말로 FC를 삭제하시겠습니까? 관련 서류도 모두 삭제됩니다.',
-                          confirmLabel: '삭제',
-                          color: 'red',
-                          onConfirm: () => {
-                            logger.debug('[Web][deleteFc] mutate');
-                            deleteFcMutation.mutate();
+                {(() => {
+                  const allowanceDisplay = getAllowanceDisplayState(selectedFc);
+                  const effectiveAllowanceDate = allowanceDateInput
+                    ? dayjs(allowanceDateInput).format('YYYY-MM-DD')
+                    : selectedFc.allowance_date ?? null;
+                  const hasTempIdForAllowance = Boolean(String(selectedFc.temp_id ?? '').trim());
+                  const allowanceStateButtons = [
+                    {
+                      key: 'prescreen',
+                      label: '사전 심사 요청 하기',
+                      active: allowanceDisplay.key === 'prescreen',
+                      color: 'blue' as const,
+                      onClick: () =>
+                        updateStatusMutation.mutate({
+                          status: 'allowance-pending',
+                          title: '사전 심사 요청',
+                          msg: '사전 심사 요청을 보냈습니다.',
+                          extra: {
+                            allowance_date: effectiveAllowanceDate,
+                            allowance_prescreen_requested_at: new Date().toISOString(),
+                            allowance_reject_reason: null,
                           },
-                        });
-                      }}
-                    >
-                      FC 삭제
-                    </Button>
-                    <Group gap="xs">
-                      <Button radius="xl"
-                        variant="light"
-                        color={isReadOnly ? "gray" : "dark"}
-                        leftSection={<IconSend size={16} />}
-                        loading={reminderPending} disabled={isReadOnly || reminderPending}
-                        onClick={async () => {
-                          if (reminderPendingRef.current) return;
-                          reminderPendingRef.current = true;
-                          setReminderPending(true);
-                          try {
-                          // Resolve the current notification recipient from the stable FC id on the server.
-                          const notificationResult = await sendPushNotificationForFc(selectedFc.id, {
-                            title: '진행 요청',
-                            body: '관리자가 진행을 요청하였습니다.',
-                            target: {
-                              version: 1,
-                              kind: 'onboarding_section',
-                              fcId: selectedFc.id,
-                              section: 'home',
-                            },
-                            data: { url: '/' },
-                          });
-                          if (!('inbox' in notificationResult) || !('failures' in notificationResult)) {
-                            logger.warn('[dashboard] reminder request rejected');
-                            notifications.show({
-                              title: '알림 요청 실패',
-                              message: '알림 요청을 처리하지 못했습니다. 수신자와 권한을 확인해 주세요.',
-                              color: 'red',
-                            });
-                            return;
-                          }
-                          const invalidRecipient = notificationResult.failures.some(
-                            (failure) => failure === 'missing_recipient' || failure === 'recipient_mismatch',
-                          );
-                          if (invalidRecipient) {
-                            logger.warn('[dashboard] reminder recipient invalid');
-                            notifications.show({
-                              title: '수신자 확인 필요',
-                              message: '유효한 알림 수신자를 확인할 수 없습니다.',
-                              color: 'red',
-                            });
-                            return;
-                          }
-                          if (!notificationResult.inbox?.logged) {
-                            logger.warn('[dashboard] reminder inbox persistence failed');
-                            notifications.show({
-                              title: '알림 등록 실패',
-                              message: '알림을 등록하지 못했습니다. 다시 시도해 주세요.',
-                              color: 'red',
-                            });
-                            return;
-                          }
-                          notifications.show({
-                            title: '전송 완료',
-                            message: '알림을 보냈습니다.',
-                            color: 'blue',
-                          });
-                          } catch {
-                            notifications.show({ title: '알림 결과 확인 필요', message: '전송 결과를 확인하지 못했습니다. 잠시 후 알림 상태를 확인해주세요.', color: 'red' });
-                          } finally { reminderPendingRef.current = false; setReminderPending(false); }
-                        }}
-                      >
-                        재촉 알림
-                      </Button>
-                      <Button radius="xl" onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} disabled={isReadOnly || (selectedFc.status !== 'draft' && selectedFc.status !== 'temp-id-issued' && selectedFc.status !== 'allowance-pending')} color={isReadOnly ? "gray" : "dark"}>
-                        변경사항 저장
-                      </Button>
-                    </Group>
-                  </div>
-                </Stack>
+                        }),
+                    },
+                    {
+                      key: 'approved',
+                      label: '승인 완료',
+                      active: allowanceDisplay.key === 'approved',
+                      color: 'green' as const,
+                      onClick: () =>
+                        updateStatusMutation.mutate({
+                          status: 'allowance-consented',
+                          title: '보증 보험 동의 승인',
+                          msg: '보증 보험 동의가 승인되었습니다. 서류 제출 단계로 진행해주세요.',
+                          extra: {
+                            allowance_date: effectiveAllowanceDate,
+                            allowance_reject_reason: null,
+                          },
+                        }),
+                    },
+                  ] as const;
+                  const hasAllowanceDateForAction = Boolean(effectiveAllowanceDate);
+                  const allowanceStateDisabled =
+                    isReadOnly || updateStatusMutation.isPending || !hasTempIdForAllowance || !hasAllowanceDateForAction;
+
+                  return (
+                    <Stack gap="md">
+                      <section className={fcm.section}>
+                        <div className={fcm.sectionHead}>
+                          <Text className={fcm.sectionTitle}>입력 정보</Text>
+                          <Button radius="xl" size="xs" variant="white" leftSection={<IconDeviceFloppy size={14} />} onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} disabled={isReadOnly || (selectedFc.status !== 'draft' && selectedFc.status !== 'temp-id-issued' && selectedFc.status !== 'allowance-pending')} color={isReadOnly ? "gray" : "dark"}>
+                            저장
+                          </Button>
+                        </div>
+                        <div className={fcm.fieldRow}>
+                          <Text className={fcm.fieldLabel}>임시사번</Text>
+                          <div className={fcm.fieldControl}>
+                            <TextInput
+                              aria-label="임시사번"
+                              placeholder="T-123456"
+                              className={fcm.w200}
+                              classNames={{ input: 'muted-placeholder-input' }}
+                              value={tempIdInput}
+                              onChange={(e) => {
+                                const val = e.currentTarget?.value || '';
+                                setTempIdInput(val);
+                              }}
+                            />
+                            {canResetToLookup && (
+                              <Tooltip label="조회중 단계로 되돌리기 · 잘못 입력한 임시사번을 비우고 이전 단계로 되돌릴 때 사용합니다." multiline w={240} withArrow>
+                                <ActionIcon
+                                  aria-label="조회중 단계로 되돌리기"
+                                  variant="white"
+                                  color="gray"
+                                  radius="xl"
+                                  size={34}
+                                  loading={resetToLookupMutation.isPending}
+                                  onClick={() => {
+                                    showConfirm({
+                                      title: '조회중 단계로 되돌리기',
+                                      message: '임시사번과 보증보험 조회 동의일을 비우고 조회중(임시사번 미입력) 단계로 되돌릴까요?',
+                                      confirmLabel: '되돌리기',
+                                      color: 'orange',
+                                      onConfirm: () => resetToLookupMutation.mutate(),
+                                    });
+                                  }}
+                                >
+                                  <IconRefresh size={16} />
+                                </ActionIcon>
+                              </Tooltip>
+                            )}
+                          </div>
+                        </div>
+                        <div className={fcm.fieldRow}>
+                          <Text className={fcm.fieldLabel}>
+                            경력 구분 {careerInput === null && <Text span c="red" size="xs">(선택 필요)</Text>}
+                          </Text>
+                          <Chip.Group value={careerInput || ''} onChange={(v) => setCareerInput(v as '신입' | '경력' | null)}>
+                              <Group gap="xs">
+                                <Chip value="신입" color="orange" variant="light">
+                                  신입
+                                </Chip>
+                                <Chip value="경력" color="blue" variant="light">
+                                  경력
+                                </Chip>
+                              </Group>
+                            </Chip.Group>
+                        </div>
+                        <div className={fcm.fieldRow}>
+                          <Text className={fcm.fieldLabel}>보증보험 조회 동의일</Text>
+                          <div className={fcm.fieldControl}>
+                            <Box className={fcm.w200}>
+                              <DateInput
+                                aria-label="보증보험 조회 동의일"
+                                value={allowanceDateInput}
+                                onChange={handleAllowanceDateChange}
+                                placeholder="YYYY-MM-DD"
+                                valueFormat="YYYY-MM-DD"
+                                disabled={isReadOnly || !hasTempIdForAllowance}
+                                clearable={false}
+                                radius="lg"
+                                size="sm"
+                                leftSection={<IconCalendar size={16} />}
+                                previousIcon={<IconChevronLeft size={16} />}
+                                nextIcon={<IconChevronRight size={16} />}
+                                popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
+                                styles={getModalDateInputStyles(isReadOnly || !hasTempIdForAllowance)}
+                              />
+                            </Box>
+                            <Tooltip label="동의일 저장" withArrow>
+                              <ActionIcon
+                                aria-label="보증보험 조회 동의일 저장"
+                                variant="filled"
+                                color={isReadOnly ? 'gray' : 'dark'}
+                                radius="xl"
+                                size={34}
+                                onClick={() => updateAllowanceDateMutation.mutate()}
+                                loading={updateAllowanceDateMutation.isPending}
+                                disabled={isReadOnly || !hasTempIdForAllowance || !allowanceDateInput}
+                              >
+                                <IconDeviceFloppy size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                          </div>
+                        </div>
+                        {!hasTempIdForAllowance ? (
+                          <Text className={fcm.hint} data-tone="red">임시사번 발급 후 보증보험 조회 동의일 저장과 승인 처리를 진행할 수 있습니다.</Text>
+                        ) : null}
+                        {!hasAllowanceDateForAction ? (
+                          <Text className={fcm.hint} data-tone="orange">보증보험 조회 동의일을 입력해야 사전 심사 요청과 승인 완료를 저장할 수 있습니다.</Text>
+                        ) : null}
+                        {isReadOnly ? (
+                          <Text className={fcm.hint}>본부장 계정은 현재 상태 확인만 가능하며, 저장과 상태 변경 버튼은 비활성화됩니다.</Text>
+                        ) : null}
+                      </section>
+
+                      <div className={fcm.footer}>
+                        <Group gap={4}>
+                          <Tooltip label="FC 삭제" withArrow>
+                            <ActionIcon
+                              aria-label="FC 삭제"
+                              radius="xl"
+                              size={36}
+                              variant="subtle"
+                              color={isReadOnly ? 'gray' : 'red'}
+                              disabled={isReadOnly}
+                              onClick={() => {
+                                logger.debug('[Web][deleteFc] click', { requestCount: 1 });
+                                showConfirm({
+                                  title: 'FC 삭제',
+                                  message: '정말로 FC를 삭제하시겠습니까? 관련 서류도 모두 삭제됩니다.',
+                                  confirmLabel: '삭제',
+                                  color: 'red',
+                                  onConfirm: () => {
+                                    logger.debug('[Web][deleteFc] mutate');
+                                    deleteFcMutation.mutate();
+                                  },
+                                });
+                              }}
+                            >
+                              <IconTrash size={18} />
+                            </ActionIcon>
+                          </Tooltip>
+                          <Tooltip label="재촉 알림" withArrow>
+                            <ActionIcon
+                              aria-label="재촉 알림"
+                              radius="xl"
+                              size={36}
+                              variant="subtle"
+                              color={isReadOnly ? 'gray' : 'dark'}
+                              loading={reminderPending}
+                              disabled={isReadOnly || reminderPending}
+                              onClick={async () => {
+                                if (reminderPendingRef.current) return;
+                                reminderPendingRef.current = true;
+                                setReminderPending(true);
+                                try {
+                                // Resolve the current notification recipient from the stable FC id on the server.
+                                const notificationResult = await sendPushNotificationForFc(selectedFc.id, {
+                                  title: '진행 요청',
+                                  body: '관리자가 진행을 요청하였습니다.',
+                                  target: {
+                                    version: 1,
+                                    kind: 'onboarding_section',
+                                    fcId: selectedFc.id,
+                                    section: 'home',
+                                  },
+                                  data: { url: '/' },
+                                });
+                                if (!('inbox' in notificationResult) || !('failures' in notificationResult)) {
+                                  logger.warn('[dashboard] reminder request rejected');
+                                  notifications.show({
+                                    title: '알림 요청 실패',
+                                    message: '알림 요청을 처리하지 못했습니다. 수신자와 권한을 확인해 주세요.',
+                                    color: 'red',
+                                  });
+                                  return;
+                                }
+                                const invalidRecipient = notificationResult.failures.some(
+                                  (failure) => failure === 'missing_recipient' || failure === 'recipient_mismatch',
+                                );
+                                if (invalidRecipient) {
+                                  logger.warn('[dashboard] reminder recipient invalid');
+                                  notifications.show({
+                                    title: '수신자 확인 필요',
+                                    message: '유효한 알림 수신자를 확인할 수 없습니다.',
+                                    color: 'red',
+                                  });
+                                  return;
+                                }
+                                if (!notificationResult.inbox?.logged) {
+                                  logger.warn('[dashboard] reminder inbox persistence failed');
+                                  notifications.show({
+                                    title: '알림 등록 실패',
+                                    message: '알림을 등록하지 못했습니다. 다시 시도해 주세요.',
+                                    color: 'red',
+                                  });
+                                  return;
+                                }
+                                notifications.show({
+                                  title: '전송 완료',
+                                  message: '알림을 보냈습니다.',
+                                  color: 'blue',
+                                });
+                                } catch {
+                                  notifications.show({ title: '알림 결과 확인 필요', message: '전송 결과를 확인하지 못했습니다. 잠시 후 알림 상태를 확인해주세요.', color: 'red' });
+                                } finally { reminderPendingRef.current = false; setReminderPending(false); }
+                              }}
+                            >
+                              <IconSend size={18} />
+                            </ActionIcon>
+                          </Tooltip>
+                        </Group>
+                        <Group gap="xs">
+                          <Button
+                            radius="xl"
+                            variant="subtle"
+                            color={isReadOnly ? 'gray' : 'red'}
+                            disabled={allowanceStateDisabled || allowanceDisplay.key === 'rejected'}
+                            onClick={() => openRejectModal({ kind: 'allowance' })}
+                          >
+                            반려
+                          </Button>
+                          <Button
+                            radius="xl"
+                            variant="light"
+                            color="dark"
+                            leftSection={<IconSend size={16} />}
+                            disabled={allowanceStateDisabled}
+                            onClick={() => allowanceStateButtons[0].onClick()}
+                          >
+                            사전 심사 요청
+                          </Button>
+                          <Button
+                            radius="xl"
+                            color="dark"
+                            leftSection={<IconCheck size={16} />}
+                            disabled={allowanceStateDisabled || allowanceDisplay.key === 'approved'}
+                            onClick={() => allowanceStateButtons[1].onClick()}
+                          >
+                            {allowanceDisplay.key === 'approved' ? '승인 완료됨' : '승인 완료'}
+                          </Button>
+                        </Group>
+                      </div>
+                    </Stack>
+                  );
+                })()}
               </Tabs.Panel>
 
               <Tabs.Panel value="docs">
@@ -3097,97 +3055,124 @@ export default function DashboardPage() {
                                   </div>
                                 </Group>
                                 <Group gap={4}>
-                                  {isSubmitted && (
-                                    <Button radius="xl"
-                                      variant="default"
-                                      size="xs"
-                                      onClick={() => handleOpenDoc(d.storage_path ?? '')}
-                                    >
-                                      열기
-                                    </Button>
-                                  )}
-                                  <Divider orientation="vertical" />
-                                  <Group gap={4}>
-                                    <StatusToggle
-                                      value={d.status === 'approved' ? 'approved' : 'pending'}
-                                      onChange={async (val) => {
-                                        const nextStatus = (val === 'approved' ? 'approved' : 'rejected') as 'approved' | 'rejected';
-                                        if (val !== 'approved') {
-                                          if (d.status === 'rejected') return;
-                                          openRejectModal({ kind: 'doc', doc: d });
-                                          return;
-                                        }
-                                        if (nextStatus === d.status) return;
-                                        if (nextStatus === 'approved') {
-                                          showConfirm({
-                                            title: '서류 승인',
-                                            message: isSubmitted
-                                              ? '문서를 승인하시겠습니까?'
-                                              : '파일이 미제출된 문서입니다. 총무 수동 승인으로 처리하시겠습니까?',
-                                            confirmLabel: '승인',
-                                            color: 'blue',
-                                            onConfirm: async () => {
-                                              const manualApprovalNote = isSubmitted ? null : '총무 수동 승인: 파일 미제출';
-                                              const res = await updateDocStatusAction({ success: false }, {
-                                                fcId: selectedFc.id,
-                                                docType: d.doc_type,
+                                  {(() => {
+                                    // Same decision flow the approve/reject toggle used.
+                                    const decide = async (val: 'approved' | 'pending') => {
+                                      const nextStatus = (val === 'approved' ? 'approved' : 'rejected') as 'approved' | 'rejected';
+                                      if (val !== 'approved') {
+                                        if (d.status === 'rejected') return;
+                                        openRejectModal({ kind: 'doc', doc: d });
+                                        return;
+                                      }
+                                      if (nextStatus === d.status) return;
+                                      if (nextStatus === 'approved') {
+                                        showConfirm({
+                                          title: '서류 승인',
+                                          message: isSubmitted
+                                            ? '문서를 승인하시겠습니까?'
+                                            : '파일이 미제출된 문서입니다. 총무 수동 승인으로 처리하시겠습니까?',
+                                          confirmLabel: '승인',
+                                          color: 'blue',
+                                          onConfirm: async () => {
+                                            const manualApprovalNote = isSubmitted ? null : '총무 수동 승인: 파일 미제출';
+                                            const res = await updateDocStatusAction({ success: false }, {
+                                              fcId: selectedFc.id,
+                                              docType: d.doc_type,
+                                              status: nextStatus,
+                                              reason: manualApprovalNote,
+                                            });
+                                            if (res.success) {
+                                              const receipt = requireDocumentStatusReceipt(res, {
                                                 status: nextStatus,
-                                                reason: manualApprovalNote,
+                                                reviewerNote: manualApprovalNote,
                                               });
-                                              if (res.success) {
-                                                const receipt = requireDocumentStatusReceipt(res, {
-                                                  status: nextStatus,
-                                                  reviewerNote: manualApprovalNote,
-                                                });
-                                                showAdminNotificationWarning(res);
-                                                notifications.show({ title: '승인', message: res.message, color: 'green' });
-                                                const nextDocs = (selectedFc.fc_documents || []).map((doc: FCDocument) =>
-                                                  doc.doc_type === d.doc_type
-                                                    ? { ...doc, status: receipt.status, reviewer_note: receipt.reviewerNote }
-                                                    : doc
-                                                );
-                                                let nextProfileStatus = selectedFc.status;
-                                                if (
-                                                  receipt.allApproved !== null
-                                                  && !DOCS_STAGE_LOCK_STATUSES.includes(selectedFc.status)
-                                                ) {
-                                                  nextProfileStatus = receipt.allApproved ? 'docs-approved' : 'docs-pending';
-                                                }
-                                                updateSelectedFc(
-                                                  receipt.allApproved === null
-                                                    ? { fc_documents: nextDocs }
-                                                    : nextProfileStatus === 'docs-pending'
-                                                    ? { ...buildDocWorkflowResetProfileFields(), fc_documents: nextDocs }
-                                                    : { fc_documents: nextDocs, status: nextProfileStatus },
-                                                );
-                                                queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
-                                              } else {
-                                                notifications.show({ title: '오류', message: res.error, color: 'red' });
+                                              showAdminNotificationWarning(res);
+                                              notifications.show({ title: '승인', message: res.message, color: 'green' });
+                                              const nextDocs = (selectedFc.fc_documents || []).map((doc: FCDocument) =>
+                                                doc.doc_type === d.doc_type
+                                                  ? { ...doc, status: receipt.status, reviewer_note: receipt.reviewerNote }
+                                                  : doc
+                                              );
+                                              let nextProfileStatus = selectedFc.status;
+                                              if (
+                                                receipt.allApproved !== null
+                                                && !DOCS_STAGE_LOCK_STATUSES.includes(selectedFc.status)
+                                              ) {
+                                                nextProfileStatus = receipt.allApproved ? 'docs-approved' : 'docs-pending';
                                               }
-                                            },
-                                          });
-                                          return;
-                                        }
-                                      }}
-                                      labelPending="미승인"
-                                      labelApproved="승인"
-                                      showNeutralForPending
-                                      allowPendingPress
-                                      readOnly={isReadOnly}
-                                      isManagerMode={isReadOnly}
-                                    />
-                                    <Tooltip label="삭제">
-                                      <ActionIcon aria-label="제출한 서류 파일 삭제"
-                                        variant="light"
-                                        color={isReadOnly ? "gray" : "red"}
-                                        size="input-xs"
-                                        disabled={isReadOnly || !isSubmitted}
-                                        onClick={() => handleDeleteDocFile(d)}
-                                      >
-                                        <IconTrash size={16} />
-                                      </ActionIcon>
-                                    </Tooltip>
-                                  </Group>
+                                              updateSelectedFc(
+                                                receipt.allApproved === null
+                                                  ? { fc_documents: nextDocs }
+                                                  : nextProfileStatus === 'docs-pending'
+                                                  ? { ...buildDocWorkflowResetProfileFields(), fc_documents: nextDocs }
+                                                  : { fc_documents: nextDocs, status: nextProfileStatus },
+                                              );
+                                              queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+                                            } else {
+                                              notifications.show({ title: '오류', message: res.error, color: 'red' });
+                                            }
+                                          },
+                                        });
+                                        return;
+                                      }
+                                    };
+                                    return (
+                                      <Group gap={4} wrap="nowrap">
+                                        <Tooltip label="열기">
+                                          <ActionIcon
+                                            aria-label="서류 열기"
+                                            variant="light"
+                                            color="gray"
+                                            radius="xl"
+                                            size={32}
+                                            disabled={!isSubmitted}
+                                            onClick={() => handleOpenDoc(d.storage_path ?? '')}
+                                          >
+                                            <IconFileText size={16} />
+                                          </ActionIcon>
+                                        </Tooltip>
+                                        <Tooltip label="승인">
+                                          <ActionIcon
+                                            aria-label="서류 승인"
+                                            variant={d.status === 'approved' ? 'filled' : 'light'}
+                                            color={isReadOnly ? 'gray' : 'teal'}
+                                            radius="xl"
+                                            size={32}
+                                            disabled={isReadOnly || d.status === 'approved'}
+                                            onClick={() => void decide('approved')}
+                                          >
+                                            <IconCheck size={16} />
+                                          </ActionIcon>
+                                        </Tooltip>
+                                        <Tooltip label="반려">
+                                          <ActionIcon
+                                            aria-label="서류 반려"
+                                            variant={d.status === 'rejected' ? 'filled' : 'light'}
+                                            color={isReadOnly ? 'gray' : 'red'}
+                                            radius="xl"
+                                            size={32}
+                                            disabled={isReadOnly || d.status === 'rejected'}
+                                            onClick={() => void decide('pending')}
+                                          >
+                                            <IconX size={16} />
+                                          </ActionIcon>
+                                        </Tooltip>
+                                        <Tooltip label="파일 삭제">
+                                          <ActionIcon
+                                            aria-label="제출한 서류 파일 삭제"
+                                            variant="subtle"
+                                            color={isReadOnly ? 'gray' : 'red'}
+                                            radius="xl"
+                                            size={32}
+                                            disabled={isReadOnly || !isSubmitted}
+                                            onClick={() => handleDeleteDocFile(d)}
+                                          >
+                                            <IconTrash size={16} />
+                                          </ActionIcon>
+                                        </Tooltip>
+                                      </Group>
+                                    );
+                                  })()}
                                 </Group>
                               </Group>
                             </Card>
@@ -3201,9 +3186,21 @@ export default function DashboardPage() {
                     )}
                   </section>
                   <section className={fcm.section}>
-                    <Text className={fcm.sectionTitle}>
-                      필수 서류 요청 목록
-                    </Text>
+                    <div className={fcm.sectionHead}>
+                      <Text className={fcm.sectionTitle}>
+                        필수 서류 요청 목록
+                      </Text>
+                      <Button radius="xl"
+                      size="xs"
+                      leftSection={<IconDeviceFloppy size={14} />}
+                      color={isReadOnly ? "gray" : "dark"}
+                      disabled={isReadOnly}
+                      onClick={() => updateDocsRequestMutation.mutate({ types: selectedDocs, deadline: docsDeadlineInput })}
+                      loading={updateDocsRequestMutation.isPending}
+                    >
+                      요청 저장
+                    </Button>
+                    </div>
                     <div className={fcm.fieldRow}>
                       <Text className={fcm.fieldLabel}>
                         서류 마감일 (알림용)
@@ -3293,9 +3290,12 @@ export default function DashboardPage() {
                         setCustomDocInput(cleaned.trim().length === 0 ? '' : cleaned);
                       }}
                     />
-                    <Button radius="xl"
-                      variant="default"
-                      size="xs"
+                    <ActionIcon
+                      aria-label="기타 서류 추가"
+                      variant="filled"
+                      color={isReadOnly ? 'gray' : 'dark'}
+                      radius="xl"
+                      size={30}
                       disabled={isReadOnly}
                       onClick={() => {
                         if (customDocInput.trim()) {
@@ -3309,248 +3309,253 @@ export default function DashboardPage() {
                         }
                       }}
                     >
-                      추가
-                    </Button>
+                      <IconPlus size={16} />
+                    </ActionIcon>
                   </Group>
 
-                  <div className={fcm.sectionFoot}>
-                  <Button radius="xl"
-                    color={isReadOnly ? "gray" : "dark"}
-                    disabled={isReadOnly}
-                    onClick={() => updateDocsRequestMutation.mutate({ types: selectedDocs, deadline: docsDeadlineInput })}
-                    loading={updateDocsRequestMutation.isPending}
-                  >
-                    서류 요청 업데이트
-                  </Button>
-                  </div>
                   </section>
-                  <section className={fcm.section}>
-                  <div className={fcm.fieldRow}>
-                  <Text className={fcm.fieldLabel}>서류 심사 완료</Text>
-                  <Box className={fcm.w260}>
-                  <StatusToggle
-                    value={['docs-approved', 'hanwha-commission-review', 'hanwha-commission-rejected', 'hanwha-commission-approved', 'appointment-completed', 'final-link-sent'].includes(selectedFc.status) ? 'approved' : 'pending'}
-                    onChange={(val) => {
-                      if (val === 'approved') {
-                        updateStatusMutation.mutate({
-                          status: 'docs-approved',
-                          title: '서류 검토 완료',
-                          msg: '서류 검토가 완료되었습니다. 다위촉 URL 단계로 진행해주세요.',
-                        });
-                        return;
-                      }
-                      showConfirm({
-                        title: '심사 완료 취소',
-                        message: '심사 완료 상태를 취소하시겠습니까?',
-                        confirmLabel: '취소',
-                        color: 'orange',
-                        onConfirm: () => {
+                  {(() => {
+                    const docsReviewed = ['docs-approved', 'hanwha-commission-review', 'hanwha-commission-rejected', 'hanwha-commission-approved', 'appointment-completed', 'final-link-sent'].includes(selectedFc.status);
+                    const reviewLocked = isReadOnly || DOCS_STAGE_LOCK_STATUSES.includes(selectedFc.status);
+                    // Same transitions the review toggle used.
+                    const decideReview = (val: 'approved' | 'pending') => {
+                        if (val === 'approved') {
                           updateStatusMutation.mutate({
-                            status: 'docs-pending',
-                            msg: '',
-                            extra: buildDocWorkflowResetProfileFields(),
+                            status: 'docs-approved',
+                            title: '서류 검토 완료',
+                            msg: '서류 검토가 완료되었습니다. 다위촉 URL 단계로 진행해주세요.',
                           });
-                        },
-                      });
-                    }}
-                    labelPending="심사 대기"
-                    labelApproved="심사 완료"
-                    showNeutralForPending
-                    readOnly={isReadOnly || DOCS_STAGE_LOCK_STATUSES.includes(selectedFc.status)}
-                    isManagerMode={isReadOnly}
-                  />
-                  </Box>
-                  </div>
-                  </section>
+                          return;
+                        }
+                        showConfirm({
+                          title: '심사 완료 취소',
+                          message: '심사 완료 상태를 취소하시겠습니까?',
+                          confirmLabel: '취소',
+                          color: 'orange',
+                          onConfirm: () => {
+                            updateStatusMutation.mutate({
+                              status: 'docs-pending',
+                              msg: '',
+                              extra: buildDocWorkflowResetProfileFields(),
+                            });
+                          },
+                        });
+                    };
+                    return (
+                      <div className={fcm.footer}>
+                        <span className={fcm.footerStatus} data-done={docsReviewed || undefined}>
+                          <i />서류 심사 · {docsReviewed ? '심사 완료' : '심사 대기'}
+                        </span>
+                        {docsReviewed ? (
+                          <Button radius="xl" variant="subtle" color="gray" disabled={reviewLocked} onClick={() => decideReview('pending')}>
+                            심사 완료 취소
+                          </Button>
+                        ) : (
+                          <Button radius="xl" color="dark" leftSection={<IconCheck size={16} />} disabled={reviewLocked} onClick={() => decideReview('approved')}>
+                            서류 심사 완료
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </Stack>
               </Tabs.Panel>
 
               <Tabs.Panel value="hanwha">
-                <Stack gap="md">
-                  {(() => {
-                    const hanwhaStatus = getHanwhaStageStatus(selectedFc);
-                    const hanwhaDescription = getHanwhaStageDescription(selectedFc);
-
-                    return (
+                {(() => {
+                  const hanwhaStatus = getHanwhaStageStatus(selectedFc);
+                  const hanwhaDescription = getHanwhaStageDescription(selectedFc);
+                  const pdfApproved = hasHanwhaApprovedPdf(selectedFc);
+                  return (
+                    <Stack gap="md">
                       <Alert
                         color={hanwhaStatus?.color ?? 'blue'}
                         icon={<IconInfoCircle size={16} />}
                         radius="lg"
+                        py={10}
                       >
-                        <Text fw={700} size="sm" mb={4}>
+                        <Text fw={700} size="sm" mb={2}>
                           {hanwhaStatus?.label ?? '다위촉 URL 대기'}
                         </Text>
                         <Text size="xs">
                           {hanwhaDescription ?? '서류 승인이 끝나면 다위촉 URL 관리 단계가 열립니다.'}
                         </Text>
                       </Alert>
-                    );
-                  })()}
 
-                  <section className={fcm.section}>
-                    <Group justify="space-between">
-                      <Text className={fcm.sectionTitle}>다위촉 URL 검토</Text>
-                      <Badge
-                        variant="light"
-                        color={selectedFc.hanwha_commission_date_sub ? 'green' : 'gray'}
-                        size="sm"
-                      >
-                        {selectedFc.hanwha_commission_date_sub ? '입력됨' : '미입력'}
-                      </Badge>
-                    </Group>
-                    <div className={fcm.fieldRow}>
-                    <Text className={fcm.fieldLabel}>완료일(다위촉 URL)</Text>
-                    <div className={fcm.fieldControl}>
-                    <DateInput
-                      aria-label="완료일(다위촉 URL)"
-                      className={fcm.w200}
-                      value={hanwhaSubmittedDateInput}
-                      onChange={handleHanwhaSubmittedDateChange}
-                      placeholder="YYYY-MM-DD"
-                      valueFormat="YYYY-MM-DD"
-                      clearable={false}
-                      disabled={isReadOnly}
-                      radius="lg"
-                      size="sm"
-                      leftSection={<IconCalendar size={16} />}
-                      previousIcon={<IconChevronLeft size={16} />}
-                      nextIcon={<IconChevronRight size={16} />}
-                      popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
-                      styles={getModalDateInputStyles(isReadOnly)}
-                    />
-                    <Button radius="xl"
-                      size="sm"
-                      color={isReadOnly ? 'gray' : 'dark'}
-                      variant="filled"
-                      onClick={() => updateHanwhaSubmissionDateMutation.mutate()}
-                      loading={updateHanwhaSubmissionDateMutation.isPending}
-                      disabled={isReadOnly || !hanwhaSubmittedDateInput}
-                    >
-                      완료일 저장
-                    </Button>
-                    </div>
-                    </div>
-                  </section>
-                    <section className={fcm.section}>
-                      <Group justify="space-between" gap="xs">
-                        <Text className={fcm.sectionTitle}>
-                          다위촉 URL 발송 안내
-                        </Text>
-                        <Badge
-                          size="sm"
-                          color={selectedFc.dawichok_url_sent_at ? 'teal' : 'gray'}
-                          variant="light"
-                        >
-                          {selectedFc.dawichok_url_sent_at ? '발송됨' : '미발송'}
-                        </Badge>
-                      </Group>
-                      <Text size="xs" c="dimmed">
-                        FC에게 “카카오톡으로 전송된 다위촉 URL을 진행해 주세요.” 알림을 보냅니다.
-                      </Text>
-                      {selectedFc.dawichok_url_sent_at ? (
-                        <Text size="xs" c="dimmed" mt={4}>
-                          최근 발송: {dayjs(selectedFc.dawichok_url_sent_at).format('YYYY-MM-DD HH:mm')}
-                        </Text>
-                      ) : null}
-                      <Button radius="xl"
-                        size="sm"
-                        w="fit-content"
-                        color={isReadOnly ? 'gray' : 'dark'}
-                        variant="filled"
-                        leftSection={<IconSend size={14} />}
-                        onClick={() => markDawichokUrlSentMutation.mutate()}
-                        loading={markDawichokUrlSentMutation.isPending}
-                        disabled={isReadOnly || markDawichokUrlSentMutation.isPending}
-                      >
-                        {selectedFc.dawichok_url_sent_at ? 'URL 발송 알림 다시 보내기' : 'URL 발송 알림'}
-                      </Button>
-                    </section>
-                    <input
-                      ref={hanwhaPdfUploadInputRef}
-                      type="file"
-                      accept="application/pdf"
-                      style={{ display: 'none' }}
-                      onChange={handleHanwhaPdfInputChange}
-                    />
-                    <section className={fcm.section}>
-                      <Group justify="space-between">
-                        <Text className={fcm.sectionTitle}>
-                          다위촉 URL PDF
-                        </Text>
-                        <Badge size="sm" color={hasHanwhaApprovedPdf(selectedFc) ? 'teal' : 'orange'} variant="light">
-                          {hasHanwhaApprovedPdf(selectedFc) ? '승인 완료' : '승인 대기'}
-                        </Badge>
-                      </Group>
-                      {!!selectedFc.hanwha_commission_pdf_name ? (
-                        <Text size="xs" c="dimmed">
-                          등록 파일: {selectedFc.hanwha_commission_pdf_name}
-                        </Text>
-                      ) : (
-                        <Text size="xs" c="dimmed">
-                          등록된 다위촉 URL PDF가 없습니다.
-                        </Text>
-                      )}
-                      <Group gap="xs">
-                        {!!selectedFc.hanwha_commission_pdf_path && (
-                          <Button radius="xl"
-                            size="xs"
-                            color="blue"
-                            variant="light"
-                            onClick={() => handleOpenDoc(selectedFc.hanwha_commission_pdf_path!)}
-                          >
-                            다위촉 URL PDF 보기
-                          </Button>
-                        )}
-                        {!!selectedFc.hanwha_commission_pdf_path && (
-                          <Button radius="xl"
-                            size="xs"
-                            color="red"
-                            variant="light"
-                            loading={isHanwhaPdfDeleting}
-                            onClick={handleDeleteHanwhaPdf}
-                            disabled={isReadOnly || isHanwhaPdfDeleting}
-                          >
-                            PDF 삭제
-                          </Button>
-                        )}
-                      </Group>
-                      <Button radius="xl"
-                        size="sm"
-                        w="fit-content"
-                        color={isReadOnly ? 'gray' : 'dark'}
-                        variant="filled"
-                        loading={isHanwhaPdfUploading}
-                        disabled={isReadOnly || isHanwhaPdfUploading || !hanwhaSubmittedDateInput}
-                        onClick={handleApproveHanwha}
-                      >
-                        다위촉 URL PDF 업로드 및 승인
-                      </Button>
-                    </section>
-                    {!!selectedFc.hanwha_commission_reject_reason && (
-                      <Textarea
-                        mt="sm"
-                        label="반려 사유"
-                        value={selectedFc.hanwha_commission_reject_reason}
-                        readOnly
-                        minRows={2}
+                      <section className={fcm.section}>
+                        <Text className={fcm.sectionTitle}>다위촉 URL 진행</Text>
+
+                        <div className={fcm.itemRow}>
+                          <Text className={fcm.fieldLabel}>완료일(다위촉 URL)</Text>
+                          <div className={fcm.fieldControl}>
+                            <DateInput
+                              aria-label="완료일(다위촉 URL)"
+                              className={fcm.w200}
+                              value={hanwhaSubmittedDateInput}
+                              onChange={handleHanwhaSubmittedDateChange}
+                              placeholder="YYYY-MM-DD"
+                              valueFormat="YYYY-MM-DD"
+                              clearable={false}
+                              disabled={isReadOnly}
+                              radius="lg"
+                              size="sm"
+                              leftSection={<IconCalendar size={16} />}
+                              previousIcon={<IconChevronLeft size={16} />}
+                              nextIcon={<IconChevronRight size={16} />}
+                              popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
+                              styles={getModalDateInputStyles(isReadOnly)}
+                            />
+                            <Tooltip label="완료일 저장" withArrow>
+                              <ActionIcon
+                                aria-label="완료일 저장"
+                                variant="filled"
+                                color={isReadOnly ? 'gray' : 'dark'}
+                                radius="xl"
+                                size={34}
+                                onClick={() => updateHanwhaSubmissionDateMutation.mutate()}
+                                loading={updateHanwhaSubmissionDateMutation.isPending}
+                                disabled={isReadOnly || !hanwhaSubmittedDateInput}
+                              >
+                                <IconDeviceFloppy size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                          </div>
+                          <span className={fcm.itemState} data-done={selectedFc.hanwha_commission_date_sub ? true : undefined}>
+                            {selectedFc.hanwha_commission_date_sub ? '입력됨' : '미입력'}
+                          </span>
+                        </div>
+
+                        <div className={fcm.itemRow}>
+                          <Text className={fcm.fieldLabel}>URL 발송 알림</Text>
+                          <div className={fcm.fieldControl}>
+                            <Text size="sm" c={selectedFc.dawichok_url_sent_at ? 'dark' : 'dimmed'}>
+                              {selectedFc.dawichok_url_sent_at
+                                ? `최근 발송: ${dayjs(selectedFc.dawichok_url_sent_at).format('YYYY-MM-DD HH:mm')}`
+                                : '아직 보내지 않았습니다.'}
+                            </Text>
+                            <Tooltip label="FC에게 “카카오톡으로 전송된 다위촉 URL을 진행해 주세요.” 알림을 보냅니다." multiline w={240} withArrow>
+                              <Button
+                                radius="xl"
+                                size="xs"
+                                variant="light"
+                                color={isReadOnly ? 'gray' : 'dark'}
+                                leftSection={<IconSend size={14} />}
+                                onClick={() => markDawichokUrlSentMutation.mutate()}
+                                loading={markDawichokUrlSentMutation.isPending}
+                                disabled={isReadOnly || markDawichokUrlSentMutation.isPending}
+                              >
+                                {selectedFc.dawichok_url_sent_at ? '다시 보내기' : '알림 보내기'}
+                              </Button>
+                            </Tooltip>
+                          </div>
+                          <span className={fcm.itemState} data-done={selectedFc.dawichok_url_sent_at ? true : undefined}>
+                            {selectedFc.dawichok_url_sent_at ? '발송됨' : '미발송'}
+                          </span>
+                        </div>
+
+                        <div className={fcm.itemRow}>
+                          <Text className={fcm.fieldLabel}>다위촉 URL PDF</Text>
+                          <div className={fcm.fieldControl}>
+                            <Text size="sm" c={selectedFc.hanwha_commission_pdf_name ? 'dark' : 'dimmed'} truncate maw={220}>
+                              {selectedFc.hanwha_commission_pdf_name
+                                ? `등록 파일: ${selectedFc.hanwha_commission_pdf_name}`
+                                : '등록된 다위촉 URL PDF가 없습니다.'}
+                            </Text>
+                            {!!selectedFc.hanwha_commission_pdf_path && (
+                              <Tooltip label="다위촉 URL PDF 보기" withArrow>
+                                <ActionIcon
+                                  aria-label="다위촉 URL PDF 보기"
+                                  variant="light"
+                                  color="gray"
+                                  radius="xl"
+                                  size={30}
+                                  onClick={() => handleOpenDoc(selectedFc.hanwha_commission_pdf_path!)}
+                                >
+                                  <IconFileText size={16} />
+                                </ActionIcon>
+                              </Tooltip>
+                            )}
+                            {!!selectedFc.hanwha_commission_pdf_path && (
+                              <Tooltip label="PDF 삭제" withArrow>
+                                <ActionIcon
+                                  aria-label="PDF 삭제"
+                                  variant="subtle"
+                                  color={isReadOnly ? 'gray' : 'red'}
+                                  radius="xl"
+                                  size={30}
+                                  loading={isHanwhaPdfDeleting}
+                                  onClick={handleDeleteHanwhaPdf}
+                                  disabled={isReadOnly || isHanwhaPdfDeleting}
+                                >
+                                  <IconTrash size={16} />
+                                </ActionIcon>
+                              </Tooltip>
+                            )}
+                          </div>
+                          <span className={fcm.itemState} data-done={pdfApproved || undefined}>
+                            {pdfApproved ? '승인 완료' : '승인 대기'}
+                          </span>
+                        </div>
+                      </section>
+
+                      <input
+                        ref={hanwhaPdfUploadInputRef}
+                        type="file"
+                        accept="application/pdf"
+                        style={{ display: 'none' }}
+                        onChange={handleHanwhaPdfInputChange}
                       />
-                    )}
-                </Stack>
-              </Tabs.Panel>
+                      {!!selectedFc.hanwha_commission_reject_reason && (
+                        <Textarea
+                          label="반려 사유"
+                          value={selectedFc.hanwha_commission_reject_reason}
+                          readOnly
+                          minRows={2}
+                        />
+                      )}
 
+                      <div className={fcm.footer}>
+                        <span className={fcm.footerStatus} data-done={pdfApproved || undefined}>
+                          <i />다위촉 · {hanwhaStatus?.label ?? '다위촉 URL 대기'}
+                        </span>
+                        <Button
+                          radius="xl"
+                          color={isReadOnly ? 'gray' : 'dark'}
+                          leftSection={<IconCheck size={16} />}
+                          loading={isHanwhaPdfUploading}
+                          disabled={isReadOnly || isHanwhaPdfUploading || !hanwhaSubmittedDateInput}
+                          onClick={handleApproveHanwha}
+                        >
+                          PDF 업로드 및 승인
+                        </Button>
+                      </div>
+                    </Stack>
+                  );
+                })()}
+              </Tabs.Panel>
               <Tabs.Panel value="appointment">
                 <Stack gap="md">
-                  <section className={fcm.section}>
-                    <Group justify="space-between">
-                      <Text className={fcm.sectionTitle}>최종 완료 상태</Text>
-                      <Badge variant="light" color={commissionSummaryColor} size="sm">
-                        {commissionSummaryLabel}
-                      </Badge>
-                    </Group>
-                    <Text size="xs" c="dimmed">
-                      아래 승인 후 최종 완료 여부를 별도로 저장합니다.
-                    </Text>
-                    <Group gap="xs" wrap="wrap">
+                  {canOpenInsuranceStage(selectedFc) ? (
+                    <Stack gap="sm">
+                      {renderAppointmentSection('life')}
+                      {renderAppointmentSection('nonlife')}
+                    </Stack>
+                  ) : (
+                    <Alert color="yellow" icon={<IconInfoCircle size={16} />} radius="lg">
+                      <Text fw={700} size="sm" mb={4}>
+                        생명/손해 위촉 관리 잠금
+                      </Text>
+                      <Text size="xs">
+                        다위촉 URL PDF가 승인되어야 생명/손해 위촉 관리 탭을 열 수 있습니다.
+                      </Text>
+                    </Alert>
+                  )}
+
+                  <div className={fcm.footer}>
+                    <span className={fcm.footerStatus} data-done={commissionInput === 'both' || undefined}>
+                      <i />최종 완료 · {commissionSummaryLabel}
+                    </span>
+                    <Group gap="xs">
                       <Chip
                         checked={lifeCommissionSelected}
                         onChange={() => handleCommissionToggle('life')}
@@ -3569,35 +3574,20 @@ export default function DashboardPage() {
                       >
                         손해 최종 완료
                       </Chip>
-                    <Button radius="xl"
-                      size="sm"
-                      color={isReadOnly ? 'gray' : 'dark'}
-                      variant="filled"
-                      onClick={() => updateCommissionMutation.mutate()}
-                      loading={updateCommissionMutation.isPending}
-                      disabled={isReadOnly}
-                    >
-                      최종 완료 상태 저장
-                    </Button>
+                      <Tooltip label="위 승인 후 최종 완료 여부를 별도로 저장합니다." withArrow>
+                        <Button
+                          radius="xl"
+                          color={isReadOnly ? 'gray' : 'dark'}
+                          leftSection={<IconCheck size={16} />}
+                          onClick={() => updateCommissionMutation.mutate()}
+                          loading={updateCommissionMutation.isPending}
+                          disabled={isReadOnly}
+                        >
+                          최종 완료 저장
+                        </Button>
+                      </Tooltip>
                     </Group>
-                  </section>
-                  {canOpenInsuranceStage(selectedFc) ? (
-                    <section className={fcm.section}>
-                      <Text className={fcm.sectionTitle}>생명/손해 위촉 심사 및 확정</Text>
-                      {renderAppointmentSection('life')}
-                      <Divider my="sm" />
-                      {renderAppointmentSection('nonlife')}
-                    </section>
-                  ) : (
-                    <Alert color="yellow" icon={<IconInfoCircle size={16} />} radius="lg">
-                      <Text fw={700} size="sm" mb={4}>
-                        생명/손해 위촉 관리 잠금
-                      </Text>
-                        <Text size="xs">
-                          다위촉 URL PDF가 승인되어야 생명/손해 위촉 관리 탭을 열 수 있습니다.
-                        </Text>
-                    </Alert>
-                  )}
+                  </div>
                 </Stack>
               </Tabs.Panel>
 

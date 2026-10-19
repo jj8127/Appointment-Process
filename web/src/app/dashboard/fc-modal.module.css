@@ -12,10 +12,7 @@
   }
 
   .fieldRow,
-  .flowBody {
-    grid-template-columns: 1fr;
   }
-}
 
 .side {
   position: sticky;
@@ -249,71 +246,6 @@
   border-radius: 12px;
 }
 
-/* Numbered flow: 동의일 -> 사전 심사 -> 승인 */
-.flow {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.flowRow {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: 10px;
-  align-items: center;
-  background: #fff;
-  border-radius: 16px;
-  padding: 10px 14px;
-}
-
-.flowNo {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 13px;
-  font-weight: 600;
-  color: #8a8984;
-  box-shadow: inset 0 0 0 1.5px #e4e4e1;
-}
-
-.flowRow[data-done] {
-  box-shadow: inset 3px 0 0 var(--dashboard-ink);
-}
-
-.flowRow[data-done] .flowNo {
-  background: var(--dashboard-ink);
-  color: #fff;
-  box-shadow: none;
-}
-
-.flowBody {
-  display: grid;
-  grid-template-columns: 140px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.flowLabel {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--dashboard-ink);
-  line-height: 1.35;
-}
-
-/* Bottom action bar */
-.actionBar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding-top: 14px;
-  border-top: 1px solid #f0f0ee;
-}
-
 /* Step summary tiles */
 .summary {
   display: grid;
@@ -393,6 +325,144 @@
   }
 }
 
+/* Section head: title on the left, the section's own save on the right. */
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* One-line notices under a section's fields. */
+.hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #8a8984;
+}
+
+.hint[data-tone='red'] {
+  color: #d9473c;
+}
+
+.hint[data-tone='orange'] {
+  color: #c2470d;
+}
+
+/* Item row: label | control with its inline action | state on the right. */
+.itemRow {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+}
+
+.itemRow + .itemRow {
+  padding-top: 10px;
+  border-top: 1px solid #ebebe8;
+}
+
+.itemState {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #fff;
+  color: #8a8984;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.itemState[data-done] {
+  background: var(--dashboard-ink);
+  color: #fff;
+}
+
+.itemState[data-warn] {
+  background: #fff1e6;
+  color: #c2470d;
+}
+
+/* 생명/손해 category card */
+.apptCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--dashboard-panel);
+  border-radius: 20px;
+  padding: 14px 16px;
+  box-shadow: inset 3px 0 0 #d6d5d0;
+}
+
+.apptCard[data-state='done'] {
+  box-shadow: inset 3px 0 0 var(--dashboard-ink);
+}
+
+.apptCard[data-state='submitted'] {
+  box-shadow: inset 3px 0 0 var(--primary-color);
+}
+
+.apptHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.apptTitle {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--dashboard-ink);
+}
+
+.apptFoot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 10px;
+  border-top: 1px solid #ebebe8;
+}
+
+/* Footer bar: secondary and destructive actions left, the step's decision right. Stays visible while scrolling. */
+.footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  padding: 12px 0 2px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, #fff 22%);
+  border-top: 1px solid #f0f0ee;
+}
+
+.footerStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dashboard-ink);
+}
+
+.footerStatus i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(243, 111, 33, 0.18);
+}
+
+.footerStatus[data-done] i {
+  background: #1f9d55;
+  box-shadow: 0 0 0 3px rgba(31, 157, 85, 0.16);
+}
+
 /* Right column */
 .content {
   min-width: 0;
@@ -433,11 +503,6 @@
   max-width: 100%;
 }
 
-.w260 {
-  width: 260px;
-  max-width: 100%;
-}
-
 /* Notices inside a section stay compact. */
 .section [class*='Alert-root'] {
   padding: 10px 14px;
@@ -446,19 +511,6 @@
 
 .section [class*='Alert-message'] {
   font-size: 13px;
-}
-
-.sectionFoot {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-/* 생명/손해 위촉 block inside its section */
-.apptBlock {
-  background: #fff;
-  border-radius: 16px;
-  padding: 12px 14px;
 }
 
 .contentHead {
