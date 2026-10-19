@@ -64,15 +64,8 @@ describe('workflow step regression', () => {
     }
   });
 
-  test('admin dashboard KPI cards reuse workflow predicates as list filters', () => {
-    const source = readFileSync('web/src/app/dashboard/page.tsx', 'utf8');
-
-    expect(source).toContain("metricFilter === 'pendingAllowance'");
-    expect(source).toContain("['entered', 'prescreen'].includes(allowanceDisplay.key)");
-    expect(source).toContain("metricFilter === 'pendingDocs'");
-    expect(source).toContain("fc.step === 2 && getDocProgress(fc).key === 'in-progress'");
-    expect(source).toContain("setMetricFilter('all')");
-  });
+  // Dashboard KPI queue predicates and list filtering are covered by
+  // web/src/lib/dashboard-work-queue.test.ts and dashboard-metric-filter-source.test.ts.
 
   test('legacy partial-commission signup does not jump to step 4', () => {
     const row = profile({

@@ -38,7 +38,8 @@ describe('diagnostic privacy source boundary', () => {
   test('fc-notify push data carries no phone numbers or names to Expo, APNs or FCM', () => {
     // The app opens a push by notificationId + target, so identifiers stay out of the payload.
     const source = read('supabase/functions/fc-notify/index.ts');
-    const pushDataBlocks = [...source.matchAll(/to: t\.expo_push_token,[\s\S]*?\n\s*data: \{([\s\S]*?)\n\s*\},\n/g)]
+    // \r?\n keeps the match working in CRLF checkouts.
+    const pushDataBlocks = [...source.matchAll(/to: t\.expo_push_token,[\s\S]*?\r?\n\s*data: \{([\s\S]*?)\r?\n\s*\},\r?\n/g)]
       .map((match) => match[1]);
     expect(pushDataBlocks.length).toBeGreaterThanOrEqual(2);
     for (const data of pushDataBlocks) {
