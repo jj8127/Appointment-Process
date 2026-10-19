@@ -11,6 +11,7 @@ import * as boardListPages from './board-list-pages.ts';
 import * as creationRequest from './creation-request.ts';
 import * as brandColors from './brand-colors.ts';
 import * as dashboardWorkQueue from './dashboard-work-queue.ts';
+import * as adminDocumentReview from './admin-document-review.ts';
 import * as adminAuditEvent from './admin-audit-event.ts';
 
 const rootRequire = createRequire(new URL('../../../package.json', import.meta.url));
@@ -624,6 +625,8 @@ const commonListMocks = {
   '@/lib/notification-delivery-feedback': { notificationFeedbackColor: () => 'green' },
   '@/lib/user-intent-policy': userIntentPolicy,
   '@/lib/exam-round-sort': { sortExamRoundsNewestFirst: (rounds) => rounds },
+  '@/lib/admin-document-review': adminDocumentReview,
+  './page.module.css': { default: {} },
   './actions': {},
   'next/link': { default: component('Link') },
 };
