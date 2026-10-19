@@ -1,0 +1,293 @@
+/* 생명/손해 위촉: status tiles in one card, then the five-column table on a white card. */
+.page {
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+.head,
+.statGroup,
+.tableCard {
+  animation: cardIn 640ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--i, 0) * 90ms);
+}
+
+.head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 6px 2px 0;
+}
+
+.title {
+  font-size: 30px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--dashboard-ink);
+}
+
+.selectInput {
+  background: #fff;
+  border: 0;
+  height: 44px;
+}
+
+.softButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  height: 44px;
+  padding: 0 18px;
+  background: #fff;
+  color: var(--dashboard-ink);
+  cursor: pointer;
+  transition: background-color 320ms ease, transform 200ms ease;
+}
+
+.softButton:hover {
+  background: #ecece9;
+}
+
+.softButton:active {
+  transform: scale(0.97);
+}
+
+.softButton:focus-visible,
+.statTile:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+/* Status tiles */
+.statGroup {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  background: #fff;
+  border-radius: 24px;
+  padding: 10px;
+}
+
+@media (max-width: 1100px) {
+  .statGroup {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.statTile {
+  appearance: none;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  color: var(--dashboard-ink);
+  background: var(--dashboard-panel);
+  border-radius: 20px;
+  padding: 16px;
+  min-height: 132px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1.5px transparent;
+  transition: transform 320ms ease, box-shadow 320ms ease;
+}
+
+.statTile:hover {
+  transform: translateY(-2px);
+}
+
+.statTile[data-active] {
+  box-shadow: inset 0 0 0 1.5px var(--dashboard-ink);
+}
+
+.statTile[data-hot] {
+  color: #fff;
+  background:
+    radial-gradient(120% 80% at 20% 0%, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 55%),
+    linear-gradient(180deg, #ff9a52 0%, var(--primary-color) 46%, #c2470d 100%);
+}
+
+.statTile[data-hot][data-active] {
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.85);
+}
+
+.statHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.statIcon {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #e9e9e6;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.statTile[data-hot] .statIcon {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.statValue {
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.statFoot {
+  font-size: 12px;
+  opacity: 0.65;
+}
+
+/* Table */
+.tableCard {
+  position: relative;
+  background: #fff;
+  border-radius: 24px;
+  padding: 10px;
+}
+
+.table thead th {
+  background: var(--dashboard-panel);
+  border-bottom: 0;
+  font-weight: 500;
+  color: #6b6a65;
+}
+
+.table thead th:first-child {
+  border-radius: 14px 0 0 14px;
+}
+
+.table thead th:last-child {
+  border-radius: 0 14px 14px 0;
+}
+
+.table tbody td {
+  border-top: 0;
+  border-bottom: 1px solid #f0f0ee;
+  vertical-align: top;
+}
+
+.row {
+  transition: background-color 320ms ease;
+}
+
+.row:hover td {
+  background: #fafaf9;
+}
+
+.person {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--dashboard-panel);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #4a4944;
+  flex-shrink: 0;
+}
+
+.fieldInput {
+  background: var(--dashboard-panel);
+  border: 0;
+}
+
+/* Soft status pills; data-color mirrors the Mantine color names the page already uses. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 3px 9px;
+  white-space: nowrap;
+  background: var(--dashboard-panel);
+  color: #4a4944;
+}
+
+.pill[data-color='green'],
+.pill[data-color='teal'] {
+  background: #ecf9ef;
+  color: #1f9d55;
+}
+
+.pill[data-color='orange'] {
+  background: #fff1e6;
+  color: #c2470d;
+}
+
+.pill[data-color='blue'] {
+  background: #eef2ff;
+  color: #3b5bdb;
+}
+
+.pill[data-color='red'] {
+  background: #fdeeee;
+  color: #d9473c;
+}
+
+.pill[data-color='yellow'] {
+  background: #fdf6e3;
+  color: #a46a00;
+}
+
+.pill[data-outline] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    filter: blur(8px);
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .head,
+  .statGroup,
+  .tableCard {
+    animation: none;
+  }
+
+  .statTile,
+  .softButton,
+  .row {
+    transition: none;
+  }
+
+  .statTile:hover {
+    transform: none;
+  }
+}

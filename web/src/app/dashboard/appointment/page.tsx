@@ -5,14 +5,11 @@ import { QueryErrorAlert } from '@/components/QueryErrorAlert';
 import {
   ActionIcon,
   Alert,
-  Badge,
   Button,
   Checkbox,
-  Container,
   Divider,
   Group,
   LoadingOverlay,
-  Paper,
   Popover,
   ScrollArea,
   Select,
@@ -20,7 +17,6 @@ import {
   Table,
   Text,
   TextInput,
-  ThemeIcon,
   Title,
   Tooltip,
   UnstyledButton
@@ -28,10 +24,11 @@ import {
 import { DateInput } from '@mantine/dates';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { IconChevronDown, IconDeviceFloppy, IconInfoCircle, IconRefresh, IconSearch, IconUser, IconX } from '@tabler/icons-react';
+import { IconChevronDown, IconCircleCheck, IconCircleHalf2, IconClockHour4, IconDeviceFloppy, IconPlayerPlay, IconInfoCircle, IconRefresh, IconSearch, IconX } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState, type CSSProperties } from 'react';
+import styles from './page.module.css';
 
 import { StatusToggle } from '@/components/StatusToggle';
 import { ConfirmModal } from '@/components/ConfirmModal';
@@ -39,7 +36,7 @@ import { useSession } from '@/hooks/use-session';
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { fetchAdminFcList, isAdminFcProfile } from '@/lib/admin-document-client';
 import { updateAppointmentAction } from './actions';
-import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
+import { HANWHA_ORANGE, MUTED } from '@/lib/brand-colors';
 
 // FC Profile 타입 정의
 interface FcProfile {
@@ -448,19 +445,19 @@ export default function AppointmentPage() {
     const hasPdf = Boolean(trimValue(fc.hanwha_commission_pdf_path) && trimValue(fc.hanwha_commission_pdf_name));
 
     return (
-      <Stack gap="xs">
-        <Badge color={status.color} variant="light" w="fit-content">
+      <Stack gap={6}>
+        <span className={styles.pill} data-color={status.color}>
           {status.label}
-        </Badge>
+        </span>
         <Text size="xs" c="dimmed">
           제출일: {fc.hanwha_commission_date_sub ? dayjs(fc.hanwha_commission_date_sub).format('YYYY-MM-DD') : '미제출'}
         </Text>
         <Text size="xs" c="dimmed">
           승인일: {fc.hanwha_commission_date ? dayjs(fc.hanwha_commission_date).format('YYYY-MM-DD') : '미승인'}
         </Text>
-        <Badge color={hasPdf ? 'teal' : 'gray'} variant="outline" size="xs" w="fit-content">
+        <span className={styles.pill} data-color={hasPdf ? 'teal' : 'gray'} data-outline="true">
           {hasPdf ? 'PDF 등록 완료' : 'PDF 미등록'}
-        </Badge>
+        </span>
       </Stack>
     );
   };
@@ -493,21 +490,23 @@ export default function AppointmentPage() {
             </Text>
         )}
         {isLegacyException && (
-          <Badge variant="outline" color="yellow" size="xs" w="fit-content">
+          <span className={styles.pill} data-color="yellow" data-outline="true">
             레거시 보험 이력 예외
-          </Badge>
+          </span>
         )}
         {hasSubmitted && (
-          <Badge variant="light" color="orange" size="xs" w="fit-content">
+          <span className={styles.pill} data-color="orange">
             FC 제출 {dayjs(subDate).format('YYYY-MM-DD')}
-          </Badge>
+          </span>
         )}
         <Group align="flex-end" gap="xs">
           <TextInput
             label="예정 메모"
             placeholder="예: 6월 / 7월 예정 / 주소 메모"
             size="xs"
-            w={160}
+            w={170}
+            radius="md"
+            classNames={{ input: styles.fieldInput }}
             value={scheduleValue}
             onChange={(v) => handleInputChange(fc.id, scheduleKey, v.currentTarget.value)}
             readOnly={isReadOnly || isConfirmed || !insuranceStageOpen || confirmSubmitting}
@@ -515,7 +514,7 @@ export default function AppointmentPage() {
           />
           {!isConfirmed && (
             <Tooltip label="예정 메모 저장">
-              <ActionIcon aria-label="위촉 일정 메모 저장" variant="light" color={isReadOnly ? 'gray' : 'orange'} size="md" mb={2} loading={confirmSubmitting} disabled={isReadOnly || !insuranceStageOpen || confirmSubmitting} onClick={() => executeAction(fc, 'schedule', category)}>
+              <ActionIcon aria-label="위촉 일정 메모 저장" variant="light" color={isReadOnly ? 'gray' : 'dark'} radius="xl" size="md" mb={2} loading={confirmSubmitting} disabled={isReadOnly || !insuranceStageOpen || confirmSubmitting} onClick={() => executeAction(fc, 'schedule', category)}>
                 <IconDeviceFloppy size={16} />
               </ActionIcon>
             </Tooltip>
@@ -528,7 +527,9 @@ export default function AppointmentPage() {
             placeholder={hasSubmitted ? `제출: ${dayjs(subDate).format('YYYY-MM-DD')}` : 'YYYY-MM-DD'}
             valueFormat="YYYY-MM-DD"
             size="xs"
-            w={110}
+            w={124}
+            radius="md"
+            classNames={{ input: styles.fieldInput }}
             value={dateValue}
             onChange={(v) => handleInputChange(fc.id, dateKey, v)}
             clearable={!isConfirmed}
@@ -537,11 +538,6 @@ export default function AppointmentPage() {
             readOnly={isReadOnly || isConfirmed || !insuranceStageOpen || confirmSubmitting}
             disabled={isReadOnly || isConfirmed || !insuranceStageOpen}
           />
-          {hasSubmitted && (
-            <Badge variant="light" color="orange" size="xs" mt={20}>
-              FC 제출 {dayjs(subDate).format('YYYY-MM-DD')}
-            </Badge>
-          )}
         </Group>
 
         <Group gap={4} mt={4}>
@@ -576,9 +572,23 @@ export default function AppointmentPage() {
     </Table.Th>
   );
 
+  // Summary tiles count the existing 상태 column values; a tile applies the same header filter.
+  const STATUS_TILES = [
+    { label: '생명/손해 위촉 진행 중', icon: IconClockHour4, hot: true },
+    { label: '생명/손해 위촉 진행 가능', icon: IconPlayerPlay, hot: false },
+    { label: '부분 완료', icon: IconCircleHalf2, hot: false },
+    { label: '위촉 완료', icon: IconCircleCheck, hot: false },
+  ] as const;
+  const statusCounts = processedFcs.reduce<Record<string, number>>((acc, fc) => {
+    const label = getOverallStatus(fc).label;
+    acc[label] = (acc[label] ?? 0) + 1;
+    return acc;
+  }, {});
+  const selectedStatus = filters.status?.length === 1 ? filters.status[0] : null;
+
   return (
-    <Container size="xl" py="xl">
-      <Stack gap="lg">
+    <div className={styles.page}>
+      <Stack gap="md">
         {/* 확인 모달 */}
         <ConfirmModal
           opened={confirmOpened}
@@ -589,43 +599,70 @@ export default function AppointmentPage() {
           submitting={confirmSubmitting}
         />
 
-        <Group justify="space-between" align="flex-end">
+        <div className={styles.head} style={{ '--i': 0 } as CSSProperties}>
           <div>
-              <Title order={2} c={CHARCOAL}>생명/손해 위촉 심사 및 확정</Title>
-              <Text c={MUTED} size="sm" mt={4}>
+              <Title order={2} className={styles.title}>생명/손해 위촉 심사 및 확정</Title>
+              <Text c={MUTED} size="sm" mt={4} maw={760}>
             다위촉 URL 승인과 PDF 등록이 끝난 FC만 생명/손해 위촉 단계를 진행할 수 있습니다. 기존 보험 위촉 이력이 남아 있는 레거시 행만 예외로 유지됩니다.
               </Text>
           </div>
-          <Group>
+          <Group gap="xs">
             <Select
               value={filterYear}
               onChange={setFilterYear}
               data={yearOptions}
-              w={100}
+              w={110}
+              radius="xl"
               allowDeselect={false}
+              classNames={{ input: styles.selectInput }}
             />
-            <Button variant="outline" color="gray" leftSection={<IconRefresh size={16} />} onClick={() => refetch()}>
-              새로고침
-            </Button>
+            <button type="button" className={styles.softButton} onClick={() => refetch()}>
+              <IconRefresh size={16} stroke={1.8} /> 새로고침
+            </button>
           </Group>
-        </Group>
+        </div>
 
         {isReadOnly && (
-          <Alert icon={<IconInfoCircle size={20} />} title="읽기 전용 모드" color="yellow" variant="light">
+          <Alert icon={<IconInfoCircle size={20} />} title="읽기 전용 모드" color="yellow" variant="light" radius="lg">
             본부장 계정은 조회만 가능합니다. 수정 권한이 필요한 경우 관리자에게 문의하세요.
           </Alert>
         )}
 
         {isError && <QueryErrorAlert error={error} onRetry={refetch} isFetching={isFetching} hasData={!!fcs} subject="위촉 대상 FC" />}
 
-        <Paper p="md" radius="lg" withBorder shadow="sm" bg="white" style={{ overflow: 'hidden' }}>
+        <div className={styles.statGroup} style={{ '--i': 1 } as CSSProperties}>
+          {STATUS_TILES.map((tile) => {
+            const TileIcon = tile.icon;
+            const active = selectedStatus === tile.label;
+            return (
+              <button
+                key={tile.label}
+                type="button"
+                className={styles.statTile}
+                data-hot={tile.hot || undefined}
+                data-active={active || undefined}
+                aria-pressed={active}
+                onClick={() => setFilters((prev) => ({ ...prev, status: active ? [] : [tile.label] }))}
+              >
+                <span className={styles.statHead}>
+                  <span>{tile.label}</span>
+                  <span className={styles.statIcon}><TileIcon size={16} stroke={1.8} /></span>
+                </span>
+                <span className={styles.statValue}>{fcs ? `${statusCounts[tile.label] ?? 0}명` : isLoading ? '조회 중' : '확인 불가'}</span>
+                <span className={styles.statFoot}>{active ? '필터 적용' : ' '}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className={styles.tableCard} style={{ '--i': 2 } as CSSProperties}>
           <LoadingOverlay visible={isLoading} overlayProps={{ blur: 1 }} />
           <ScrollArea h="calc(100vh - 250px)" type="auto">
-            <Table stickyHeader verticalSpacing="md" highlightOnHover>
-              <Table.Thead bg="#F9FAFB">
+            <Table stickyHeader verticalSpacing="md" className={styles.table}>
+              <Table.Thead>
                 <Table.Tr>
                   {renderHeader('FC 정보 (이름)', 'name')}
-              {renderHeader('다위촉 URL', 'hanwha')}
+                  {renderHeader('다위촉 URL', 'hanwha')}
                   {renderHeader('생명보험 위촉 (Life)', 'life')}
                   {renderHeader('손해보험 위촉 (Non-Life)', 'nonlife')}
                   {renderHeader('상태', 'status')}
@@ -636,35 +673,33 @@ export default function AppointmentPage() {
                   filteredRows.map((fc: FcProfile) => {
                     const status = getOverallStatus(fc);
                     return (
-                      <Table.Tr key={fc.id}>
+                      <Table.Tr key={fc.id} className={styles.row}>
                         <Table.Td>
-                          <Group gap="sm">
-                            <ThemeIcon variant="light" color="gray" size="md" radius="xl">
-                              <IconUser size={16} />
-                            </ThemeIcon>
+                          <div className={styles.person}>
+                            <span className={styles.avatar}>{fc.name?.[0] ?? '?'}</span>
                             <div>
-                              <Text size="sm" fw={600} c="dark.5">
+                              <Text size="sm" fw={600} c="dark.7">
                                 {fc.name}
                               </Text>
                               <Text size="xs" c="dimmed">
                                 {fc.phone}<br />{fc.affiliation || '-'}
                               </Text>
                             </div>
-                          </Group>
-                      </Table.Td>
-                      <Table.Td>
-                        {renderHanwhaSection(fc)}
-                      </Table.Td>
-                      <Table.Td>
-                        {renderInsuranceSection(fc, 'life')}
-                      </Table.Td>
-                      <Table.Td>
+                          </div>
+                        </Table.Td>
+                        <Table.Td>
+                          {renderHanwhaSection(fc)}
+                        </Table.Td>
+                        <Table.Td>
+                          {renderInsuranceSection(fc, 'life')}
+                        </Table.Td>
+                        <Table.Td>
                           {renderInsuranceSection(fc, 'nonlife')}
                         </Table.Td>
                         <Table.Td>
-                          <Badge color={status.color} variant="light">
+                          <span className={styles.pill} data-color={status.color}>
                             {status.label}
-                          </Badge>
+                          </span>
                         </Table.Td>
                       </Table.Tr>
                     );
@@ -679,8 +714,8 @@ export default function AppointmentPage() {
               </Table.Tbody>
             </Table>
           </ScrollArea>
-        </Paper>
+        </div>
       </Stack>
-    </Container>
+    </div>
   );
 }
