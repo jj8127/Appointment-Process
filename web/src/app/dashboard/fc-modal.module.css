@@ -155,8 +155,8 @@
 }
 
 .stepTab[data-state='done'] .stepDot {
-  background: var(--dashboard-ink);
-  color: #fff;
+  background: #ecf9ef;
+  color: #1f9d55;
   box-shadow: none;
 }
 
@@ -277,8 +277,16 @@
 .summaryTile:nth-child(3) { animation-delay: 120ms; }
 .summaryTile:nth-child(4) { animation-delay: 180ms; }
 
-.summaryTile[data-state='done'] {
-  background: var(--dashboard-ink);
+.summaryTile[data-state='todo'] .summaryValue {
+  color: #8a8984;
+}
+
+/* Finished items stay light; a green check marks them. */
+.summaryTile[data-state='done'] .summaryLabel svg {
+  box-sizing: content-box;
+  padding: 3px;
+  border-radius: 50%;
+  background: #1f9d55;
   color: #fff;
 }
 
@@ -376,8 +384,8 @@
 }
 
 .itemState[data-done] {
-  background: var(--dashboard-ink);
-  color: #fff;
+  background: #ecf9ef;
+  color: #1f9d55;
 }
 
 .itemState[data-warn] {
@@ -397,7 +405,7 @@
 }
 
 .apptCard[data-state='done'] {
-  box-shadow: inset 3px 0 0 var(--dashboard-ink);
+  box-shadow: inset 3px 0 0 #1f9d55;
 }
 
 .apptCard[data-state='submitted'] {
@@ -466,8 +474,12 @@
 /* Career type */
 .segment {
   min-width: 200px;
-  background: #fff;
-  box-shadow: inset 0 0 0 1px #e4e4e1;
+  background: #ecebe8;
+}
+
+.segment [data-active] {
+  font-weight: 650;
+  color: #c2470d;
 }
 
 /* Final completion banners (생명 / 손해) */
@@ -510,11 +522,8 @@
 }
 
 .banner[data-done] {
-  border: 1.5px solid transparent;
-  color: #fff;
-  background:
-    radial-gradient(120% 90% at 0% 0%, rgba(243, 111, 33, 0.35) 0%, rgba(243, 111, 33, 0) 60%),
-    var(--dashboard-ink);
+  border: 1.5px solid #f9c49f;
+  background: #fff6ef;
 }
 
 .bannerIcon {

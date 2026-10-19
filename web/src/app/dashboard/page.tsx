@@ -1850,7 +1850,7 @@ export default function DashboardPage() {
             <Tooltip label="일정 저장" withArrow>
               <ActionIcon
                 aria-label={`${sectionTitle} 일정 저장`}
-                variant="filled"
+                variant="default"
                 color={isReadOnly ? 'gray' : 'dark'}
                 radius="xl"
                 size={34}
@@ -1929,7 +1929,7 @@ export default function DashboardPage() {
           </Button>
           <Button
             variant="filled"
-            color={isConfirmed ? 'teal' : 'dark'}
+            color={isConfirmed ? 'teal' : 'orange'}
             radius="xl"
             size="sm"
             leftSection={<IconCheck size={16} />}
@@ -1992,6 +1992,17 @@ export default function DashboardPage() {
       { label: '사전 심사', value: shortDate(selectedFc.allowance_prescreen_requested_at) ?? '대기', done: Boolean(selectedFc.allowance_prescreen_requested_at) || allowanceKey === 'approved' },
       { label: '승인', value: allowanceKey === 'approved' ? '완료' : allowanceKey === 'rejected' ? '반려' : '대기', done: allowanceKey === 'approved', warn: allowanceKey === 'rejected' },
     ];
+  };
+  // Adds the typed extra document to the request list (plus button or Enter).
+  const handleAddCustomDoc = () => {
+    const val = customDocInput.trim();
+    if (isReadOnly || !val) return;
+    if (!selectedDocs.includes(val)) {
+      const nextDocs = [...selectedDocs, val];
+      setSelectedDocs(nextDocs);
+      updateDocsRequestMutation.mutate({ types: nextDocs, deadline: docsDeadlineInput });
+    }
+    setCustomDocInput('');
   };
   const handleCommissionToggle = (category: 'life' | 'nonlife') => {
     if (isReadOnly) return;
@@ -2813,7 +2824,7 @@ export default function DashboardPage() {
                             aria-label="경력 구분"
                             value={careerInput ?? ''}
                             onChange={(v) => setCareerInput(v as '신입' | '경력')}
-                            data={['신입', '경력']} color="dark"
+                            data={['신입', '경력']}
                             radius="xl"
                             size="sm"
                             className={fcm.segment}
@@ -2843,7 +2854,7 @@ export default function DashboardPage() {
                             <Tooltip label="동의일 저장" withArrow>
                               <ActionIcon
                                 aria-label="보증보험 조회 동의일 저장"
-                                variant="filled"
+                                variant="default"
                                 color={isReadOnly ? 'gray' : 'dark'}
                                 radius="xl"
                                 size={34}
@@ -2986,7 +2997,7 @@ export default function DashboardPage() {
                           </Button>
                           <Button
                             radius="xl"
-                            color="dark"
+                            color="orange"
                             leftSection={<IconCheck size={16} />}
                             disabled={allowanceStateDisabled || allowanceDisplay.key === 'approved'}
                             onClick={() => allowanceStateButtons[1].onClick()}
@@ -3204,7 +3215,7 @@ export default function DashboardPage() {
                       <Button radius="xl"
                       size="sm"
                       leftSection={<IconDeviceFloppy size={14} />}
-                      color={isReadOnly ? "gray" : "dark"}
+                      color={isReadOnly ? 'gray' : 'orange'}
                       disabled={isReadOnly}
                       onClick={() => updateDocsRequestMutation.mutate({ types: selectedDocs, deadline: docsDeadlineInput })}
                       loading={updateDocsRequestMutation.isPending}
@@ -3294,8 +3305,14 @@ export default function DashboardPage() {
                       leftSection={<IconFilePlus size={15} />}
                       classNames={{ input: 'muted-placeholder-input' }}
                       style={{ flex: 1 }}
-                      size="xs"
+                      size="sm"
                       value={customDocInput}
+                      onKeyDown={(e) => {
+                        // Enter adds the document; ignore the Enter that finishes Korean IME composition.
+                        if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+                        e.preventDefault();
+                        handleAddCustomDoc();
+                      }}
                       onChange={(e) => {
                         const val = e.currentTarget?.value || '';
                         const cleaned = val.replace(/\u200B/g, '').trimStart();
@@ -3304,22 +3321,12 @@ export default function DashboardPage() {
                     />
                     <ActionIcon
                       aria-label="기타 서류 추가"
-                      variant="filled"
+                      variant="default"
                       color={isReadOnly ? 'gray' : 'dark'}
                       radius="xl"
                       size={34}
                       disabled={isReadOnly}
-                      onClick={() => {
-                        if (customDocInput.trim()) {
-                          const val = customDocInput.trim();
-                          if (!selectedDocs.includes(val)) {
-                            const nextDocs = [...selectedDocs, val];
-                            setSelectedDocs(nextDocs);
-                            updateDocsRequestMutation.mutate({ types: nextDocs, deadline: docsDeadlineInput });
-                          }
-                          setCustomDocInput('');
-                        }
-                      }}
+                      onClick={handleAddCustomDoc}
                     >
                       <IconPlus size={16} />
                     </ActionIcon>
@@ -3363,7 +3370,7 @@ export default function DashboardPage() {
                             심사 완료 취소
                           </Button>
                         ) : (
-                          <Button radius="xl" color="dark" leftSection={<IconCheck size={16} />} disabled={reviewLocked} onClick={() => decideReview('approved')}>
+                          <Button radius="xl" color="orange" leftSection={<IconCheck size={16} />} disabled={reviewLocked} onClick={() => decideReview('approved')}>
                             서류 심사 완료
                           </Button>
                         )}
@@ -3420,7 +3427,7 @@ export default function DashboardPage() {
                             <Tooltip label="완료일 저장" withArrow>
                               <ActionIcon
                                 aria-label="완료일 저장"
-                                variant="filled"
+                                variant="default"
                                 color={isReadOnly ? 'gray' : 'dark'}
                                 radius="xl"
                                 size={34}
@@ -3532,7 +3539,7 @@ export default function DashboardPage() {
                         </span>
                         <Button
                           radius="xl"
-                          color={isReadOnly ? 'gray' : 'dark'}
+                          color={isReadOnly ? 'gray' : 'orange'}
                           leftSection={<IconCheck size={16} />}
                           loading={isHanwhaPdfUploading}
                           disabled={isReadOnly || isHanwhaPdfUploading || !hanwhaSubmittedDateInput}
@@ -3597,7 +3604,7 @@ export default function DashboardPage() {
                     <Tooltip label="위 승인 후 최종 완료 여부를 별도로 저장합니다." withArrow>
                       <Button
                         radius="xl"
-                        color={isReadOnly ? 'gray' : 'dark'}
+                        color={isReadOnly ? 'gray' : 'orange'}
                         leftSection={<IconCheck size={16} />}
                         onClick={() => updateCommissionMutation.mutate()}
                         loading={updateCommissionMutation.isPending}
