@@ -343,22 +343,24 @@
   color: #c2470d;
 }
 
-/* Pinned columns: 응시자 이름 on the left, 접수 상태 and 관리 on the right. */
+/* Pinned columns: 응시자 이름 on the left, 접수 상태 and 관리 on the right.
+   Like an Excel freeze pane, a solid divider marks where scrolling stops. */
 .stickyName,
 .stickyStatus,
 .stickyActions {
+  --freeze-line: #b9b8b2;
   position: sticky;
   z-index: 1;
 }
 
 .stickyName {
   left: 0;
-  box-shadow: 6px 0 8px -6px rgba(30, 29, 24, 0.16);
+  box-shadow: inset -2px 0 0 var(--freeze-line), 8px 0 10px -8px rgba(30, 29, 24, 0.18);
 }
 
 .stickyStatus {
   right: 116px;
-  box-shadow: -6px 0 8px -6px rgba(30, 29, 24, 0.16);
+  box-shadow: inset 2px 0 0 var(--freeze-line), -8px 0 10px -8px rgba(30, 29, 24, 0.18);
 }
 
 .stickyActions {
