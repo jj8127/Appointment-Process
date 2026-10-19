@@ -120,6 +120,19 @@ describe('group chat API payload builders', () => {
       message_type: 'text',
       reply_to_message_id: 'message-parent',
     });
+
+    // A resend after an unknown outcome reuses this id so the server returns the stored message.
+    expect(buildGroupChatSendBody({
+      content: '중복 없이 보내기',
+      clientMessageId: 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA',
+    })).toEqual({
+      type: 'group_chat_send',
+      content: '중복 없이 보내기',
+      message_type: 'text',
+      client_message_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    });
+    expect(() => buildGroupChatSendBody({ content: '잘못된 식별자', clientMessageId: 'not-a-uuid' }))
+      .toThrow('메시지 식별자가 올바르지 않습니다.');
   });
 
   test('preserves multiline text in send bodies', () => {

@@ -7,6 +7,10 @@ source_of_truth: app/request-board*.tsx + lib/chat-keyboard-layout.ts + lib/requ
 
 # Mobile Playbook: GaramLink Bridge
 
+## 2026-10-15 키보드가 열린 상태의 탭
+
+키보드가 열린 상태에서 화면 안의 버튼·칩·선택 행 탭이 키보드만 닫고 무시되던 문제를 막기 위해 의뢰 첨부 정보 시트와 메신저 첨부 대기 줄은 `keyboardShouldPersistTaps="always"`를 쓴다. 메시지·검색 목록은 `"handled"`를 유지한다.
+
 ## Native back in an embedded conversation
 
 - `request-board-messenger` keeps its conversation list and selected room in one route. Focused Android hardware back uses the same room-close handler as the header; after the room closes, the next back follows the existing navigation stack. Remove the listener when the screen loses focus.

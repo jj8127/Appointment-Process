@@ -21,6 +21,33 @@ describe('common platform transport', () => {
     await platformRequest('apply', { serviceKey: 'care' }, 'synthetic-member-token');
     expect(invoke).toHaveBeenCalledWith('platform-service', { body: { action: 'apply', serviceKey: 'care' }, headers: { 'x-app-session-token': 'synthetic-member-token' } });
   });
+  it('requires a matching complete withdrawal receipt and keeps pending closure distinct from deletion', async () => {
+    const payload = { confirmed: true, scope: 'all_affiliates', policyVersion: '2026-10-14', idempotencyKey: hospital.id };
+    const completed = { ok: true, operationId: hospital.id, status: 'completed', deleted: true, cleanupPending: false };
+    invoke.mockResolvedValue({ data: completed, error: null });
+    expect(await platformRequest('withdraw_member', payload, 'synthetic-owner')).toEqual(completed);
+    expect(invoke.mock.calls[0][1]).toMatchObject({ body: { action: 'withdraw_member', ...payload }, timeout: 12000, headers: { 'x-app-session-token': 'synthetic-owner' } });
+    const pending = { ...completed, status: 'pending', deleted: false, cleanupPending: true, reason: 'affiliate_identity_unbound' };
+    invoke.mockResolvedValue({ data: pending, error: null });
+    expect(await platformRequest('withdraw_member', payload, 'synthetic-owner')).toEqual(pending);
+    invoke.mockResolvedValue({ data: { ok: true, withdrawal: pending }, error: null });
+    await expect(platformRequest('get_withdrawal', {}, 'synthetic-owner')).resolves.toEqual({ ok: true, withdrawal: pending });
+    invoke.mockResolvedValue({ data: { ok: true, withdrawal: null }, error: null });
+    await expect(platformRequest('get_withdrawal', {}, 'synthetic-owner')).resolves.toEqual({ ok: true, withdrawal: null });
+    invoke.mockResolvedValue({ data: { ok: true, withdrawal: { ...pending, deleted: true } }, error: null });
+    await expect(platformRequest('get_withdrawal', {}, 'synthetic-owner')).rejects.toMatchObject({ code: 'invalid_response' });
+    const canonicalId = 'abcdef00-0000-4000-8000-000000000001';
+    invoke.mockResolvedValue({ data: { ...completed, operationId: canonicalId }, error: null });
+    await expect(platformRequest('withdraw_member', { ...payload, idempotencyKey: canonicalId.toUpperCase() }, 'synthetic-owner')).resolves.toMatchObject({ operationId: canonicalId });
+    for (const invalid of [{ ok: true }, { ...completed, deleted: false }, { ...completed, cleanupPending: true },
+      { ...pending, deleted: true }, { ...pending, reason: 'unvalidated_reason' },
+      { ...completed, operationId: '10000000-0000-4000-8000-000000000099' }]) {
+      invoke.mockResolvedValue({ data: invalid, error: null });
+      await expect(platformRequest('withdraw_member', payload, 'synthetic-owner')).rejects.toMatchObject({ code: 'invalid_response' });
+    }
+    invoke.mockResolvedValue({ data: { ok: false, code: 'upgrade_required' }, error: null });
+    await expect(platformRequest('delete_member', { confirmed: true }, 'synthetic-owner')).rejects.toMatchObject({ code: 'upgrade_required', message: expect.stringContaining('최신 앱') });
+  });
   it('does not attach a protected token to public directory requests', async () => {
     const response = { ok: true, hospitals: [hospital], featured: [], hasMore: false, nextOffset: null };
     invoke.mockResolvedValue({ data: response, error: null });
@@ -59,6 +86,18 @@ describe('common platform transport', () => {
     await expect(platformRequest('get_account', {}, 'expired')).rejects.toMatchObject({ status: 401, code: 'invalid_app_session', message: expect.stringContaining('다시 로그인') });
   });
   it.each([
+    ['not_found', 401, '가입되지 않은 번호'],
+    ['inactive_admin', 401, '사용이 중지'],
+    ['inactive_manager', 401, '사용이 중지'],
+    ['missing_password', 401, '비밀번호를 입력'],
+    ['login_unavailable', 503, '로그인을 처리하지'],
+  ])('maps relayed %s login rejection instead of reporting an expired session', async (code, status, message) => {
+    invoke.mockResolvedValue({ data: null, error: { context: new Response(JSON.stringify({ ok: false, code }), { status }) } });
+    const failure = platformRequest('login', { phone: '01000000000', password: 'Synthetic1!' });
+    await expect(failure).rejects.toMatchObject({ status, code, message: expect.stringContaining(message) });
+    await expect(failure).rejects.not.toMatchObject({ message: expect.stringContaining('만료') });
+  });
+  it.each([
     ['already_exists', 409, '이미 가입'],
     ['cooldown', 429, '60초'],
     ['locked', 429, '10분'],
@@ -84,6 +123,44 @@ describe('common platform transport', () => {
     invoke.mockResolvedValue({ data: { ok: false, code: 'future_error' }, error: null });
     await expect(platformRequest('apply')).rejects.toBeInstanceOf(PlatformApiError);
   });
+  it('preserves only recovery metadata from a rejected common login', async () => {
+    const response = { ok: false, code: 'password_change_required', role: 'fc', passwordChangeToken: 'synthetic-change-token',
+      passwordChangeExpiresAt: '2026-10-14T00:00:00Z', message: 'synthetic internal detail', password: 'must-not-pass' };
+    invoke.mockResolvedValue({ data: null, error: { context: new Response(JSON.stringify(response), { status: 409 }) } });
+    await expect(platformRequest('login')).rejects.toMatchObject({ code: response.code, status: 409,
+      loginRejection: { role: 'fc', passwordChangeToken: response.passwordChangeToken, passwordChangeExpiresAt: response.passwordChangeExpiresAt } });
+    try { await platformRequest('login'); } catch (failure) {
+      expect((failure as PlatformApiError).loginRejection).not.toHaveProperty('password');
+      expect((failure as PlatformApiError).message).not.toContain('internal detail');
+    }
+  });
+  it('validates signed service enrollment receipts and authenticated referral responses', async () => {
+    const insuranceSession = { ok: true, role: 'fc', residentId: '01000000000', appSessionToken: 'synthetic-fc-token' };
+    invoke.mockResolvedValue({ data: { ok: true, insuranceSession, alreadyApplied: false }, error: null });
+    await expect(platformRequest('enroll_insurance', { confirmed: true }, 'synthetic-member-token')).resolves.toMatchObject({ alreadyApplied: false });
+    expect(invoke.mock.calls[0][1]).toMatchObject({ headers: { 'x-app-session-token': 'synthetic-member-token' }, timeout: 12000 });
+    invoke.mockResolvedValue({ data: { ok: true, insuranceSession: { ...insuranceSession, role: 'member' }, alreadyApplied: false }, error: null });
+    await expect(platformRequest('enroll_insurance')).rejects.toMatchObject({ code: 'invalid_response' });
+    invoke.mockResolvedValue({ data: { ok: true, results: [{ fcId: hospital.id, name: '합성 추천인', affiliation: '합성 소속', code: 'ABCDEFGH' }] }, error: null });
+    await expect(platformRequest('search_insurance_referral')).resolves.toMatchObject({ results: [{ name: '합성 추천인' }] });
+    invoke.mockResolvedValue({ data: { ok: true, results: [{ fcId: hospital.id }] }, error: null });
+    await expect(platformRequest('search_insurance_referral')).rejects.toMatchObject({ code: 'invalid_response' });
+    invoke.mockResolvedValue({ data: { ok: true, inviterFcId: hospital.id, inviterName: '합성 추천인', inviterAffiliation: '', referralCode: 'ABCDEFGH' }, error: null });
+    await expect(platformRequest('validate_insurance_referral')).resolves.toMatchObject({ inviterFcId: hospital.id });
+    invoke.mockResolvedValue({ data: { ok: true, inviterFcId: 'bad' }, error: null });
+    await expect(platformRequest('validate_insurance_referral')).rejects.toMatchObject({ code: 'invalid_response' });
+    // Family-care referral responses carry the service code and the referrer's name.
+    invoke.mockResolvedValue({ data: { ok: true, serviceKey: 'care', code: 'SABCDEF12345', referrer: { name: '합성 추천인', source: 'manual', createdAt: '2026-10-14T00:00:00Z' } }, error: null });
+    await expect(platformRequest('get_service_referral')).resolves.toMatchObject({ code: 'SABCDEF12345' });
+    invoke.mockResolvedValue({ data: { ok: true, serviceKey: 'care', code: 'ABCDEF123456', referrer: null }, error: null });
+    await expect(platformRequest('get_service_referral')).rejects.toMatchObject({ code: 'invalid_response' });
+    invoke.mockResolvedValue({ data: { ok: true, serviceKey: 'telecom', referrerName: '합성 추천인' }, error: null });
+    await expect(platformRequest('preview_service_referral')).rejects.toMatchObject({ code: 'invalid_response' });
+    invoke.mockResolvedValue({ data: { ok: true, serviceKey: 'care', alreadyBound: false }, error: null });
+    await expect(platformRequest('bind_service_referral')).resolves.toMatchObject({ alreadyBound: false });
+    invoke.mockResolvedValue({ data: { ok: false, code: 'referral_already_bound' }, error: null });
+    await expect(platformRequest('bind_service_referral')).rejects.toMatchObject({ code: 'referral_already_bound', message: '이미 등록된 가족간병 추천인은 앱에서 바꿀 수 없어요.' });
+  });
   it('validates consumer identity and existing insurance sessions before persistence', async () => {
     const member = { ok: true, memberId: hospital.id, displayName: '합성 회원', residentId: '01000000000', appSessionToken: 'synthetic-consumer-token', role: 'member' };
     invoke.mockResolvedValue({ data: member, error: null });
@@ -102,6 +179,9 @@ describe('common platform transport', () => {
     expect(await platformRequest('get_account', {}, 'synthetic-fc-token')).toEqual(account);
     invoke.mockResolvedValue({ data: { ok: false, code: 'consent_required' }, error: null });
     await expect(platformRequest('get_account', {}, 'synthetic-fc-token')).rejects.toMatchObject({ code: 'consent_required' });
+    invoke.mockResolvedValue({ data: { ok: false, code: 'common_membership_withdrawn', message: 'synthetic internal detail' }, error: null });
+    await expect(platformRequest('get_account', {}, 'synthetic-fc-token')).rejects.toMatchObject({ code: 'common_membership_withdrawn',
+      message: '공통 회원에서 탈퇴한 계정입니다. 다시 가입하려면 동의를 확인해 주세요.' });
     invoke.mockResolvedValue({ data: { ok: true }, error: null });
     await platformRequest('request_password_reset', { phone: '01000000000' });
     await platformRequest('reset_password', { phone: '01000000000', code: '123456', password: 'Synthetic1!' });
@@ -132,9 +212,11 @@ describe('explicit local hospital demo', () => {
   it('provides offline regions, specialties, featured photos and a complete fictional directory', async () => {
     const regions = await request<PlatformHospitalRegions>('get_hospital_regions');
     const list = await request<PlatformHospitalList>('list_hospitals');
-    expect(regions.specialties.length).toBeGreaterThanOrEqual(8);
+    expect(regions.specialties).toEqual(['한방병원', '정형외과', '안과', '치과', '성형외과', '건강검진센터']);
     expect(regions.regions.find((region) => region.provinceCode === '11')?.districts).toContain('강남구');
     expect(list.hospitals).toHaveLength(12);
+    expect(list.hospitals.every((item) => item.specialties.length === 1 && regions.specialties.includes(item.specialties[0]))).toBe(true);
+    expect(regions.specialties.map((specialty) => list.hospitals.filter((item) => item.specialties.includes(specialty)).length)).toEqual([2, 2, 2, 2, 2, 2]);
     expect(list.featured).toHaveLength(5);
     expect(list.hospitals.every((item) => item.phone === null && item.websiteUrl === null && item.address?.includes('가상 주소') && item.photoUrl && item.adPlacement === 'regional_list')).toBe(true);
     expect(list.featured.every((item) => item.adPlacement === 'regional_featured')).toBe(true);
@@ -147,11 +229,12 @@ describe('explicit local hospital demo', () => {
     const province = await request<PlatformHospitalList>('list_hospitals', { provinceCode: '11' });
     expect(province.hospitals).toHaveLength(3);
     expect(province.hospitals.every((item) => item.provinceCode === '11')).toBe(true);
-    const filtered = await request<PlatformHospitalList>('list_hospitals', { provinceCode: '11', district: '송파구', search: ' 온누리 ', specialty: '재활의학과' });
+    const filtered = await request<PlatformHospitalList>('list_hospitals', { provinceCode: '11', district: '송파구', search: ' 온누리 ', specialty: '정형외과' });
     expect(filtered.hospitals).toHaveLength(1);
     expect(filtered.hospitals[0].name).toBe('온누리정형외과');
     expect(filtered.featured).toHaveLength(1);
     expect((await request<PlatformHospitalList>('list_hospitals', { search: '없는 병원' })).hospitals).toEqual([]);
+    expect((await request<PlatformHospitalList>('list_hospitals', { specialty: '내과' })).hospitals).toEqual([]);
     expect(demoInvoke).not.toHaveBeenCalled();
   });
   it('pages without duplicates and opens details with the same embedded image', async () => {

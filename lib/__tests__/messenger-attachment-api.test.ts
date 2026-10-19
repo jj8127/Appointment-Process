@@ -60,6 +60,10 @@ jest.mock('../request-board-api', () => ({
   getStoredAppSessionToken: jest.fn(async () => 'app-session-token'),
 }));
 
+// Only for the shared signed-URL reuse in messenger-attachment-actions.
+jest.mock('react-native', () => ({ Alert: { alert: jest.fn() } }));
+jest.mock('../open-external-url', () => ({ openExternalUrl: jest.fn() }));
+
 jest.mock('../supabase', () => ({
   supabase: {
     functions: { invoke: mockInvoke },
@@ -70,11 +74,15 @@ jest.mock('../supabase', () => ({
 // eslint-disable-next-line import/first
 import {
   appendMessengerAttachmentCandidates,
+  classifyMessengerSendFailure,
   createMessengerAttachmentDownloadUrl,
+  MessengerAttachmentError,
   MAX_MESSENGER_ATTACHMENT_BYTES,
   prepareMessengerAttachmentBatch,
   uploadMessengerAttachmentBatch,
 } from '../messenger-attachment-api';
+// eslint-disable-next-line import/first
+import { getMessengerAttachmentSignedUrl } from '../messenger-attachment-actions';
 
 const CONVERSATION_A = '11111111-1111-4111-8111-111111111111';
 const CONVERSATION_B = '22222222-2222-4222-8222-222222222222';
@@ -435,5 +443,62 @@ describe('native messenger attachment API', () => {
 
     await expect(createMessengerAttachmentDownloadUrl(INTENT_ID))
       .rejects.toThrow('파일을 열지 못했습니다. 다시 시도해 주세요.');
+  });
+
+  // Previews in a large room must not ask the server once per render.
+  test('reuses one signed URL per attachment for previews and concurrent opens', async () => {
+    const signedUrl = 'https://example.invalid/storage/v1/object/sign/private?token=preview';
+    const attachmentId = '77777777-7777-4777-8777-777777777777';
+    mockInvoke.mockResolvedValue({
+      data: {
+        ok: true,
+        attachment: { id: attachmentId, name: 'photo.png', size: 1, mimeType: 'image/png', sha256: 'a'.repeat(64) },
+        download: { signedUrl, expiresAt: '2026-07-25T12:00:00.000Z' },
+      },
+      error: null,
+    });
+
+    const [first, second] = await Promise.all([
+      getMessengerAttachmentSignedUrl(attachmentId),
+      getMessengerAttachmentSignedUrl(attachmentId),
+    ]);
+    await expect(getMessengerAttachmentSignedUrl(attachmentId)).resolves.toBe(signedUrl);
+    expect([first, second]).toEqual([signedUrl, signedUrl]);
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
+  });
+
+  // A refused send must not loop on the same-key "다시 확인" prompt; only an unknown outcome may.
+  test('offers a same-key re-check only when the send outcome is unknown', async () => {
+    const httpError = (status: number, body: Record<string, unknown>) => Object.assign(
+      new Error('Edge Function returned a non-2xx status code'),
+      { context: { status, clone: () => ({ json: async () => body }) } },
+    );
+    mockInvoke.mockResolvedValueOnce({
+      data: null,
+      error: httpError(400, { ok: false, code: 'invalid_attachment_polyglot', message: '첨부파일을 처리하지 못했습니다.' }),
+    });
+    const batch = await prepareMessengerAttachmentBatch({
+      files: await appendMessengerAttachmentCandidates([], [{ uri: 'photo-bytes', name: 'photo.png', mimeType: 'image/png' }]),
+      context: { kind: 'group', roomId: CONVERSATION_A },
+      content: '',
+      deliveryKey: DELIVERY_KEY,
+    });
+    const refused = await uploadMessengerAttachmentBatch(batch).catch((error: unknown) => error);
+    expect(classifyMessengerSendFailure(refused)).toEqual({
+      uncertain: false,
+      code: 'invalid_attachment_polyglot',
+      status: 400,
+      message: '보낼 수 없는 파일입니다. 다른 파일로 다시 시도해 주세요.',
+    });
+
+    for (const status of [408, 429, 500, 503]) {
+      expect(classifyMessengerSendFailure(httpError(status, {})).uncertain).toBe(true);
+    }
+    expect(classifyMessengerSendFailure(new TypeError('Network request failed')).uncertain).toBe(true);
+    expect(classifyMessengerSendFailure(new MessengerAttachmentError('x', { code: 'attachment_upload_failed' })).uncertain).toBe(true);
+    expect(classifyMessengerSendFailure(new MessengerAttachmentError('권한 없음', { code: 'forbidden', status: 403 })))
+      .toMatchObject({ uncertain: false, message: '권한 없음' });
+    expect(classifyMessengerSendFailure(new MessengerAttachmentError('다시 선택해 주세요.', { code: 'attachment_read_failed' })))
+      .toMatchObject({ uncertain: false, message: '다시 선택해 주세요.' });
   });
 });

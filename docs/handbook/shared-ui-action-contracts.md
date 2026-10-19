@@ -2,10 +2,38 @@ doc_id: FC-SHARED-UI-ACTION-CONTRACTS
 owner_repo: fc-onboarding-app
 owner_area: shared-ui
 audience: developer
-last_verified: 2026-09-09
+last_verified: 2026-10-14
 source_of_truth: components/* + app/* + hooks/use-keyboard-padding.ts + web/src/* + scripts/audit/shared-ui-contract-audit.cjs + scripts/audit/shared-function-contract-audit.cjs + scripts/audit/mobile-keyboard-surface-audit.cjs
 
 # Shared UI Action Contracts
+
+## 2026-10-15 Keyboard-open taps
+
+- Form screens use `keyboardShouldPersistTaps="always"` on their scroll container and on chip/option rows nested inside it; a tap with the keyboard open must reach the control instead of dismissing the keyboard and shifting layout under the finger. Chat and search result lists keep `"handled"` so an empty-area tap still closes the keyboard.
+- `KeyboardAwareWrapper` disables `enableResetScrollToCoords`: the animated return scroll on keyboard hide captured the next tap.
+- `KeyboardAwareWrapper` and every vertical `"always"` scroll container set `disableScrollViewPanResponder`. With an input focused, the JS scroll responder claimed held taps (about 70ms or longer, a normal finger tap), so the control showed press feedback but never fired. Native drag scrolling does not depend on it. The mobile keyboard audit rejects a vertical `"always"` container or the wrapper without it; `"handled"` lists keep the responder so an empty-area tap still closes the keyboard.
+- Android Fabric can drop the native scroll offset when a React commit races its state update; children are then measured at the pre-scroll offset and Pressable cancels any tap whose finger moves (press feedback shows, `onPress` never fires). Native resends the offset only when it changes, so `KeyboardAwareWrapper` moves 1px and back (non-animated, same frame) once scrolling has been quiet for 150ms, after re-renders and content size changes, never while scrolling or at offset 0, and ignores the events of its own nudge. `components/__tests__/KeyboardAwareWrapper.test.tsx` covers it.
+- Auth CTAs keep `submitOnPressIn` (login, common signup). Signup validation failures close the keyboard so the message above the CTA is visible, and a successful signup shows a success toast before navigation.
+
+## 2026-10-15 Text-only dialogs and inline field errors
+
+- `AppAlertProvider` renders every `Alert.alert` as a text-only card: left-aligned title and message, no status glyph. Two actions share the row at equal width with the `cancel` action on the leading side; three or more stack with the primary first and `cancel` last. Dispatch still resolves the caller's original button index, so queue, repeated-press, throw and back-button contracts are unchanged.
+- Filled destructive actions use `COLORS.errorButton` (#dc2626) for a 4.5:1 white label, matching the `primaryButton` rule for orange.
+- Decision dialogs ask a question in the title ("앱을 종료할까요?", "작성 중인 내용을 버릴까요?"). Missing or invalid form input is not a dialog: the insurance additional-info form marks the field, shows the message under it, and scrolls to the first failing field through `KeyboardAwareWrapper`'s `scrollToY` handle. A whitespace `error` only marks a field border; `FormInput` and `OptionSheetField` render no message line for it, and form error text uses `TYPOGRAPHY.fontSize.xs`.
+- Android back on a root home (모두온 `ServiceHub`, insurance home, home-lite) goes through `useRootExitConfirm`: with a back stack it navigates normally, otherwise it asks "앱을 종료할까요?" before `BackHandler.exitApp()`.
+- `OptionSheetField` is the shared select field for fixed choice lists: a FormInput-sized field that opens a bottom-sheet list with a checked row, replacing wrapped chip walls. Email entry suggests `SIGNUP_EMAIL_DOMAINS` after the local part.
+
+## 2026-10-14 Filled mobile actions and active worktree audit
+
+Filled Button/ServiceAction use COLORS.primaryButton with white labels (normal-state contrast4.52:1); decorative primary accents and pale/outline controls remain separate. ServiceAccount groups its existing authorized actions, logout, outline withdrawal and privacy link with12px gap and no per-action margin stacking. Labels, role/consent conditions, keyboard/press/loading semantics and withdrawal ownership remain unchanged. The audit applies exclusions only to paths relative to its selected root: excluded ancestor names cannot hide an active checkout, while existing excluded descendants remain skipped. Use the closest native-controls and shared-ui-action-contracts suites and the existing visual capture adapter; do not add another runner.
+
+Active primary Button labels remain white even when an external textStyle supplies a dark color; other caller text properties remain intact. Pale/outline and disabled controls keep their existing contrast policy. Remember-password storage clearing belongs to the actual event handler, not a replayable functional state updater; StrictMode and pressIn/press are covered by the existing login renderer.
+
+The public header exposes separate account-information and functional logout controls for verified common/FC sessions. Restoring state disables the account control and never flashes a guest label. Logout reuses the session's local-first cleanup and the focused owner returns to common home; all controls retain44px minimum touch areas and large-text fit.
+
+Static service-hub leaves use NAVIGATE rather than repeated PUSH. Only successful/default common-account auth landings use dismissTo('/services/account'), including existing-account pop and missing-account replace fallback. Recovery clears local auth before dismissing to common login with preserved service/skipAuto. Notification, role, identity gate, detail and settings-query policies remain distinct. ServiceInformation back uses the existing pop-first helper. Actual callback/handler tests and the installed StackRouter POP_TO check are complementary evidence; neither proves device rollout.
+
+DepartmentIcon changes are confined to two requested shapes: a plastic-surgery face outline plus cross, and herbal-hospital veins clipped to the same leaf outline. The artifact-only synthetic RNW preview renders the actual components; it is not a product route or real-account state injection. Internal development/preview hospital demo flags display fictional directory fixtures, not live publication or operating-account evidence.
 
 ## 2026-09-30 Failed reads and complete edit sources
 
@@ -128,3 +156,7 @@ Business formatting, normalization, mapping, grouping, and permission predicates
 ## 2026-10-16 App alert buttons
 
 - `AppAlertProvider`의 버튼 두 개는 한 줄을 반씩 나눠 쓰고(`flex: 1`), 라벨은 한 줄로 유지한다(필요하면 85%까지 축소). 고정 폭 100은 "내용 버리고 나가기"를 세 줄로 접어 모양이 깨졌다. 세 개 이상은 기존처럼 세로로 쌓는다.
+
+## 2026-10-16 Bottom sheets and the navigation bar
+
+- 화면 아래 가장자리에 붙는 시트는 Android 화면 끝까지 그려지므로 하단 안전 영역(`useSafeAreaInsets().bottom`)을 직접 더한다. `StackSheet`(가입·추가 정보 선택 시트)와 `ExamApplicationTargetSelector` 시트가 이를 따르고, 기존 `OptionSheetField`와 메신저 시트(`bottomInset`)도 같은 방식이다. 마지막 항목이나 버튼이 내비게이션 바에 가리지 않아야 한다.

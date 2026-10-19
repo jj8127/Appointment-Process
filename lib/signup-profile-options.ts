@@ -20,5 +20,16 @@ export const SIGNUP_CARRIER_OPTIONS = [
   'LGU+ 알뜰폰',
 ] as const;
 
+/** Common mail domains suggested after the local part of an address. */
+export const SIGNUP_EMAIL_DOMAINS = ['naver.com', 'gmail.com', 'daum.net', 'hanmail.net', 'nate.com'] as const;
+export const EMAIL_DOMAIN_DIRECT_INPUT = '직접 입력';
+export const SIGNUP_EMAIL_DOMAIN_CHOICES: string[] = [...SIGNUP_EMAIL_DOMAINS, EMAIL_DOMAIN_DIRECT_INPUT];
+
+/** Compose the address only when both parts exist; otherwise keep the partial input for validation. */
+export function composeEmail(local: string, domainChoice: string, customDomain: string): string {
+  const domain = domainChoice === EMAIL_DOMAIN_DIRECT_INPUT ? customDomain.trim() : domainChoice;
+  return local.trim() && domain ? `${local.trim()}@${domain}` : local.trim();
+}
+
 export type SignupAffiliation = (typeof SIGNUP_AFFILIATION_OPTIONS)[number];
 export type SignupCarrier = (typeof SIGNUP_CARRIER_OPTIONS)[number];

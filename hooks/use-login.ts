@@ -1,15 +1,11 @@
-import { useState } from 'react';
-import { Alert, Keyboard } from 'react-native';
-import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
+import { Alert } from 'react-native';
 import { useSession } from '@/hooks/use-session';
-import { logger } from '@/lib/logger';
-import { clearRequestBoardState, setAppSessionToken, setBridgeToken } from '@/lib/request-board-api';
+import { captureAppSessionOwner, clearRequestBoardState, setAppSessionToken, setBridgeToken } from '@/lib/request-board-api';
 import { setPendingAssistedPasswordChange } from '@/lib/pending-assisted-password-change';
 import { clearSavedLoginCredentials } from '@/lib/saved-login-credentials';
 import { parseLoginSuccessResponse } from '@/lib/login-response-contract';
-import { supabase } from '@/lib/supabase';
-import { validatePhone, validateRequired, normalizePhone } from '@/lib/validation';
+import { resolvePlatformAuthRoute } from '@/lib/session-landing';
 
 export type LoginResponse = {
   ok: boolean;
@@ -26,132 +22,66 @@ export type LoginResponse = {
   requestBoardRole?: 'fc' | 'designer' | null;
 };
 
-type UseLoginOptions = {
-  onSuccess?: (role: 'admin' | 'fc') => void;
-  onError?: (error: Error) => void;
-};
-
-export function useLogin(options?: UseLoginOptions) {
+export function useLogin() {
   const { loginAs } = useSession();
-  const [loading, setLoading] = useState(false);
 
-  // Both the FC entry and the common entry receive this signed legacy response.
-  const acceptLoginResponse = async (data: LoginResponse, expectedResidentId = data.residentId ?? '') => {
+  // Common login and explicit insurance enrollment install the same signed response.
+  const acceptLoginResponse = async (data: LoginResponse, expectedResidentId = data.residentId ?? '', isCurrent = () => true) => {
     const success = parseLoginSuccessResponse(data, expectedResidentId);
     const readOnly = success.role === 'manager';
     const nextRole = success.role === 'admin' || success.role === 'manager' ? 'admin' : 'fc';
     const requestBoardRole = success.requestBoardRole;
-    await clearRequestBoardState({ clearAppSession: true });
-    await setAppSessionToken(success.appSessionToken);
+    if (!isCurrent()) return null;
+    const clearing = clearRequestBoardState({ clearAppSession: true });
+    const ownsClearedSession = captureAppSessionOwner();
+    await clearing;
+    if (!isCurrent() || !ownsClearedSession()) return null;
+    const storing = setAppSessionToken(success.appSessionToken);
+    const ownsInstalledSession = captureAppSessionOwner();
+    await storing;
+    if (!isCurrent() || !ownsInstalledSession()) return null;
     await setBridgeToken(success.requestBoardBridgeToken);
+    if (!isCurrent() || !ownsInstalledSession()) return null;
     loginAs(nextRole, success.residentId, success.displayName, success.staffType,
       readOnly, requestBoardRole === 'designer' && nextRole === 'fc', requestBoardRole, success.appSessionToken);
     return nextRole;
   };
 
-  const login = async (phoneInput: string, passwordInput: string): Promise<boolean> => {
-    Keyboard.dismiss();
-
-    // Validation using centralized validation library
-    const phoneValidation = validatePhone(phoneInput);
-    if (!phoneValidation.isValid) {
-      Alert.alert('알림', phoneValidation.error);
-      return false;
-    }
-
-    const passwordValidation = validateRequired(passwordInput, '비밀번호');
-    if (!passwordValidation.isValid) {
-      Alert.alert('알림', passwordValidation.error);
-      return false;
-    }
-
-    const digits = normalizePhone(phoneInput);
-
-    Haptics.selectionAsync();
-    setLoading(true);
-
-    try {
-      const { data, error } = await supabase.functions.invoke<LoginResponse>('login-with-password', {
-        body: { phone: digits, password: passwordInput.trim() },
-      });
-
-      if (error) {
-        logger.warn('[login] login-with-password invoke failed', {
-          error,
-        });
-        const errorMessage = error instanceof Error ? error.message : '오류가 발생했습니다. 다시 시도해주세요.';
-        Alert.alert('로그인 실패', errorMessage);
-        if (options?.onError) {
-          options.onError(error instanceof Error ? error : new Error(errorMessage));
-        }
-        return false;
-      }
-
-      if (!data?.ok) {
-        if (data?.code === 'password_change_required' && data.passwordChangeToken) {
-          await clearRequestBoardState({ clearAppSession: true });
-          await clearSavedLoginCredentials().catch(() => undefined);
-          setPendingAssistedPasswordChange(
-            data.passwordChangeToken,
-            data.passwordChangeExpiresAt ?? null,
-          );
-          Alert.alert(
-            '새 비밀번호가 필요합니다',
-            '관리자가 발급한 임시 비밀번호입니다. 계속하려면 본인이 사용할 새 비밀번호를 설정해주세요.',
-          );
-          router.replace('/first-password-change');
-          return false;
-        }
-
-        logger.warn('[login] login-with-password rejected', {
-          code: data?.code ?? null,
-          role: data?.role ?? null,
-          message: data?.message ?? null,
-        });
-        if (data?.code === 'not_found') {
-          Alert.alert('안내', '회원가입이 되어 있지 않은 번호입니다. 회원가입 후 로그인해주세요.');
-          if (data?.role !== 'admin' && data?.role !== 'manager') {
-            router.replace('/signup');
-          }
-          return false;
-        }
-
-        if ((data?.code === 'needs_password_setup' || data?.code === 'not_completed') && data?.role !== 'admin' && data?.role !== 'manager') {
-          Alert.alert('안내', '회원가입이 완료되지 않았습니다. 회원가입을 완료해주세요.');
-          router.replace('/signup');
-          return false;
-        }
-
-        // Other login failures
-        Alert.alert('로그인 실패', data?.message ?? '오류가 발생했습니다. 다시 시도해주세요.');
-        return false;
-      }
-
-      const nextRole = await acceptLoginResponse(data, digits);
-
-      // Navigate or call custom success handler
-      if (options?.onSuccess) {
-        options.onSuccess(nextRole);
-      }
+  const handleLoginRejection = async (data: LoginResponse, service?: unknown, isCurrent = () => true) => {
+    if (!isCurrent()) return false;
+    if (data.code === 'password_change_required' && data.passwordChangeToken?.trim()) {
+      const clearing = clearRequestBoardState({ clearAppSession: true });
+      const ownsClearedSession = captureAppSessionOwner();
+      await clearing;
+      if (!isCurrent() || !ownsClearedSession()) return false;
+      await clearSavedLoginCredentials().catch(() => undefined);
+      if (!isCurrent() || !ownsClearedSession()) return false;
+      setPendingAssistedPasswordChange(data.passwordChangeToken, data.passwordChangeExpiresAt ?? null);
+      router.replace({ pathname: '/first-password-change', params: {
+        ...(typeof service === 'string' ? { service } : {}),
+      } });
       return true;
-    } catch (error) {
-      logger.warn('[login] login flow threw', {
-        error,
-      });
-      const errorMessage = error instanceof Error ? error.message : '오류가 발생했습니다. 다시 시도해주세요.';
-      Alert.alert('로그인 실패', errorMessage);
-      if (options?.onError && error instanceof Error) {
-        options.onError(error);
-      }
-      return false;
-    } finally {
-      setLoading(false);
     }
+    if (data.code === 'not_completed' || data.code === 'not_found') {
+      if (data.role === 'admin' || data.role === 'manager') return false;
+      // Unregistered numbers are named explicitly before the common signup.
+      Alert.alert('안내', data.code === 'not_found'
+        ? '가입되지 않은 번호입니다. 모두온 회원가입을 먼저 진행해 주세요.'
+        : '가입이 완료되지 않은 번호입니다. 모두온 회원가입을 진행해 주세요.');
+      router.replace(resolvePlatformAuthRoute(service, 'signup'));
+      return true;
+    }
+    if (data.code === 'needs_password_setup') {
+      router.replace({ pathname: '/reset-password', params: {
+        audience: 'platform', ...(typeof service === 'string' ? { service } : {}),
+      } });
+      return true;
+    }
+    return false;
   };
 
   return {
-    login,
     acceptLoginResponse,
-    loading,
+    handleLoginRejection,
   };
 }

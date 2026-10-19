@@ -9,7 +9,12 @@ describe('service home entry policy', () => {
   const guest = { role: null, hydrated: true, isRequestBoardDesigner: false } as const;
   it('waits for hydration and uses login for guests', () => {
     expect(resolveInsuranceServiceRoute({ ...guest, hydrated: false })).toBeNull();
-    expect(resolveInsuranceServiceRoute(guest)).toBe('/login?service=insurance');
+    expect(resolveInsuranceServiceRoute(guest)).toBe('/services/login?service=insurance');
+  });
+  it('allows a signed common member to register service information without an FC role', () => {
+    expect(resolveInsuranceServiceRoute({ ...guest, isPlatformSignedIn: true })).toEqual({
+      pathname: '/apply-gate', params: { next: '/?mode=insurance' },
+    });
   });
   it('delegates FC identity checks to the existing apply gate', () => {
     expect(resolveInsuranceServiceRoute({ ...guest, role: 'fc' })).toEqual({

@@ -1,25 +1,8 @@
 import {
-  buildPendingSignupReferralSelection,
   buildStoredSignupReferral,
   getSignupReferralSelectionError,
   hasValidStoredSignupReferral,
-  runSinglePendingReferralApply,
 } from '../signup-referral';
-
-describe('buildPendingSignupReferralSelection', () => {
-  test('turns an invite link code into a selected referral placeholder', () => {
-    expect(buildPendingSignupReferralSelection(' ltvz-wttw ')).toEqual({
-      fcId: 'pending:LTVZWTTW',
-      name: '추천 코드 LTVZWTTW',
-      affiliation: '초대 링크로 입력됨',
-      code: 'LTVZWTTW',
-    });
-  });
-
-  test('ignores empty pending referral codes', () => {
-    expect(buildPendingSignupReferralSelection('  ')).toBeNull();
-  });
-});
 
 describe('buildStoredSignupReferral', () => {
   test('does not persist a pasted referral code until the user selects a search result', () => {
@@ -118,36 +101,5 @@ describe('hasValidStoredSignupReferral', () => {
       referralCode: 'KCSACZXU',
       referralInviterFcId: undefined,
     })).toBe(false);
-  });
-});
-
-describe('runSinglePendingReferralApply', () => {
-  test('reuses the in-flight pending referral apply instead of queueing a second run', async () => {
-    const state = { promise: null as Promise<void> | null };
-    const control: { resolve: () => void } = {
-      resolve: () => {
-        throw new Error('expected resolver to be assigned');
-      },
-    };
-    const start = jest.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          control.resolve = resolve;
-        }),
-    );
-
-    const firstRun = runSinglePendingReferralApply(state, start);
-    const secondRun = runSinglePendingReferralApply(state, start);
-
-    expect(start).toHaveBeenCalledTimes(1);
-    expect(secondRun).toBe(firstRun);
-
-    control.resolve();
-    await firstRun;
-
-    const thirdRun = runSinglePendingReferralApply(state, async () => {});
-    await thirdRun;
-
-    expect(state.promise).toBeNull();
   });
 });

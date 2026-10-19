@@ -7,6 +7,14 @@ source_of_truth: env contracts + reset-password functions + assisted-password fu
 
 # Security And Secret Operations
 
+## 2026-10-14 연결 계정 탈퇴의 인증·정리 경계
+
+- 공통 탈퇴는 현재 signed actor에서만 시작한다. frozen 이후에는 operation UUID와 원래 세션 SHA256 digest가 일치하는 접수만 이어간다. 원문 토큰·비밀번호를 journal에 저장하지 않으며 이 증표로 로그인 권한이나 새 탈퇴 작업을 발급하지 않는다.
+- Request Board의 기존 HMAC envelope/constant-time trusted transport 검사를 재사용한다. 삭제 assertion은 별도 kind/purpose, 정확한 FC UUID·operation·정책과60초 유효시간으로 제한한다. 기존 password-sync ledger의 canonical `fc:UUID` 연결을 사용하며 전화번호만 일치하는 다른 계정을 삭제하지 않는다.
+- 첨부·Auth 정리는 기존 FC self-delete와 공통 탈퇴가 같은 helper/outbox를 사용한다. Auth `user_not_found`만 이미 삭제된 결과로 허용하고 일반404·정리 오류·잘못된 영수증은 pending으로 남긴다. 계정 UUID/history 유지와 개인정보·로그인 정보 삭제는 구분한다. 완료 outbox의 개인 경로와 journal cleanup receipt도 지운다.
+- 원래 연결의 회사 업무 계정은 유지한다. 독립 서비스의 권한/로그인과 source provenance가 모순된 연결을 회사 보존 완료로 추정하지 않는다. runtime 회수는 persisted auth/local runtime과 이후 송수신 재검증이며 전역 이미 전송 중인 메시지의 즉시 회수가 아니다.
+- service-only 재처리는 exact apikey와 Bearer service key를 모두 요구한다. 운영 예약 호출·신원 연결·혼재된 producer/server source의 채택은 별도 확인해야 한다. 현재 로컬 기능 검증과 source-only 보안 검토는 운영 안전성이나 실제 계정 삭제 성공의 증거가 아니다.
+
 ## 2026-10-10 웹 origin과 세션 복구 경계
 
 - 27 legacy Edge entries use the request-scoped configured CORS wrapper. Only the complete requesting origin already in ALLOWED_ORIGINS is reflected. The wrapper preserves the existing per-function origin guards, actor checks, status/body/cache/security headers; native/server requests without Origin are unchanged. A development address must be explicitly approved and added while preserving the existing allowlist. No wildcard or implicit localhost grant is added.

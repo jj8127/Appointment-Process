@@ -1,4 +1,5 @@
 import type { ExamRoundWithLocations } from '@/types/exam';
+import { createRealtimeChannelTopic } from '@/lib/realtime-channel-topic';
 import {
   isNotificationUuid,
   type NotificationTarget,
@@ -302,13 +303,11 @@ export function getExamFlowConfig(examType: ExamFlowType): ExamFlowConfig {
   return EXAM_FLOW_CONFIGS[examType];
 }
 
-let examApplyRealtimeChannelSequence = 0;
 
 export function createExamApplyRealtimeChannelTopic(
   prefix: ExamFlowConfig['applyRealtimeChannelPrefix'],
 ): string {
-  examApplyRealtimeChannelSequence += 1;
-  return `${prefix}-${Date.now().toString(36)}-${examApplyRealtimeChannelSequence.toString(36)}`;
+  return createRealtimeChannelTopic(prefix);
 }
 
 export function sortExamRoundsNewestFirst(

@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
-  BackHandler,
   Dimensions,
   Platform,
   Pressable,
@@ -54,6 +53,7 @@ import { useMyReferralCode } from '@/hooks/use-my-referral-code';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useReadSessionScope } from '@/hooks/use-read-session-scope';
 import { useSession } from '@/hooks/use-session';
+import { useRootExitConfirm } from '@/hooks/use-root-exit-confirm';
 import { invokeFcNotify } from '@/lib/fc-notify-client';
 import { fetchInternalUnreadCount } from '@/lib/internal-chat-api';
 import {
@@ -82,7 +82,7 @@ import {
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
-import { hasInsuranceHomeContext } from '@/lib/service-home';
+import { hasInsuranceHomeContext, resolveInsuranceServiceRoute } from '@/lib/service-home';
 import { waitForNotificationNavigationDecision } from '@/lib/notification-navigation-coordinator';
 import type { FcProfile } from '@/types/fc';
 
@@ -568,11 +568,12 @@ const getLinkIcon = (href: string) => {
 
 export default function Home() {
   const params = useLocalSearchParams();
-  const { hydrated, role, isRequestBoardDesigner } = useSession();
+  const session = useSession();
+  const { hydrated, role, isRequestBoardDesigner } = session;
   if (!hydrated) return <BrandedLoadingState />;
   if (!hasInsuranceHomeContext(params) && role && isRequestBoardDesigner) return <DesignerHomeLanding />;
   if (!hasInsuranceHomeContext(params)) return <ServiceHub />;
-  if (!role) return <Redirect href="/login?skipAuto=1" />;
+  if (!role) return <Redirect href={resolveInsuranceServiceRoute(session)!} />;
   return <LegacyInsuranceHome />;
 }
 
@@ -1151,27 +1152,7 @@ function LegacyInsuranceHome() {
     };
   }, [refetchMsgCount, refetchNotifCount, refetchLatestNotice, refetchMyFc, residentId, role]);
 
-  // Android 뒤로가기 버튼: 앱 종료 확인 다이얼로그
-  useFocusEffect(
-    useCallback(() => {
-      if (Platform.OS !== 'android') return;
-      const onBackPress = () => {
-        if (router.canGoBack()) return false;
-        Alert.alert(
-          '앱 종료',
-          '앱을 종료하시겠습니까?',
-          [
-            { text: '취소', style: 'cancel' },
-            { text: '종료', style: 'destructive', onPress: () => BackHandler.exitApp() },
-          ],
-          { cancelable: true }
-        );
-        return true;
-      };
-      const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
-      return () => sub.remove();
-    }, [])
-  );
+  useRootExitConfirm();
 
   const getAppointmentStatus = (completed: boolean) => {
     if (completed) return { label: '완료', color: '#ffffff', bg: '#16a34a' };
@@ -2357,12 +2338,13 @@ const styles = StyleSheet.create({
   stepLabelActive: { color: CHARCOAL, fontWeight: '700' },
   premiumStepCard: {
     borderRadius: 20,
-    paddingVertical: 22,
-    paddingHorizontal: 24,
+    paddingVertical: 20,
+    paddingHorizontal: 22,
     marginHorizontal: 4,
     overflow: 'hidden',
     position: 'relative',
-    height: 120, // Taller for impact
+    // Grows with a two-line subtitle instead of clipping the bottom edge.
+    minHeight: 136,
     justifyContent: 'center',
     shadowColor: '#f36f21',
     shadowOffset: { width: 0, height: 8 },
@@ -2378,8 +2360,8 @@ const styles = StyleSheet.create({
   premiumStepHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 8,
+    alignItems: 'center',
+    marginBottom: 12,
   },
   premiumStepBadge: {
     backgroundColor: 'rgba(255,255,255,0.2)',
@@ -2401,14 +2383,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   premiumStepTitle: {
-    fontSize: 24,
+    fontSize: 22,
+    lineHeight: 30,
     fontWeight: '800',
     color: '#fff',
-    marginBottom: 4,
+    marginBottom: 6,
     letterSpacing: 0,
   },
   premiumStepSub: {
     fontSize: 14,
+    lineHeight: 21,
     color: 'rgba(255,255,255,0.9)',
     fontWeight: '500',
   },

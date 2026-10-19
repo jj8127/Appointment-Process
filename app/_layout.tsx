@@ -6,10 +6,10 @@ import * as Notifications from 'expo-notifications';
 import { Stack, router, useRootNavigationState } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, Pressable } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { enableScreens } from 'react-native-screens';
 import { TourGuideProvider } from 'rn-tourguide';
 
@@ -25,6 +25,7 @@ import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { goBackOrReplace } from '@/lib/back-navigation';
 import { logger } from '@/lib/logger';
 import { recordPushDelivery } from '@/lib/messenger-latency';
+import { COLORS } from '@/lib/theme';
 import {
   buildNotificationTargetRoute,
   parseNotificationPushData,
@@ -51,7 +52,7 @@ import {
   savePendingNotificationNavigation,
   type PendingNotificationNavigation,
 } from '@/lib/pending-notification-navigation';
-import { savePendingReferralCode } from '@/lib/referral-deeplink';
+import { clearPendingReferralCodes, parseReferralInvite, savePendingReferralCode } from '@/lib/referral-deeplink';
 import { withSentryRoot } from '@/lib/sentry';
 
 import {
@@ -141,6 +142,14 @@ function HomeLiteLogoutBackButton() {
       <Feather name="log-out" size={24} color="#000" />
     </Pressable>
   );
+}
+
+// Edge-to-edge is mandatory on SDK 54, so the system navigation bar is transparent and
+// NavigationBar.setBackgroundColorAsync is a no-op. Paint an opaque bar behind it instead.
+function AndroidNavigationBarBackdrop() {
+  const { bottom } = useSafeAreaInsets();
+  if (Platform.OS !== 'android' || bottom <= 0) return null;
+  return <View pointerEvents="none" style={[styles.navigationBarBackdrop, { height: bottom }]} />;
 }
 
 function PresenceBootstrap() {
@@ -475,42 +484,86 @@ function NotificationNavigationBootstrap() {
   return null;
 }
 
+function ReferralLinkBootstrap() {
+  const { hydrated, role, residentId, platformMember, isPlatformSignedIn } = useSession();
+  const rootNavigationState = useRootNavigationState();
+  const sessionKey = hydrated ? (platformMember?.id || (role ? `${role}:${residentId}` : 'anonymous')) : null;
+  const currentSessionKey = useRef(sessionKey);
+  currentSessionKey.current = sessionKey;
+  const previousSessionKey = useRef<string | null>(null);
+  const sequence = useRef(0);
+  const [pending, setPending] = useState<{
+    invite: NonNullable<ReturnType<typeof parseReferralInvite>>;
+    owner: string | null;
+    nonce: number;
+  } | null>(null);
+
+  useEffect(() => {
+    // Carry an explicit insurance invitation through common signup/login into
+    // first FC enrollment. All established-account changes still discard it.
+    const keepInitialInsuranceInvite = previousSessionKey.current === 'anonymous' && !role;
+    if (previousSessionKey.current && sessionKey && previousSessionKey.current !== sessionKey && !keepInitialInsuranceInvite) {
+      void clearPendingReferralCodes().catch(() => {});
+    }
+    if (sessionKey) previousSessionKey.current = sessionKey;
+  }, [sessionKey, role]);
+
+  useEffect(() => {
+    let active = true;
+    let receivedWarmLink = false;
+    const captureInvite = (url: string | null) => {
+      const invite = parseReferralInvite(url);
+      if (!active || !invite) return false;
+      setPending({ invite, owner: currentSessionKey.current, nonce: ++sequence.current });
+      return true;
+    };
+    Linking.getInitialURL().then(url => {
+      if (!receivedWarmLink) captureInvite(url);
+    }).catch(() => {});
+    const subscription = Linking.addEventListener('url', event => {
+      if (captureInvite(event.url)) receivedWarmLink = true;
+    });
+    return () => { active = false; subscription.remove(); };
+  }, []);
+
+  useEffect(() => {
+    if (!pending || !sessionKey || !rootNavigationState?.key) return;
+    if (!pending.owner) { setPending({ ...pending, owner: sessionKey }); return; }
+    if (pending.owner && pending.owner !== sessionKey) { setPending(null); return; }
+    let active = true;
+    const routeInvite = async () => {
+      await clearPendingReferralCodes().catch(() => {});
+      if (!active || currentSessionKey.current !== sessionKey) return;
+      if (pending.invite.service === 'care' ? !isPlatformSignedIn : !role) {
+        const save = savePendingReferralCode(pending.invite.code, pending.invite.service);
+        if (pending.invite.service === 'care') await save.catch(() => {});
+        else await save;
+      }
+      if (!active || currentSessionKey.current !== sessionKey) return;
+      // A signed member confirms the care referrer on the care screen; the
+      // invitation never changes an existing referrer or common membership.
+      router.replace(pending.invite.service === 'care' ? isPlatformSignedIn ? {
+        pathname: '/services/[service]',
+        params: { service: 'care', code: pending.invite.code, referralNonce: `${pending.nonce}` },
+      } : {
+        pathname: '/services/signup',
+        params: { service: 'care', code: pending.invite.code, referralNonce: `${pending.nonce}` },
+      } : {
+        pathname: '/signup',
+        params: { referralNonce: `${pending.nonce}` },
+      });
+      setPending(null);
+    };
+    void routeInvite().catch(() => { if (active) setPending(null); });
+    return () => { active = false; };
+  }, [isPlatformSignedIn, role, pending, rootNavigationState?.key, sessionKey]);
+
+  return null;
+}
+
 function RootLayout() {
   const isWeb = Platform.OS === 'web';
   const enableTourGuide = Platform.OS === 'android';
-
-  useEffect(() => {
-    function extractReferralCode(url: string | null): string | null {
-      if (!url) return null;
-      try {
-        const parsed = Linking.parse(url);
-        const code = parsed.queryParams?.code;
-        if (typeof code !== 'string' || !code.trim()) return null;
-        if (parsed.path === 'signup' || parsed.hostname === 'signup') return code.trim();
-      } catch {}
-      return null;
-    }
-
-    // cold start: expo-router가 이미 /signup으로 라우팅하므로 코드 저장만
-    Linking.getInitialURL().then((url) => {
-      const code = extractReferralCode(url);
-      if (code) savePendingReferralCode(code).catch(() => {});
-    }).catch(() => {});
-
-    // warm start: 코드 저장 후 /signup으로 이동
-    const sub = Linking.addEventListener('url', (event) => {
-      const code = extractReferralCode(event.url);
-      if (code) {
-        savePendingReferralCode(code).then(() => {
-          router.replace({
-            pathname: '/signup',
-            params: { referralNonce: `${Date.now()}` },
-          });
-        }).catch(() => {});
-      }
-    });
-    return () => sub.remove();
-  }, []);
 
   const fontSources = useMemo<Record<string, FontSource>>(() => {
     if (isWeb) {
@@ -589,13 +642,19 @@ function RootLayout() {
         });
         const channels = await Notifications.getNotificationChannelsAsync();
         logger.debug('[notifications] android channels', { channels });
-        await NavigationBar.setVisibilityAsync('visible');
-        await NavigationBar.setBackgroundColorAsync(DEFAULT_SCREEN_BACKGROUND);
-        await NavigationBar.setStyle('dark');
       } catch (err) {
-        logger.warn('NavigationBar/Notification setup failed', err);
+        logger.warn('Notification setup failed', err);
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    NavigationBar.setVisibilityAsync('visible').catch((err) => {
+      logger.warn('NavigationBar setup failed', err);
+    });
+    // setStyle takes the bar style: 'light' bar => dark buttons on the white backdrop.
+    NavigationBar.setStyle('light');
   }, []);
 
   return (
@@ -604,6 +663,7 @@ function RootLayout() {
         <SafeAreaProvider>
           <QueryClientProvider client={queryClient}>
             <SessionProvider>
+              <ReferralLinkBootstrap />
               <NotificationNavigationBootstrap />
               <PresenceBootstrap />
               <AppAlertProvider>
@@ -631,25 +691,14 @@ function RootLayout() {
                             }}
                           />
                           <Stack.Screen name="login" options={{ headerShown: false }} />
-                          <Stack.Screen
-                            name="signup"
-                            options={{
-                              ...authHeader,
-                              title: '회원가입',
-                              headerLeft: () => (
-                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => router.replace('/login')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
-                                  <Feather name="arrow-left" size={24} color="#000" />
-                                </Pressable>
-                              ),
-                            }}
-                          />
+                          <Stack.Screen name="signup" options={{ headerShown: false }} />
                           <Stack.Screen
                             name="reset-password"
                             options={{
                               ...authHeader,
                               title: '비밀번호 재설정',
                               headerLeft: () => (
-                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => router.replace('/login')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
+                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => goBackOrReplace(router, '/services/login')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>
                               ),
@@ -664,30 +713,8 @@ function RootLayout() {
                               gestureEnabled: false,
                             }}
                           />
-                          <Stack.Screen
-                            name="signup-verify"
-                            options={{
-                              ...authHeader,
-                              title: '휴대폰 인증',
-                              headerLeft: () => (
-                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => goBackOrReplace(router, '/signup')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
-                                  <Feather name="arrow-left" size={24} color="#000" />
-                                </Pressable>
-                              ),
-                            }}
-                          />
-                          <Stack.Screen
-                            name="signup-password"
-                            options={{
-                              ...authHeader,
-                              title: '비밀번호 설정',
-                              headerLeft: () => (
-                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => router.replace('/signup-verify')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
-                                  <Feather name="arrow-left" size={24} color="#000" />
-                                </Pressable>
-                              ),
-                            }}
-                          />
+                          <Stack.Screen name="signup-verify" options={{ headerShown: false }} />
+                          <Stack.Screen name="signup-password" options={{ headerShown: false }} />
                           <Stack.Screen name="apply-gate" options={{ ...baseHeader, title: '추가 정보 입력 안내' }} />
                           <Stack.Screen name="identity" options={{ ...baseHeader, title: '신원 확인' }} />
                           <Stack.Screen
@@ -724,6 +751,7 @@ function RootLayout() {
                           />
                           <Stack.Screen name="group-chat" options={{ headerShown: false }} />
                           <Stack.Screen name="chat" options={{ headerShown: false }} />
+                          <Stack.Screen name="photo-viewer" options={{ headerShown: false, animation: 'fade' }} />
                           <Stack.Screen name="messenger-search" options={{ headerShown: false }} />
                           <Stack.Screen name="new-conversation" options={{ headerShown: false }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
@@ -773,25 +801,14 @@ function RootLayout() {
                             }}
                           />
                           <Stack.Screen name="login" options={{ headerShown: false }} />
-                          <Stack.Screen
-                            name="signup"
-                            options={{
-                              ...authHeader,
-                              title: '회원가입',
-                              headerLeft: () => (
-                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => router.replace('/login')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
-                                  <Feather name="arrow-left" size={24} color="#000" />
-                                </Pressable>
-                              ),
-                            }}
-                          />
+                          <Stack.Screen name="signup" options={{ headerShown: false }} />
                           <Stack.Screen
                             name="reset-password"
                             options={{
                               ...authHeader,
                               title: '비밀번호 재설정',
                               headerLeft: () => (
-                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => router.replace('/login')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
+                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => goBackOrReplace(router, '/services/login')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
                                   <Feather name="arrow-left" size={24} color="#000" />
                                 </Pressable>
                               ),
@@ -806,30 +823,8 @@ function RootLayout() {
                               gestureEnabled: false,
                             }}
                           />
-                          <Stack.Screen
-                            name="signup-verify"
-                            options={{
-                              ...authHeader,
-                              title: '휴대폰 인증',
-                              headerLeft: () => (
-                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => goBackOrReplace(router, '/signup')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
-                                  <Feather name="arrow-left" size={24} color="#000" />
-                                </Pressable>
-                              ),
-                            }}
-                          />
-                          <Stack.Screen
-                            name="signup-password"
-                            options={{
-                              ...authHeader,
-                              title: '비밀번호 설정',
-                              headerLeft: () => (
-                                <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" onPress={() => router.replace('/signup-verify')} style={{ minWidth: 44, minHeight: 44, padding: 8, marginLeft: -8, alignItems: 'center', justifyContent: 'center' }}>
-                                  <Feather name="arrow-left" size={24} color="#000" />
-                                </Pressable>
-                              ),
-                            }}
-                          />
+                          <Stack.Screen name="signup-verify" options={{ headerShown: false }} />
+                          <Stack.Screen name="signup-password" options={{ headerShown: false }} />
                           <Stack.Screen name="apply-gate" options={{ ...baseHeader, title: '추가 정보 입력 안내' }} />
                           <Stack.Screen name="identity" options={{ ...baseHeader, title: '신원 확인' }} />
                           <Stack.Screen name="fc/new" options={{ ...baseHeader, title: '기본 정보' }} />
@@ -855,6 +850,7 @@ function RootLayout() {
                           />
                           <Stack.Screen name="group-chat" options={{ headerShown: false }} />
                           <Stack.Screen name="chat" options={{ headerShown: false }} />
+                          <Stack.Screen name="photo-viewer" options={{ headerShown: false, animation: 'fade' }} />
                           <Stack.Screen name="messenger-search" options={{ headerShown: false }} />
                           <Stack.Screen name="new-conversation" options={{ headerShown: false }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
@@ -892,11 +888,24 @@ function RootLayout() {
               </AppAlertProvider>
             </SessionProvider>
           </QueryClientProvider>
+          <AndroidNavigationBarBackdrop />
         </SafeAreaProvider>
         {showSplash && <SplashAnimation onDone={() => setShowSplash(false)} />}
       </GestureHandlerRootView>
     </ErrorBoundary>
   );
 }
+
+const styles = StyleSheet.create({
+  navigationBarBackdrop: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: DEFAULT_SCREEN_BACKGROUND,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLORS.border.light,
+  },
+});
 
 export default withSentryRoot(RootLayout);

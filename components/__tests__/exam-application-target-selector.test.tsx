@@ -56,6 +56,7 @@ function loadSelector(): React.ComponentType<SelectorProps> {
       StyleSheet: { create: (styles: unknown) => styles, hairlineWidth: 1 },
     };
     if (name === '@expo/vector-icons') return { Feather: 'Feather' };
+    if (name === 'react-native-safe-area-context') return { useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 24, left: 0 }) };
     throw new Error(`Unexpected selector dependency: ${name}`);
   }, exported);
   return exported.ExamApplicationTargetSelector!;

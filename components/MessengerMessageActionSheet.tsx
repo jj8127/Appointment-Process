@@ -7,6 +7,8 @@ const CHARCOAL = '#111827';
 type FeatherName = ComponentProps<typeof Feather>['name'];
 
 export const MESSENGER_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '👏'] as const;
+/** Long-press delay that opens this sheet, shared by the 1:1 and group rooms. */
+export const MESSENGER_MESSAGE_LONG_PRESS_MS = 350;
 
 type ActionRowProps = {
   icon: FeatherName;

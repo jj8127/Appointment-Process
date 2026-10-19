@@ -16,8 +16,8 @@ describe('direct chat back navigation contract', () => {
     (file) => {
       const source = readFileSync(join(process.cwd(), 'app', file), 'utf8');
 
-      expect(source).toContain('onPress={() => router.back()}');
-      expect(source).not.toContain('onPressIn={() => router.back()}');
+      expect(source).toMatch(/onPress=\{\(\) => (?:router\.back\(\)|goBackOrReplace\(router, '\/messenger'\))\}/);
+      expect(source).not.toMatch(/onPressIn=\{\(\) => (?:router\.back\(\)|goBackOrReplace\()/);
     },
   );
 });

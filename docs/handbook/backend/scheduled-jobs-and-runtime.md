@@ -2,10 +2,18 @@ doc_id: FC-BACKEND-SCHEDULED-RUNTIME
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-07-29
-source_of_truth: supabase/functions/docs-deadline-reminder/index.ts + supabase/functions/user-presence/index.ts + hooks/use-app-presence-heartbeat.ts
+last_verified: 2026-10-14
+source_of_truth: supabase/migrations/20261014140000_platform_withdrawal_drain_schedule.sql + supabase/functions/docs-deadline-reminder/index.ts + supabase/functions/user-presence/index.ts + hooks/use-app-presence-heartbeat.ts
 
 # Backend Runbook: Scheduled Jobs And Runtime
+
+## 2026-10-14 공통 탈퇴 정리 drain 예약
+
+pg_cron `platform-withdrawal-cleanup-drain`이 5분마다 `public.request_platform_withdrawal_drain_v1()`를 실행한다. due 탈퇴가 있고 Vault secret `platform_withdrawal_drain_service_key`가 있을 때만 pg_net으로 `platform-service`의 `withdrawal_cleanup_drain`을 호출한다. Edge는 같은 service-role 값이 `apikey`와 `Authorization: Bearer`에 모두 있을 때만 받아 최대3건을 각 operation lock 아래 처리하고 실패는 backoff로 남긴다.
+
+- secret 값은 source·migration·로그·증거에 넣지 않는다. 등록·교체는 운영자가 대시보드 SQL 편집기에서 `vault.create_secret` / `vault.update_secret`으로 한다. 값은 Edge `SUPABASE_SERVICE_ROLE_KEY`와 정확히 같아야 한다.
+- secret이 없으면 job은 아무것도 하지 않는다. 중지는 `select cron.unschedule('platform-withdrawal-cleanup-drain');`이다.
+- 호출 결과는 `net._http_response`에서 status만 확인한다. 응답 본문·헤더를 증거로 복사하지 않는다.
 
 ## 2026-10-13 필수 target 조회와 presence 결과
 

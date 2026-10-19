@@ -25,6 +25,13 @@ describe('mobile keyboard surface contract', () => {
     expect(result.discovered).toEqual(result.registered);
     expect(result.discovered.length).toBeGreaterThan(30);
   });
+  it('moves input ownership from legacy aliases to common auth and service registration', () => {
+    const { registered } = runAudit();
+    expect(registered).toEqual(expect.arrayContaining(['app/services/login.tsx', 'app/services/signup.tsx', 'app/apply-gate.tsx']));
+    for (const route of ['app/login.tsx', 'app/signup.tsx', 'app/signup-password.tsx', 'app/signup-verify.tsx']) {
+      expect(registered).not.toContain(route);
+    }
+  });
 
   it('preserves explicit Android scroll room instead of assuming adjustResize always succeeds', () => {
     expect(normalizeKeyboardPadding(320)).toBe(320);

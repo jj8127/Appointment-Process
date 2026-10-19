@@ -1,5 +1,14 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261019-moduon-signup-prod-line-integration"></a>
+## 2026-10-19 운영 모두온 가입·탈퇴·메신저 계열 통합
+
+- 대상: fix/moduon-signup-code-check-20261016(69fdd38, 6b72d99a에서 갈라진 62커밋). 운영 DB에 적용된 20261014043557~20261016090000 migration 8개를 포함한다.
+- 충돌 22개: 가입 관련 5개(app/signup.tsx, StackedForm, signup-steps와 시험, AppAlertProvider)는 운영판, schema.sql은 이 계열 판(6c19783과 schema 동일 + 10-14~16 migration). use-login은 운영판(FC 전용 login 제거, isCurrent 인자). 채팅은 운영의 최신 메시지 이동 버튼과 release의 스크롤 측정을 함께 유지했다. 그룹 채팅 뒤로 가기는 goBackOrReplace(메신저 대체 경로)로 두고 source 시험을 맞췄다.
+- 핸들러 시험은 운영판(서비스별 탈퇴 시험)을 쓰되 release가 mobile-acceptance로 옮긴 시험 대기 수 중복은 넣지 않았다.
+- 검증: 앱·웹 tsc, deno check(get-referral-tree, login-with-password, request-signup-otp, set-password; platform-service는 기준선도 같은 로컬 npm 의존성 오류), jest 새 실패 0, web 799/800(기존 범례 1), edge 134/134(기준선과 차이 3개는 release가 옮기거나 뺀 시험), SQL PGlite 133/133.
+- 남은 것: 운영 DB의 메신저 통합 모델 migration 11개(20261016104031~20261016151419)는 이 계열에도 없다.
+
 <a id="20261019-admin-web-prod-line-integration"></a>
 ## 2026-10-19 운영 관리자 웹 계열 통합
 
@@ -15,6 +24,225 @@
 - 요청 게시판·로그인·관리자 목록·시험 신청자·FC 상세·그룹채팅은 핫픽스의 행 검증(collectSupabaseRows, 수신 확인, parseLoginSuccessResponse)과 release의 화면 구조(acceptLoginResponse, 일괄 접수, FC 홈 개편, admin-route-auth)를 함께 유지했다. schema.sql은 서로 겹치지 않는 두 migration 묶음을 날짜순으로 이었다.
 - release가 Edge fixture에서 mobile-acceptance-runtime으로 옮긴 시험 대기 수·서류 재진입 시험은 핫픽스 fixture를 반영해 옮긴 쪽에 두고, 핸들러 시험의 중복본과 release가 지운 메시지 초안 시험은 다시 넣지 않았다. release 소스 추출 시험에는 핫픽스의 새 의존성을 주입했다.
 - 검증: 앱·웹 tsc, deno check(get-referral-tree, login-with-password, request-signup-otp), jest, web node, edge node를 release·핫픽스 기준선과 비교해 새 실패 0건. 핫픽스 커밋에서 이미 실패하던 소스 문자열 시험 15건과 referral-graph-responsive 범례 시험 1건은 그대로 남아 있다.
+<a id="20261015-ota-4220-msg"></a>
+## 2026-10-15 메신저 사진·실시간 채널·가족간병 추천인 OTA
+
+- source: `abe7d2365695515c57be5e36f1e5903b228f60c0`(직전 OTA `c3e7e8a` 이후 `a14c925`·`8495552`·`7ae35d0`·`ab4f779`·`abe7d23`), clean detached 작업 트리에서 export·publish 후 제거. 홈 재디자인(`dd55dac`·미커밋 아이콘)은 제외. push 안 함.
+- 내용: 이미지 첨부 미리보기·앱 내 전체 화면 보기·저장, 사진 첨부를 대화 목록·답장에서 "사진/사진 N장"으로 표시, 실시간 채널 topic을 인스턴스마다 고유하게(`createRealtimeChannelTopic`; 단톡방·관리자 대시보드·서류 업로드·시험 등록, 기존 3개 helper 통합) — 재진입 시 "cannot add postgres_changes callbacks after subscribe()" 화면 오류와 Sentry `REACT-NATIVE-Q`의 원인, 가족간병 추천인 카드를 가족간병 안내로 이동, 내 정보 추천인 문구 삭제.
+- 검증: 변경 관련 suite 통과. 전체 jest에서 실패한 lib/supabase 19개 suite는 수정 전 `c3e7e8a`에서도 같은 결과(기존 실패), web/node:test 파일은 jest 대상이 아님. 실기기(Android, 로컬 release 빌드)에서 미리보기·보기·닫기·"사진 2장"·가족간병·내 정보·단톡방 8회 빠른 재진입 오류 0건 확인. 사진 저장(SAF 권한)과 실시간 새 메시지 수신은 미확인.
+- 도구: `D:/hanhwa/artifacts/moduon-ui-polish-20261015/ota-4-2-20-msg/eas-release.mjs`(OTA_PLATFORM android|ios). Android: 97·98 대비 네이티브 입력 변경 없음. iOS: 112(`bc01595`) 대비 app.json의 Android 전용 키만 다름. iOS 번들은 Android 전용 종료 확인 문구 marker를 제외.
+- 게시: Android group `1c06c70a-699f-4272-af04-eecda58d6bda` update `01a13ec5-b589-79e9-8adc-cc7637e01030`, iOS group `67dbed9b-b6d4-4129-8f60-efa68c8393d5` update `01a13ec6-5c00-7201-baf8-beb58a1d649a`, runtime 4.2.20, commit 일치, readback PASS, `u.expo.dev` 두 플랫폼 HTTP 200·같은 id. iOS 4.2.20(112)은 App Store 미출시 상태라 출시 후 적용된다(공개 4.2.19 대상 아님).
+- 배포 후: Sentry 최근 30분 이슈 0건. 스토어 앱의 OTA 채택은 미확인. 롤백: 직전 Android group `eefd2e94-ea4d-450c-baf8-580eeeb4bedd` 재게시.
+
+<a id="20261015-messenger-attachment-fix"></a>
+## 2026-10-15 메신저 사진 전송 실패 수정·배포
+
+- 원인: `_shared/messenger-attachment-policy.ts`가 이미지·PDF·Office 바이트 전체에서 `#!`·`PK`·`ELF`를 위치·구조 확인 없이 찾아 `invalid_attachment_polyglot`(400)을 냈다(실제 3.2MiB PNG에서 재현 조건 충족). 64바이트 미만 파일은 검사를 건너뛰어 짧은 셸 스크립트가 TXT로 통과했다. 앱 `group-chat.tsx`·`chat.tsx`는 모든 오류에 같은 키 재확인 창을 띄워 확정 거부가 무한 반복됐고 code·status를 남기지 않아 Sentry 기록이 없었다.
+- 수정(`c3e7e8a`): 시작 위치 shebang, ELF ident, MZ 뒤 PE, ZIP local header 필드 검증 + `indexOf` 검색. 앱은 `classifyMessengerSendFailure`로 결과 불명(네트워크·408·429·5xx·응답 해석 실패)만 재확인하고 확정 거부는 사유 표시, 로그에 code·status·uncertain. 회귀: Deno 정책(우연 바이트 통과, 실제 ELF·짧은 스크립트 거부; 수정 전 코드에서 실패 확인), 앱 분류 테스트. Deno 첨부 47 PASS, 앱 첨부 13 PASS, tsc·eslint·deno check PASS. 기존 무관 실패: `messenger-group-anchor-source`(load 구간), `request-board-read-state`(테스트 내 미처리 rejection).
+- 서버 배포: 브랜치에 미배포 기능(탈퇴 연동·플랫폼 세션 등)이 있어 브랜치 전체 배포 대신, 운영 `group-chat` v26·`fc-notify` v97 소스를 내려받아 정책 파일만 `c3e7e8a` 버전으로 교체해 배포했다. 결과 `group-chat` v28·`fc-notify` v99 ACTIVE, verify_jwt=true, import map 유지(v27/v98은 import map 누락으로 재배포). readback에서 직전 운영 대비 정책 파일 하나만 다르고 커밋과 일치. 비로그인 401, anon 키 요청은 함수 자체 `invalid_app_session` 응답으로 기동 확인. 첨부 검사를 하지 않는 `messenger-attachments`·`admin-action`·`platform-service`는 재배포하지 않았다.
+- OTA: clean detached 작업 트리 `c3e7e8a`(97·98 대비 네이티브 입력 변경 없음), 도구 `D:/hanhwa/artifacts/moduon-ui-polish-20261015/ota-4-2-20-attach/eas-release.mjs`. preflight·export(이번 문구 marker 포함) PASS, group `eefd2e94-ea4d-450c-baf8-580eeeb4bedd`, update `01a13e7d-b07b-785f-87d7-d9d738a21d3c`, android, runtime 4.2.20, readback PASS, `u.expo.dev` HTTP 200·같은 id. iOS 공개 버전은 4.2.19(runtime 4.2.19)라 이 source로 게시하지 않았다. push 안 함.
+- 배포 후: Sentry 최근 30분 이슈 0건. Edge Function 로그는 조회 수단이 없어 확인하지 못했고, 실제 기기 전송·OTA 채택은 미확인.
+
+<a id="20261015-android-4220-submit"></a>
+## 2026-10-15 모두온 4.2.20 Android 스토어 제출
+
+- 출시 source: `feature/moduon-ui-polish-20261015` clean `74399826605eb464f3d522c9f6e945a3ebe13829`(UI `67e6309` + 운영 반영된 서버 브랜치 `1527684` 병합, tree `4ca4fdee`). push 안 함.
+- 기기 확인(로컬 ui9, 같은 앱 source): 입력 중 길게 누른 칩 탭, 칸 아래 오류와 첫 오류 이동, 소속·통신사·이메일 도메인 시트와 직접 입력, 작성 중 이탈 확인, 모두온 홈 종료 확인, 하단 내비게이션 바. 회원가입 성공 안내는 실제 계정 생성이 필요해 기기에서 실행하지 않았다(소스 테스트만).
+- 관찰: 덮어 설치 직후 첫 실행에서 종료 확인 창의 취소와 이후 모든 탭이 무반응인 상태가 adb 주입 탭으로 2회 나타났다(드래그 한 번으로 해소, 앱 로그 없음). 탭은 확인 창 창까지 도달했고, 드래그로 풀리는 점은 JS에 끝나지 않은 터치가 남은 경우와 맞는다. 확인 창 버튼은 손을 뗄 때 동작해 그 경로는 아니다. 이후 ui9 실행 방식(monkey·am start)·실행 중/종료 후 덮어 설치·확인 창 열린 채 교체 조건과 터치 로그 진단 빌드로 총 40회 이상 반복했으나 재현되지 않아 원인 미확정으로 남긴다. 이번 수정 범위 밖의 홈·확인 창 경로다.
+- EAS build `b0187827-0f69-4875-8701-b42d2f2864e4` FINISHED, 4.2.20/97/runtime 4.2.20/STORE/production. AAB 96,721,151 bytes, SHA-256 `26c64a9e…c5a20116`. 검증 38항목 PASS. 4.2.19 키트 대비 검증 변경 사유는 release 키트 `VERIFIER-CHANGES.md`에 기록했다.
+- Play: 업로드 해시 일치, production 구성, validate, commit(`ERROR_IF_IN_REVIEW`) 성공 2026-10-14T18:11:15Z. 이후 조회에서 97 IN_REVIEW, 95 PUBLISHED. 공개 여부는 심사 후 별도 확인이 필요하다. iOS·OTA·서버 변경은 없다.
+- 증거: `D:/hanhwa/artifacts/moduon-ui-polish-20261015/android-native/`(빌드·다운로드·검증·제출 영수증).
+
+<a id="20261015-ota-4220"></a>
+## 2026-10-15 모두온 4.2.20 Android OTA 배포
+
+- source: `1ef3731cfad813d4101cb78acca7f2d9955ad748`를 별도 detached 작업 트리로 만들어 clean 상태에서 export·publish 후 작업 트리를 제거했다. 원래 작업 트리의 다른 세션 미커밋 파일(계정·가족간병 화면 등 5개)은 손대지 않았다. push 안 함.
+- 네이티브 입력(app.json·eas.json·package/lock·plugins·patches·babel·metro·android/ios) 변경 없음: 97(`7439982`)·98(`9440d44`) 모두 대비. 이전 4.2.19 OTA 도구를 4.2.20용으로 고친 `D:/hanhwa/artifacts/moduon-ui-polish-20261015/ota-4-2-20/eas-release.mjs`(가입 토큰 키 retired·추천 문장 변경 반영, 이번 수정 marker 추가).
+- preflight PASS(production 채널·branch, 운영 Supabase URL, anon key, profile 공개 설정). export: Android Hermes 1개, 공개 설정·이번 수정 marker 포함 PASS, Sentry 업로드 없음.
+- 게시: group `f26d1737-8f32-432c-ada8-0ab02fbc77bf`, update `01a13d30-af46-7423-bdbe-32a5694b410a`, android, runtime 4.2.20, commit 일치. readback PASS, `u.expo.dev` 앱 요청 형식 HTTP 200·같은 update id. iOS는 게시하지 않았다.
+- 배포 후 오류(Sentry `hanhwa-lifelab/react-native`, production): 게시(01:32Z) 이후 오류 이벤트 0건. 최근 24시간 이슈는 게시 약 20시간 전 4.2.19의 `REACT-NATIVE-Q`(관리자 대시보드 realtime 구독 순서) 1건뿐으로 이번 배포와 무관하다. 다만 최근 7일 오류가 릴리스별 1건씩 총 3건일 만큼 수집량이 적고 4.2.20 이벤트도 아직 없어, 0건은 채택 초기의 제한된 증거다.
+- 제한: 기기 채택(실제 다운로드·적용)은 확인하지 못했다(무선 ADB 끊김).
+
+<a id="20261015-step-card-spacing"></a>
+## 2026-10-15 보험 홈 다음 단계 카드 여백
+
+- `app/index.tsx` `premiumStepCard`: `height: 120`→`minHeight: 136`, 세로 여백 22→20, 가로 24→22. 머리줄 간격 8→12, 제목 24→22(lineHeight 30, 아래 6), 설명 lineHeight 21. 같은 줄의 영상 버튼은 높이를 따라 늘어난다. 타입·lint·보험 홈 테스트 PASS, 기기 미확인.
+
+<a id="20261015-login-notification-handoff"></a>
+## 2026-10-15 로그인 후 화면이 넘어가지 않던 문제
+
+- 증상(사용자 보고, 운영 97): 로그인 버튼 후 무반응, 재실행하면 로그인 상태. 재실행 시 로그인돼 있었으므로 `loginAs`까지 실행돼 세션은 저장됐고 화면 이동만 빠졌다.
+- 원인: `app/services/login.tsx`는 `waitForNotificationNavigationDecision()`이 pending이면 이동하지 않는다. 조정기의 pending은 프로세스 동안 유지되며, 알림 대상으로 이미 이동했거나 읽음 처리(`markPendingNotificationRead`)가 실패하면 idle로 돌아가지 않는다. 이후 로그아웃·재로그인 시 `_layout`은 이미 보낸 알림이라 아무것도 하지 않고, 로그인 화면은 양보해 멈춘다. 재실행하면 조정기가 초기화된다.
+- 수정: 직접 로그인 성공 뒤 pending이면 1.2초 양보하고, 그때도 로그인 화면이 포커스면 정상 착지 경로로 이동한다. 자동 진입(직접 로그인 아님)은 기존처럼 알림을 덮지 않는다. 늦게 온 알림 이동은 홈 위에 쌓여 손실되지 않는다.
+- 검증: 기존 `login-navigation.test.js`의 pending 사례를 포커스 유지/알림 포커스 두 경우와 자동 진입 비덮어쓰기로 확장(30건 PASS, 수정 전 코드에서는 stale 사례 실패). 기기 재현은 무선 ADB 연결이 끊겨 수행하지 못했다. 이전 출시(98)에는 포함되지 않는다.
+
+<a id="20261015-android-98-submit"></a>
+## 2026-10-15 모두온 4.2.20 Android versionCode 98 제출
+
+- source: clean `9440d443521a55de39e254f3fcf61ea382f90fb0`(tree `8f682b56`), 97 이후 변경은 `KeyboardAwareWrapper` 스크롤 위치 재동기화·테스트·문서뿐이다. push 안 함.
+- 기기: 같은 source의 로컬 ui10에서 키보드 연 상태·스크롤 후 칩 길게 누르기 12/12(12px 이동 포함).
+- EAS build `9edf8265-95bf-4801-8d7a-ac326327d965` FINISHED, 4.2.20/98/STORE/production. AAB SHA-256 `4f0a4fd1…5e8c8b89`, 검증 38항목 PASS.
+- Play: 업로드 해시 일치·production 구성·validate·commit(`CANCEL_IN_REVIEW_AND_SUBMIT`) 성공 2026-10-14T19:54:11Z. 이후 조회에서 98 IN_REVIEW, 97 PUBLISHED. 98 공개 여부는 심사 후 확인한다. 키트: `D:/hanhwa/artifacts/moduon-ui-polish-20261015/android-native-98/`.
+
+<a id="20261015-fabric-scroll-offset"></a>
+## 2026-10-15 스크롤 후 누른 표시만 나고 동작하지 않던 탭의 근본 원인
+
+- 가입 화면 진단 빌드(서버 요청·로그인 대체, 미커밋)에서 체크박스 누름 로그를 남겨 확인: 짧은 탭은 성공하고 60ms 이상 누름은 누름 시작·끝만 있고 실행이 없었다. 같은 위치에서 첫 측정은 y=640dp(정확), 다음 측정은 853dp(스크롤 전 위치)였다. Android Fabric에서 React commit이 네이티브 스크롤 위치 상태 갱신과 겹치면 위치가 사라지고, 네이티브는 같은 위치를 다시 보내지 않아 Pressable 누름 영역 판정이 틀어진다. KASV가 키보드 때 스크롤·여백을 바꿔 키보드 상황에서 자주 드러난다.
+- `KeyboardAwareWrapper`가 스크롤이 150ms 멈춘 뒤·재렌더·내용 크기 변경 뒤 1px 이동 후 복귀해 위치를 다시 보내게 했다(스크롤 중·위치 0·iOS 제외, 자체 이벤트 무시). 새 `components/__tests__/KeyboardAwareWrapper.test.tsx` 4건.
+- 기기 A/B(같은 절차, 실행→스크롤→짧은 탭1·120ms 누름5): 수정 전 6회 중 3회 실패(1/6), 수정 후 36/36. 키보드 연 상태 수정 전 4회 중 2회 실패, 수정 후 24/24. KASV 입력칸 자동 스크롤 정상.
+- 회원가입 완료 안내: 같은 진단 빌드에서 키보드 연 상태로 약관 체크·가입 완료를 길게 눌러 안내 표시와 계정 화면 이동을 기기에서 확인했다(실제 계정 생성·전송 없음, 기존 로그인 세션 유지).
+
+<a id="20261015-keyboard-taps"></a>
+## 2026-10-15 키보드가 열린 상태의 터치 누락
+
+- 회원가입에서 재현: 로그인에 적용된 `always`·`submitOnPressIn` 수정이 회원가입에 빠져 있었고, KASV의 키보드 내림 시 위치 복귀 애니메이션과 `handled`의 빈 곳 탭 blur가 누름을 취소했다(MISTAKES "Auth Button Keyboard Dismiss Regression"와 같은 유형).
+- 전수 점검: TypeScript JSX 파서로 입력이 있는 화면의 스크롤 컨테이너를 모두 확인해 폼 화면·중첩 칩 행 26곳을 `always`로, 채팅 FC 선택 목록을 `handled`로 맞췄다. 채팅·검색 목록의 `handled`는 유지했다. 공용 래퍼의 `enableResetScrollToCoords`를 껐다.
+- 남은 간헐 누락(가람in 추가 정보 자격증 칩 등): 기기에서 입력칸 포커스 상태로 70ms 이상 누르는 탭이 첫 번째 이후 모두 무시되는 것을 결정적으로 재현했다(즉시 탭은 성공). JS ScrollView 응답자가 누름을 가져가는 경로라 `KeyboardAwareWrapper`와 세로 `always` 컨테이너 12곳에 `disableScrollViewPanResponder`를 켰다. ui8 설치 후 같은 절차에서 70·90·150ms 누름 12/12, 4~16px 움직인 누름 6/6 성공, 드래그 스크롤·키보드 유지 정상. keyboard 감사에 누락 검출 규칙을 추가했다(제거 시 실패 확인).
+- 출시 전 기기 점검에서 발견: 모두온 홈(`ServiceHub`)은 뒤로가기 시 확인 없이 앱이 종료됐다(보험 홈·home-lite만 확인 창). 세 곳의 같은 처리 블록을 `hooks/use-root-exit-confirm.ts`로 합쳐 `ServiceHub`에도 적용하고 기존 `ServiceHub.test`에 뒤로가기 사례를 추가했다. 테두리 표시용 빈 오류(`' '`)가 빈 문구 줄을 만들고 이메일·추천인 오류 글자 크기가 달랐던 것을 맞췄다. 전체 Jest는 기준 `bc01595` 대비 새 실패 0(기존 125, 이번에 1개 해소).
+- 회원가입 성공 시 성공 토스트를 띄운다. 검증: Jest 전체에서 이 브랜치에서만 실패하는 suite 0(기준 브랜치와 동일한 기존 실패 116은 별도), tsc·eslint·keyboard 계약 PASS. 기기 재현 확인은 설치 후 사용자 확인 대상이다.
+
+<a id="20261015-enrollment-dialog-redesign"></a>
+## 2026-10-15 보험 추가 정보 안내·입력과 확인 창 재설계
+
+- 브랜치 `feature/moduon-ui-polish-20261015`(기준 `bc01595`). `AppAlertProvider` 한 곳에서 424개 `Alert.alert` 호출의 표시를 바꾸며 버튼 원래 index 디스패치·대기열·중복 터치·뒤로가기 계약은 유지한다. 순서 테스트 2개를 기존 suite에 추가했다.
+- `apply-gate`: 진행 표시·준비 목록·동의 카드·하단 고정 버튼, 입력 단계 분리. 검증은 `lib/insurance-enrollment-errors.ts` 순수 함수로 옮겨 칸별 오류와 `KeyboardAwareWrapper.scrollToY` 이동으로 표시한다. 기존 submit 실행 테스트를 창 대신 칸 오류·이동 기대로 갱신했다. 핸들러 이름·제출 payload·idempotency·계정 전환 보호는 그대로다.
+- 신규 `OptionSheetField`(소속·통신사 2곳). 이메일 도메인 목록은 `SIGNUP_EMAIL_DOMAINS`로 올려 `fc/new.tsx`와 공유한다. `COLORS.errorButton` 토큰 추가.
+- 이메일은 `아이디 @ 도메인 선택` 행으로 받고 "직접 입력"을 고르면 도메인 입력칸을 연다(`composeEmail`, `SIGNUP_EMAIL_DOMAIN_CHOICES`). 사용자가 primary checkout에서 만든 Android 내비게이션 바 변경(`enforceContrast: false`, 바 뒤 불투명 배경과 구분선, 설정 분리)을 해당 hunk만 이 브랜치에 옮겼다.
+- 기존 실패였던 `FamilyCareReferrer.tsx` 키보드 화면 미등록을 부모 소유 입력 섹션으로 등록했다. 초안 이탈 guard 규칙의 근거 테스트에 실제 guard 실행 테스트(`mobile-acceptance-runtime`)를 추가했다.
+
+<a id="20261015-auto-retire-direct-fc"></a>
+## 2026-10-15 탈퇴 때 가람링크 직접 가입 FC 자동 정리
+
+- 원인: 정리 대상 가람링크 계정이 `auth_source=direct`, 연결·동기화 기록 0이라 FC UUID 연결이 없어 보류됐다. 이번 건은 운영자 확인 연결 1건으로 처리 안내했다.
+- 변경: `createRequestBoardAccountRetirementAssertion`이 형식이 맞는 원본 번호만 서명에 포함한다. `finishWithdrawal`은 local 삭제 전 FC 번호를 읽어 보내고, 번호를 보낸 요청에 한해 `no_affiliate_account`(삭제 대상 없음)를 정리 완료로 받는다. 가람링크 쪽은 `release/rb-retirement-20261014`의 `20261015040000_auto_bind_direct_fc_retirement.sql`.
+- 검증: handler 36·assertion 8 PASS, deno check PASS. 가람링크 함수는 PGlite 임시 검증 9개 시나리오(자동 연결 정리·재시도·번호 없음·계정 없음·중복·본부장·설계사·동기화됨·형식 오류) PASS.
+
+<a id="20261015-link-restored-fc"></a>
+## 2026-10-15 복구 FC와 공통 회원 연결
+
+- 진단(대시보드 읽기 전용, 개인정보 없이 boolean/count): 해당 번호는 활성 일반 공통 회원(credential 1, 직원·FC 연결 없음)과 2026-07-24 생성된 가입 완료 draft FC(비밀번호 있음)가 따로 존재했다. 같은 상태 9쌍. `enroll_platform_insurance_v1`의 가입 완료 FC 거절이 `forbidden`을 낸다.
+- 원인: fc-roster-recovery-20261014 적용이 공통 회원·credential 불변을 guard로 보장해 projection 연결이 일어나지 않았다.
+- 조치: 같은 phone 잠금 순서로 쌍을 연결하고 공통 비밀번호를 FC credential로 옮긴다(실패 횟수·임시 비밀번호·재설정 상태 초기화, credential 세대 증가로 이전 FC 세션 무효). 기존 공통 세션도 credential 삭제로 무효가 되어 사용자는 공통 비밀번호로 다시 로그인한다. 복구 시나리오 PGlite 테스트를 기존 suite에 추가했다.
+- 운영 반영: clean `d4f4958`에서 dry-run 대상 1개 확인 후 `20261015030000` 적용, local/remote 이력 일치. 운영 읽기 확인(대시보드)에서 미연결 쌍 9 → 0. 실제 재로그인·신원 입력 E2E는 사용자 기기 확인 대상이다.
+
+<a id="20261014-withdrawal-drain-schedule"></a>
+## 2026-10-14 공통 탈퇴 정리 자동 drain 예약
+
+- 의뢰게시판: `release/rb-retirement-20261014` clean `3dc9b84`(e55e94f + 운영 핫픽스 병합, v2 migration 파일명을 운영 version 20261013093030으로 정렬). DB `20261014073447` 적용·이력 일치, Vercel production Ready·alias requestboard-steel, health200·retire 무인증401 확인. 두 운영 반영은 이 세션 권한 거부로 사용자가 직접 실행했다.
+- 모두온: `20261014140000_platform_withdrawal_drain_schedule.sql`이 pg_net 활성화, security definer drain 요청 함수(모든 API role 실행 회수), 5분 pg_cron job을 만든다. Vault secret 미등록 또는 due 없음이면 호출하지 않는다. 기존 auth cleanup schedule 테스트에 cron 이름·주기·Vault 이름·action·권한 회수·credential 미포함·schema mirror 검사를 추가했다. pg_cron/pg_net/Vault 실행은 PGlite에서 재현할 수 없어 운영 적용 후 job 존재와 http status로 확인한다.
+- 운영 반영: clean `561ab99`에서 `20261014140000` 적용(dry-run 1개, 이력 일치). anon 호출 drain 403 확인. 운영자가 Vault secret을 등록했고 이름·길이·접두사만 확인했다(값 미기록). 실제 due 탈퇴의 자동 drain 호출 결과는 아직 관측하지 않았다.
+
+<a id="20261014-moduon-server-release"></a>
+## 2026-10-14 모두온 단일 계정·서비스별 추천인 서버 운영 반영
+
+- 배포 source: `feature/moduon-single-account-20261014` clean `d6f0b8da4a9de4775870250194de9aeae5bcc2db`(로컬 커밋, push 안 함). 운영 Edge의 기존 source(3b546af·58a714f)는 모두 이 커밋의 조상이다.
+- DB: dry-run에서 대기 4개만 확인 후 `supabase db push --linked --include-all`로 20261014043557·20261014073458·20261014120000·20261014130000 적용. 043557·073458은 이미 적용된 20261014084133보다 앞선 timestamp라 include-all이 필요했다. 적용 후 migration list의 local/remote가 일치한다.
+- Edge: 공용 모듈 변경은 additive라 새 동작을 쓰는 5개만 재배포했다(platform-service v5 verify_jwt=false, delete-account v47, request-password-reset v49, reset-password v51, verify-request-board-session v4, 모두 ACTIVE·config.toml과 같은 JWT 설정). 나머지 45개는 재배포하지 않았다.
+- 확인: 계정 없이 공개 병원 지역 200, 잘못된 번호 400 invalid_phone, 무세션 401, bridge 없는 검증 401을 확인했다. 실제 계정 로그인·가입·직원 부여·추천·탈퇴와 Edge 오류 로그 조회는 수행하지 않았다(이 세션에 로그 조회 도구 없음).
+- 사용자 결정: 구버전 앱(4.2.17/4.2.18)의 가입·탈퇴 등 동작 중단을 감수하고 당일 앱 빌드로 대체한다. 의뢰게시판 서버(retire/v2 sync)와 탈퇴 정리 예약이 없어 새 탈퇴 요청은 잠금 후 pending으로 남는다. 관리자 웹 배포는 포함하지 않았다.
+
+<a id="20261014-service-referrals"></a>
+## 2026-10-14 제휴 서비스별 추천인과 가족간병 소개 분리
+
+- 기준 05f4ae3. `20261014130000_platform_service_referrals.sql`은 `platform_service_referral_codes`·`platform_service_referrals`와 service-role RPC(코드 발급·조회·미리보기·등록, `register_platform_member_v2`)를 추가하고 `create_platform_application`이 같은 서비스 추천인을 스냅숏하게 바꾼다. 공통 `referrer_id`는 과거 기록으로만 남긴다.
+- 서비스 코드는 `S`+11자리 16진수라 공통 코드와 겹치지 않는다. 이전에 공유된 간병 링크(공통 코드)는 간병에서만 계속 인정한다.
+- 첫 등록이 확정이고 같은 추천인 재요청만 성공한다. 본인·순환 추천을 거절한다. 링크 가입의 코드 오류는 인증번호 확인 뒤 가입 전체를 되돌린다. 추천인 이름은 사용자 결정에 따라 가리지 않고 보여 준다.
+- 앱: 공통가입의 추천 코드 입력 제거(간병 링크 안내 카드와 '추천인 없이 가입하기'), 로그인 회원의 간병 링크는 간병 화면의 확인 카드로 이동, 내 정보의 공통 추천 코드 영역을 가족간병 추천인 등록으로 교체, 소개하기는 간병 전용 코드 사용. 구버전 앱의 `referralCode` 가입은 기존처럼 공통 기록만 남긴다.
+- 공통 필수 동의 문구(`PLATFORM_CONSENT_TEXT`)의 추천 표현을 제휴 서비스별 추천으로 고쳤다. 사용자가 회원 동의를 모두 서면으로 받았다고 확인해 동의 버전 2026-10-12와 기존 동의 상태를 유지한다. garam-public-web 개인정보 안내 문구도 로컬에서 같은 의미로 고쳤다.
+- 검증: platform-membership SQL 24/24, 관련 Jest 6개 suite, `deno check`(platform-service), tsc, eslint, governance 맵 갱신. `shared-function-contracts`의 inventory 1건 실패는 05f4ae3 기준에서도 같아 무관하다. 운영 DB 조회·적용, Edge·앱·웹 배포, push는 하지 않았다.
+
+<a id="20261014-moduon-staff-grant"></a>
+## 2026-10-14 모두온 단일 계정의 직원 권한 부여와 로그인 안내
+
+- 기준 source는 dc67f86이며 primary 미커밋 변경은 내용 대조 결과 대부분 dc67f86에 포함되거나 폐기된 화면 대상이었다. 실제로 옮긴 것은 로그인 오류 문구·테스트와 병원6개 분야 문서 단락이다. primary의 referral-allowance 등 인증 무관 작업은 옮기지 않고 그대로 보존한다.
+- `grant_platform_staff_account_v1`은 활성 공통 회원에 admin/manager 계정을 생성하거나 기존 충돌 행을 명시 연결한다. FC 등록과 같은 방식으로 공통 해시를 직원 계정으로 옮기고 공통 credential을 지워 비밀번호 저장소를 하나로 유지한다. 같은 phone advisory lock을 써서 가입·등록·탈퇴와 직렬화된다. FC 회원의 직원 전환은 정책 미정이라 거절한다.
+- 직원 insert·전화번호 변경 trigger는 다른 활성 공통 회원 번호를 거절한다. 일반 회원 credential이 직원 세션을 가리는 상태를 원천 차단한다. 기존 SQL 테스트의 충돌 시나리오는 가드 이전 데이터로 명시해 유지했다.
+- 공통 로그인의 relay 오류 코드(not_found·inactive_admin/manager·missing_password·login_unavailable)를 문구에 추가했다. 미가입·미완료 번호는 안내를 띄운 뒤 공통 가입으로 이동한다.
+- 운영 DB 조회·migration·Edge 배포·OTA는 하지 않았다. 운영 반영 순서와 구버전 앱 처리는 canonical unified-membership-20261014 문서에서 관리한다.
+
+<a id="20261014-all-affiliate-withdrawal"></a>
+## 2026-10-14 공통 탈퇴의 전체 제휴 계정 정리
+
+- 사용자 확인 범위는 일반 회원·FC 삭제, 회사 admin/manager/designer/developer 계정 유지다. 회사 권한은 현재 DB의 계정 역할로만 판단하며 소속 문자열·요청 본문으로 확대하지 않는다. 독립 외부 제휴사의 별도 가입은 임의 삭제하지 않는다.
+- 신규 withdraw_member는 confirmed·all_affiliates·2026-10-14 정책·UUID 요청을 요구한다. 구 delete_member는 변경 없이 upgrade_required를 반환한다. 같은 요청/원래 세션의 SHA256 digest로 접수된 탈퇴만 이어가며 raw token은 저장하지 않는다.
+- FC 접수는 기존 잠금 순서로 공통/FC 자격 증명과 활동 권한을 중지한다. 정확한 Request Board v2 upstream UUID 연결과 서명된 삭제/회사 보존 영수증을 확인한 뒤 개인정보·인증 정보를 정리한다. 전화번호만 같은 계정의 삭제는 거부한다. UUID와 확정 업무·정산 이력은 접근 제한 상태로 유지하며 customer requests/financial FK를 cascade 삭제하지 않는다.
+- 기존 FC self-delete와 공통 탈퇴의 첨부·Auth 정리 코드를 공유한다. 계정 자체 정리, owned object 삭제, 진행 중 upload 만료 후 재정리까지 확인해야 completed다. 완료 outbox/receipt의 개인 경로는 지운다. 실패/누락은 pending으로 보존하며 성공으로 바꾸지 않는다.
+- 앱은 서버 journal의 읽기 전용 get_withdrawal로 화면 재진입 때 원래 요청을 복구하고 pending/응답 손실에 같은 요청 ID를 재사용한다. 고정 정책의 단일 요청이며 기존 tracker가 복구 ID를 받지 못하므로 추가 generic tracker API 대신 단순 operation ref를 사용한다. 확인창은 열기 전 mounted lease를 캡처하고, 검증된 completed에서만 기존 full local logout을 호출한다. 이전 계정의 늦은 응답은 다음 계정을 로그아웃시키지 않는다. 필수 가입 동의 버전은 유지하고 삭제 확인 버전은 별도다.
+- Request Board persisted token-version/활성 상태와 기존 runtime revoke를 재사용한다. 송수신 socket 권한과 idle 재검증은 후속 접근을 제한하지만 이미 전송 중인 전역 메시지를 즉시 회수한다고 주장하지 않는다. 구 phone-only 신원 연결과 legacy producer, 전체 서버 채택은 배포 선행 조건이다.
+- 기존 service-only 재처리 경로를 준비하되 운영 authenticated scheduler는 아직 설정·검증하지 않았다. 실제 계정 삭제/운영 조회·migration·Edge·웹·OTA·스토어·push는 수행하지 않는다. 정확한 최종 검사/커밋/남은 조건은 canonical unified-membership-20261014의 다섯 문서에서 관리한다.
+
+<a id="20261014-retired-fc-detach"></a>
+## 2026-10-14 퇴사 FC와 공통 인증·수당 이력 분리
+
+- 기존 FC·공통 로그인 모두 PBKDF2/SHA-256, 같은 salt와 iteration을 사용한다. 같은 회원의 credential·잠금 상태를 이관하고 FC 연결만 해제한다. 기존 FC 기반 세션은 종료되고 공통 재로그인이 필요하다. 동의·추천·회원 식별값은 유지한다.
+- 게시 수당의 기존 불변 guard를 재사용하여 FK에 의한 실제 FC 삭제만 신원 분리한다. private 이전 UUID를 남기고 live FK는 null로 바꾸며, 명세·금액·게시 시각/상태·revision은 유지한다.
+- 직접/위조 중첩 해제, 재연결 및 archive 변경을 거부한다. archive의 출처/revision/단일 게시월 유일성도 유지하며 RLS·권한·기존 활성 수령인 API payload는 바꾸지 않는다.
+- 기존 referral-allowance SQL suite에 세 직접 회귀 시나리오를 확장했다. 로컬 SQL 실행과 schema mirror 검증을 통과했으며 운영 적용 전에는 배포 source를 커밋하고 clean 여부를 확인한다.
+- 실제 대상은 승인 당시 고정한 식별자/변경 guard로 제한한다. 신규 FC, 보존 대상, 관리자용 연결 프로필, 다른 계정의 파일·수당·인증은 변경하지 않는다. PII·비밀번호·token·원시 운영 기록은 source나 evidence에 기록하지 않는다.
+- 운영 schema migration `20261014084133`의 완료, nullable/FK/index 상태를 확인했다. 원본 적용 소스는 `5b5081f`다. 원격 도구가 부여한 실제 version에 파일명·schema marker·fixture 경로를 맞췄다.
+- 실제 계정의 롤백 검증에서 기존 profile projection이 보험 추천 관계 갱신 시 연결 및 credential을 다시 FC에 묶는 것을 확인했다. 기존 trigger는 유지하고 각 FC 삭제 직전에 credential 이관과 연결 분리를 수행한다. 공통 로그인 RPC, 수당 원본 및 다른 회원·인증 보호를 롤백 상태에서 확인했다. 실제 사용자 비밀번호로 로그인한 검증은 아니다.
+
+<a id="20261014-local-paired-install"></a>
+## 2026-10-14 페어링 기기 로컬 설치와 진료 분야 누락 수정
+
+- 첫 제품 byte는8fc18f1에 고정했다. 새 staging의588개 runtime source closure는 app config·update hook·Metro lookup/cache·canonical tslib require의4개 명시적 로컬 override만 제외하고 source hash가 일치한다. 기기 식별값·비밀번호·원시 단말 로그는 저장하지 않는다.
+- 기존 .local 패키지의 signing key를 재사용하고 owner user0에 교체 설치한다. 데이터 삭제·앱 제거·기존 source/stage 삭제·다른 build process 종료는 하지 않는다. 별도 버전명과 versionCode3, 병원 샘플 활성·OTA/자체 update/Sentry upload 비활성으로 구분한다.
+- 첫 native 패키징은 공유 Expo core JAR 잠금으로 중단됐고 실제 JS map에서 이전 staging의 빈 router context를 확인했다. stage-specific router.root/Metro cacheStore로 해결하며 dependency 출력은 JS input root 외부에 분리한다. 실패·빌드 성공·APK 서명/필수 routes·설치 hash/실행 성공은 서로 다른 증거로 기록한다.
+- 최초 local versionCode3의 실제 설치 hash/버전 및 foreground/process 실행을 확인했다. 이후6개 진료 분야 제한 누락을 사용자가 지적해 primary의 기존 상수·chips/icons·샘플12개를 해당 release source에 좁게 재사용했다. 전체보기/allSpecialties와 미사용 icon8분기를 삭제하고6개 순서/unsupported metadata/검색payload/샘플분류/페이지/상세/건강검진 artwork를 기존 suite에서 검증한다.
+- 사용자 지정은 한방병원·정형외과·안과·치과·성형외과·건강검진센터 순서다. 임의로 실제 병원 행의 진료 정보를 재명명하거나 paginated remote rows를 post-filter하지 않는다. 서버transport/DTO/measurement/offset·auth 변경은 보존한다. 후속 versionCode4도 같은 로컬 서명으로 데이터 유지 설치한다. 정확한 최종 APK/단말 결과는 중앙 canonical QA/handoff에 남기며 운영 서버 migration/Edge·OTA·스토어는 계속 HOLD다.
+
+<a id="20261014-unified-membership"></a>
+## 2026-10-14 모두온 공통 가입·가람in 추가 등록과 헤더
+
+- 공통 회원 가입과 가람in 서비스 추가 등록을 분리한다. 사전등록/별도 로그인 UI를 redirect alias로 줄이고 기존 공통 login/signup·shared 설치/복구를 사용한다. 폐기 UI의 소속·통신사·자격/보험 추천 검증은 기존 apply-gate로 재사용하며 새 인증 framework/wizard/runner는 없다.
+- 회사 확인은 migration 시점 기존 source UUID cohort에만 적용하고 실제 회원 수락 일시와 회사 반영 시각/출처를 구분한다. 탈퇴 원본 tombstone을 보존하여 자동 재활성화를 막는다. 기존 공통 referrer(선택 없음 포함)를 덮지 않고 신규 import의 기존 FC/본부장 추천만 두 단계로 연결한다.
+- 새 FC는 서비스 추가 동의와 별도 보험 추천인/필수 정보의 확정 때 원자 생성·연결한다. signed common actor의 해시를 이전하고 기존 FC/bridge 발급을 사용한다. exact lost-response recovery는 enrollment-only이며 현재 FC generation/상태에 종속한다. 기존 FC 완료/직원/설계사 권한을 초기화하거나 common token을 FC endpoint에 허용하지 않는다.
+- 공통/legacy 가입의 같은 번호 경쟁은 기존 잠금 순서와 completion guard에서 해결한다. 완성 non-shadow FC의 누락 비밀번호만 기존 SMS reset proof로 초기화하며 미완료 FC/직원 초기 setup은 가입 완료로 바꾸지 않는다.
+- useLogin 설치는 caller와 각 저장 단계의 owner를 검증하고 provider는 이미 설치한 signed token과 FC state를 함께 공개한다. identity는 duplicate/late-save를 막고 계정 변경 때 민감 draft와 주소 검색 owner를 초기화한다. 기존 실제 callback/render/provider fixture에서 검증한다.
+- 헤더는 기존 ServiceHomeScreen/ServiceHub의 session·props와 COLORS만 사용한다. signed 별도 내 정보·실제 로그아웃, guest 로그인, restoring 확인 중을 표시한다. 공식 GOV.UK One Login의 계정 접근 레퍼런스를 참고하고 브랜드는 복제하지 않는다. 주황 채움/흰 글씨·하단12px gap은 기존 공용 구현을 유지한다. 성형외과 얼굴의 눈·입을 제거하고 한방 잎맥은 기존 윤곽 clip으로 제한한다.
+- 계정 로그인/가입 완료가 account 위에 또 account를 쌓던 replace를 dismissTo로 바꾸고 공통 정적 메뉴는 navigate로 재사용한다. 병원 개발/preview 프로필과 기존 로컬 APK 빌더의 누락된 샘플 플래그를 복구한다. 설치된 APK나 운영 병원 자료가 변경됐다고 주장하지 않는다.
+- 현재 로컬 구현/검증. primary에는 사용자 지정 버튼·아이콘·공통 navigation과 동일한 로그인 저장 부작용만 최소 수정했고 나머지 사용자 dirty 변경을 보존했다. source baseline clean f02f7a4; canonical 기록은 D:/hanhwa/.codex/harness/unified-membership-20261014다. 외부 성공·단말 채택·전용 회원 추천 저장은 실제 확인 전 PASS로 표시하지 않는다.
+
+<a id="20261014-orange-button-polish"></a>
+## 2026-10-14 주황 채움 버튼과 내 정보 하단 간격
+
+- 기존 caller를 먼저 조사했다. 검은 주황 채움 글씨는 ServiceAction의 재정의이며 다른 실제 채움 CTA는 이미 흰색이다. 두 공용 Button/ServiceAction은 COLORS.primaryButton과 흰 글씨를 사용한다. 브랜드 primary·연한 주황·outline 위계는 유지하며 실제 정상 상태 대비는4.52:1이다. FamilyCareInvitation·업무 권한·API 정책은 변경하지 않는다.
+- 내 정보의 이용내역·보험 설정·관리 권한·로그아웃·동의 만료 조건을 동일하게 유지하고 gap12px 하단 그룹으로 옮겼다. 탈퇴 outline과 확인창·중복/owner 보호·오류 표시, 개인정보 링크의 조작 영역을 유지한다.
+- 공용 UI 감사는 활성 루트 아래 상대 경로에만 기존 제외 규칙을 적용한다. .codex-tmp 등 상위 폴더 이름으로 실제 전체 체크아웃을 누락하지 않으며 내부 archive/임시/generated/dependency 제외는 그대로다. 기존 suite의 작은 disposable fixture와 기존 native controls/키보드 계약을 재사용한다. 새로운 runner/mock server/UI framework는 없다.
+- 실제 account/ServiceInformation/Button/BottomNavigation을 기존 React Native Web capture 모드로 렌더했다. 합성 회원·router/API 어댑터만 사용하며320/390/414에서 흰 글씨·연속12px gap·44px 이상 조작 영역·넘침없음4개, 가족간병5개 배치 확인 PASS. 실제 native 캡처나 문자·가입·OS 공유 검증으로 주장하지 않는다.
+- 영향6개 기존 suite180개와 최종 TypeScript·대상 ESLint·diffcheck PASS. 감사 fixture의 정확한 임시 삭제 경계 보완 후 직접 영향 기존 suite4개와 lint를 다시 통과했다. 완성된95 AAB 권한·서명 검증은 acbd94e의 별도 영수증이며 이번 UI source의 Android-only export/운영 readback과 구분한다.
+- native95 acbd94e 원본 빌드는 그대로 보존한다. 새 UI commit의4.2.19 Android OTA는 native95 입력 불변과 old94의 승인된 권한 제거/기존 모듈 승격만 허용한 guard를 통과해야 한다. 초대/서버 이전 배포 영수증은 유지하며 Git push와 iOS 변경은 없다. source/최종 테스트·OTA/Play 상태는 canonical service-home QA와 release artifacts에 기록한다.
+
+<a id="20261014-care-android-release"></a>
+## 2026-10-14 가족간병 추천 Android·초대 배포 준비
+
+- 기존 clean 권한 수정 worktree의 `2ac3693`와 clean 초대 기능 `58a714f`를 통합한다. 두 부모 commit/로그와 primary 사용자 변경을 보존하고 새 native source를 clean commit으로 고정한 후에만 빌드한다.
+- `sent.ok === false`로 실패 사유의 union 판별을 명시한다. 반환 내용·OTP 완료/취소·추천 관계·기존 회원 권한은 변경하지 않는다. 플랫폼 함수의 현재 타입·가입/추천·SMS·서명 검사를 통과한 exact closure만 배포한다. 새 SQL은 없다.
+- 통합 source에서 권한·추천 공유·native controls·mobile acceptance 4개 기존 suite의 207개 검사, TypeScript, 대상 ESLint, frozen Deno import 차단 타입 검사와 인증/복구·SMS/NCP 9개 행동 검사를 통과했다. 운영 배포와 실제 단말·가입 검증은 이 로컬 검사 결과와 구분한다.
+- 사용자 승인은 Android production OTA/스토어, 기존 초대 페이지 운영 업데이트와 전용 계정 검증이다. iOS는 공개 검색/심사 상태 읽기 전용이며 새 기능 OTA·스토어/심사 변경은 하지 않는다.
+- 초대 page의 HTML/board/PNG source hash·alias·200 응답·실제 브라우저15개 복사/링크/오류 상태를 확인했다. 사용자 제공 계정 정보·인증번호·비밀번호는 로그/영수증/소스에 기록하지 않는다. 실제 단말/가입 확인 전에는 성공이라고 표시하지 않는다.
+
+<a id="20261013-remove-unused-microphone"></a>
+## 2026-10-13 사용하지 않는 촬영·마이크 권한 제거
+
+- 마이크·녹음·사진/동영상 촬영 호출은 없고 시험 증빙·게시판·메신저의 ImagePicker 호출 6곳은 모두 사진 선택만 사용한다. expo-image-picker 17.0.11의 기존 config plugin을 명시하고 microphonePermission=false·cameraPermission=false로 iOS 기본 설명 제거와 Android RECORD_AUDIO·CAMERA 차단을 맡긴다. photosPermission은 가입 서류·시험 증빙·채팅 사진 첨부 목적의 구체적인 한국어 문구다.
+- 기존 native config plugin suite의 실제 Expo mod 실행 방식을 재사용하여 iOS microphone/camera key 부재, Android 두 권한의 tools:node=remove, 정확한 사진 목적 설명과 사진 권한 보존을 확인한다. 새 plugin·dependency·runner를 추가하지 않는다.
+- 이 작업은 격리된 native 수정 worktree에서 수행했다. 최종 native app/runtime은 4.2.19, iOS build 번호는 111이다. OTA와 native 권한 변경의 증거를 구분한다.
+- 기존 config plugin suite 21개, mobile TypeScript, 대상 ESLint, strict handbook/contract governance와 Git diff 검사를 통과했다. 설치된 Expo의 iOS 전체 mods와 Android manifest 전체 chain을 introspect하여 iOS 마이크·촬영 설명 부재·구체적인 사진 설명, Android RECORD_AUDIO·CAMERA 각각의 단일 tools:node=remove를 확인했다.
+- Android의 모든 mods를 포함한 전체 introspection은 합성 빈 gradle.properties와 기존 drawing-order guard의 필수 JVM property 검사에서 실패한다. 실제 native protection을 약화하지 않고 권한 검증 범위를 iOS 전체 mods·Android manifest chain으로 명시했다. Android 새 binary 출시를 이 iOS 영수증으로 주장하지 않는다.
+- 제품 소스 commit은 a15457d4be6ed04c531fcca581f6cfca3fe04058, tree는 b646e474322dab12659a94c62983b1bdf9fd9a31이다. 완성 IPA SHA-256 a480cd70534342e8db25069cc4aa32d20f3829b9dc142a55c4160b1fb0b82aed의 검증 33개가 PASS다. 실제 InfoPlist에 미사용 microphone/camera 설명이 없고 사진 목적 설명·앱 이름/버전·runtime·production channel이 소스와 일치한다. compiled Sentry DSN·가입 capability key도 검증했다.
+- Apple 처리 VALID 후 build 111을 같은 심사 건에 선택·재제출했다. 접수 시각은 2026-10-13T12:08:42.387Z, 별도 version/build/submission readback 시각은 2026-10-13T12:09:09.939Z다. 상태는 WAITING_FOR_REVIEW이고 releaseType은 AFTER_APPROVAL이다. Apple 승인 전이며 공개 iOS 버전은 4.2.18이다.
+- 근거는 D:/hanhwa/artifacts/ios-permission-repair-20261013의 verification-ios.json, ios-review-submit-111.json, ios-store-verification.json이다. 이후 문서 유지보수 commit은 이미 빌드·제출한 제품 source commit을 대체하지 않는다. 실제 단말의 SMS 수신·사진 첨부 acceptance도 binary 검사와 구분한다.
+
+<a id="20261014-care-referral-invitation"></a>
+## 2026-10-14 가족간병 추천 초대 로컬 구현
+
+- clean `6b72d99`의 기존 통합 worktree에서 수정하며 primary 사용자 변경은 보존한다. 기존 canonical service-home harness와 다섯 문서만 재사용한다.
+- 가족간병 안내의 기존 CTA 아래 카드·본인 공통 추천 코드·복사/공유·로그인/동의/조회 오류 상태와 모바일 작은 폭/큰 글꼴 배치를 구현했다. 기존 공통 훅과 UI·공유 API를 재사용한다.
+- 기존 보험 초대는 유지하고 `service=care`는 공통 가입으로 연결한다. 목적별 pending과 owner 보호·명시 query 우선순위를 적용하며 신규 회원만 기존 서버 계약으로 연결한다. 공개 홍보 URL은 query-free다.
+- 기존 추천 공유·native controls·mobile acceptance suite를 확장했다. 오래된 mock의 판별기/수집기/로그인/문서 계약을 실제 기존 구현으로 갱신하며 새로운 러너나 일반 abstraction을 만들지 않는다.
+- 실제 제품 화면 컴포넌트를 React Native Web로 렌더하고 합성 계정·라우터 어댑터만 사용한다. 전체 Expo 개발 실행은 로컬 환경 설정 부재로 중단했다. native/실제 회원/SMS/OS 공유 전달은 미검증이며 설치 후 추천 코드 자동 보존을 보장하지 않는다. 최종 검사와 이미지 경로는 service-home revision-23 QA에 기록한다.
+
 <a id="20261013-cutover-review-repair"></a>
 ## 2026-10-13 가입·공통 조회 릴리스 재검토 수리
 
@@ -14596,3 +14824,51 @@ Verification:
 - Main checkout copy of the migration renamed to `20261016040348_check_platform_signup_otp.sql`; `supabase/schema.sql` tail matches the applied two-lock function.
 
 - 2026-10-16 production device check (user-approved, synthetic number 010-0000-0000): one OTP request accepted; the challenge code_hash was set to SHA-256(`123456:01000000000`). On the paired phone a wrong 6-digit code auto-checked and showed the error under the code field (attempts 1); the right code auto-checked, showed 인증되었습니다 and opened the password question; challenge stayed unconsumed and no member was created. Stopped before final signup; the challenge row and its SMS ledger row were deleted and a recount showed 0/0/0. The wrong-code text is the app's mapped `인증번호를 확인해 주세요.` rather than the server message.
+## <a id="20261016-signup-code-check"></a> 2026-10-16 Moduon signup code check
+
+- Base: production `platform-service` v6 matched `feature/messenger-ux-p1-20261015` (`8f9b8da`) for every bundled file except `_shared/messenger-attachment-policy.ts`, whose branch copy is the newer polyglot fix already live in `group-chat`.
+- Migration `20261016040348_check_platform_signup_otp.sql`: same advisory locks, expiry, 5-attempt 10-minute lock and attempt counter as production `register_platform_member`; does not consume the challenge. `service_role` only. Mirrored in `supabase/schema.sql`.
+- Edge `platform-service` action `check_signup_otp` (phone + 6-digit code) returns `{ok:true}` or `invalid_code`/`expired_code` (400) / `locked` (429).
+- Checks: `supabase/tests/platform-membership-sql.test.mjs` (new case: wrong code counts, right code passes without consuming, lock shared with signup, anon denied), `deno check`, governance.
+
+## <a id="20261016-stacked-signup-prodline"></a> 2026-10-16 Stacked 모두온 signup and 가람in additional info
+
+- Base: the production app line (`8f9b8da`, latest OTA source), where the FC pre-registration screens are a `LegacySignupRedirect`; the earlier pass on `release/all-surfaces-20261004` targeted a stale line.
+- `components/StackedForm.tsx`: stack item/field/label/select/sheet/sheet option, keyboard-docked `StackDockedNext` and final `StackSubmit`; `StackButton` reuses `Button` with `submitOnPressIn` for keyboard-open taps. `lib/signup-steps.ts`: `PLATFORM_SIGNUP_STEPS`, `INSURANCE_ENROLLMENT_STEPS`, `getStackOrder`, `advanceStackReveal`, `SIGNUP_MOTION` (measured reference timings).
+- `app/services/signup.tsx`: name → phone → code (auto `check_signup_otp` at 6 digits, docked 확인) → password → confirmation → consent sheet (family-care invitation shown inside). `submit` is byte-identical.
+- `app/apply-gate.tsx`: intro/consent unchanged; the form opens the 소속 sheet, chains 통신사 → 자격증 in one sheet, then email (domain sheet) → insurance referral search → `저장하고 신원 정보 입력`. `submitEnrollment`, `startIdentityInput`, `validateReferral`, `returnHomeLite` are byte-identical; field errors render on their stacked questions and `revealField` still scrolls to them.
+- `lib/platform-api.ts`: `check_signup_otp` uses the request timeout.
+- Checks: `signup-steps`, `platform-signup-otp-feedback-source` (layout markers updated to the stacked phone question and press-in CTAs), `mobile-acceptance-runtime` (new `verifyCode` case: success advances, failure shows the message, short code makes no request, stale answer ignored), keyboard surface audit, TypeScript, ESLint.
+
+## <a id="20261016-sheet-bottom-inset"></a> 2026-10-16 Bottom sheet navigation-bar inset
+
+- User device screenshot: the 가람in 통신사 sheet's last option touched the Android navigation bar.
+- Cause: `StackSheet` is absolutely positioned on the edge-to-edge screen with a fixed `paddingBottom`; `ExamApplicationTargetSelector`'s modal sheet had a fixed 18px padding.
+- Fix: both add `useSafeAreaInsets().bottom`. Audit of bottom-anchored sheets: `OptionSheetField` and messenger sheets (`bottomInset` from every caller) already did; the messenger action menu is a centered card.
+- Checks: selector suite (safe-area mock added), signup/stack suites, keyboard contract. Baseline note: `exam-flow-contract`, `exam-cancellation-mobile-callers`, `exam-bundle-decision-contract` fail identically at `d9455e5` before this change.
+
+- 2026-10-16 paired phone, local release build of `c26c112` (OTA off, same signing key, user's own login): 모두온 signup advanced name → 다음 → phone → `인증 코드 받기` (no further SMS sent); the exit alert showed the existing two-button design. 가람in additional info: consent → `시작하기` opened the 소속 sheet, 소속 → 통신사 → 자격증 chained in one sheet, `선택 완료` → email → `다음` → domain sheet → referral question focused. Every sheet's last option and button sat above the navigation bar. Stopped before referral search (production FC names) and before saving.
+
+## <a id="20261016-service-scoped-withdrawal"></a> 2026-10-16 Service-scoped withdrawal
+
+- Rule from the user: leaving 모두온 removes all six services; leaving one service removes only that service. For 가람in that means the information 가람in collected plus the FC and 가람링크 accounts.
+- Before: the 모두온 withdrawal only closed FC/가람링크 and anonymized other applications; deleting the FC account (settings → 계정 삭제) fired `platform_fc_delete_identity`, which withdrew the whole 모두온 member and wiped other service applications.
+- Migration `20261016090000_platform_insurance_only_withdrawal.sql`: withdrawal `scope`, partial unique indexes, `detach_platform_member_insurance_v1` (moves the enrolled password back, session generation +1), `begin_platform_insurance_withdrawal_v1`, scope-aware `erase_platform_withdrawal_v1`, `delete_platform_member` deleting unsettled applications, FC delete trigger detaching instead of withdrawing.
+- Edge `withdraw_member` accepts `scope: 'insurance'` and returns `memberSession` (common-member token from the moved credential); the rest of the job (가람링크 retirement, closure, cleanup, retry/drain) is shared.
+- App: `app/settings.tsx` shows `가람in 탈퇴` for members linked to 모두온 and signs back in with `memberSession`; `app/services/account.tsx` alert lists all six services.
+- Checks: `platform-membership-sql` 27/27 (new scoped withdrawal case; mapping case updated to the detach contract), Edge handlers 37/37 (new insurance case), app suites, `deno check` (only the two pre-existing `WithdrawalJob | null` errors), TypeScript, ESLint.
+- Not done: production migration and Edge deploy (await approval); per-service withdrawal for the five services without their own accounts.
+
+## <a id="20261016-service-scoped-withdrawal-release"></a> 2026-10-16 Service-scoped withdrawal release
+
+- Source: `D:/hanhwa/.codex-tmp/moduon-signup-code-check-20261016`, `fix/moduon-signup-code-check-20261016` at `13708f4`, clean. Not pushed.
+- Pre-checks: production at `20261016040348`, `platform-service` v7, no open withdrawals, new functions absent.
+- Database: the MCP `apply_migration` call was declined twice without a visible approval prompt; applied with `npx supabase db push --project-ref ubeginyxaotcamuqpmud` after a dry run listed only `20261016090000_platform_insurance_only_withdrawal.sql`. Verified: migration recorded, `platform_withdrawals_member_all` and `platform_withdrawals_member_insurance_open` present, old unique constraint removed, the 2 existing rows default to `all_affiliates`, new functions `service_role` only, FC delete trigger detaches, erase is scope-aware.
+- Edge: `supabase functions deploy platform-service --use-api` → v8 ACTIVE, `verify_jwt=false`; all 16 deployed files equal `13708f4`.
+- Route checks: unknown scope → 400 `invalid_input`; insurance scope with an invalid session → 401 `invalid_app_session`; short code check → 400; `get_hospital_regions` → 200. No withdrawal row was created. Post-deploy logs: only those four requests, no 5xx. Security advisors unchanged.
+- Remaining: the app-side `가람in 탈퇴` button needs an OTA/store release; until then old apps' settings `계정 삭제` uses `delete-account`, whose FC deletion now detaches instead of withdrawing 모두온.
+
+## <a id="20261016-login-navigation-stacked-signup"></a> 2026-10-16 Login navigation test for the stacked signup
+
+- Found by the full Jest comparison against `8f9b8da`: only `lib/__tests__/login-navigation.test.js` was new. It transpiles `app/services/signup.tsx` and required the real `react-native-reanimated`, which Jest cannot parse.
+- The test now mocks `react-native-reanimated`, `@/components/StackedForm` and `@/lib/signup-steps` (all questions shown), fills each `TextInput` by accessibility label and submits through the consent sheet's `StackButton`. The account-dismissal assertions are unchanged.

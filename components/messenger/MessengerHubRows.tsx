@@ -4,12 +4,13 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import {
-  MESSENGER_PERSON_ROLE_LABELS,
+  getMessengerPersonRowLabels,
   type MessengerHubConversation,
   type MessengerHubPerson,
   type MessengerPersonRole,
   type MessengerPersonRoleFilter,
 } from '@/lib/messenger-hub-model';
+import { formatMessengerListTime } from '@/lib/messenger-time';
 
 const ACCENT = '#f36f21';
 
@@ -94,10 +95,11 @@ export const MessengerHubPersonRow = memo(function MessengerHubPersonRow({
   onPress: (item: MessengerHubPerson) => void;
 }) {
   const tone = ROLE_TONES[item.role];
+  const { roleBadge, detail } = getMessengerPersonRowLabels(item);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${item.name}, ${item.detail}`}
+      accessibilityLabel={[item.name, roleBadge, detail].filter(Boolean).join(', ')}
       onPress={() => onPress(item)}
       style={({ pressed }) => [styles.row, styles.personRow, pressed && styles.rowPressed]}
     >
@@ -106,11 +108,13 @@ export const MessengerHubPersonRow = memo(function MessengerHubPersonRow({
       <View style={styles.body}>
         <View style={styles.nameLine}>
           <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
-          <View style={[styles.roleBadge, { backgroundColor: tone.badge }]}>
-            <Text style={[styles.roleBadgeText, { color: tone.text }]}>{MESSENGER_PERSON_ROLE_LABELS[item.role]}</Text>
-          </View>
+          {roleBadge ? (
+            <View style={[styles.roleBadge, { backgroundColor: tone.badge }]}>
+              <Text style={[styles.roleBadgeText, { color: tone.text }]}>{roleBadge}</Text>
+            </View>
+          ) : null}
         </View>
-        <Text style={styles.detail} numberOfLines={1}>{item.detail}</Text>
+        {detail ? <Text style={styles.detail} numberOfLines={1}>{detail}</Text> : null}
       </View>
       <Feather aria-hidden accessible={false} name="chevron-right" size={18} color="#9CA3AF" />
     </Pressable>
@@ -189,7 +193,7 @@ export const MessengerHubConversationRow = memo(function MessengerHubConversatio
   onToggleMuted?: (item: MessengerHubConversation) => void;
   muting?: boolean;
 }) {
-  const formattedTime = formatConversationTime(item.timestamp);
+  const formattedTime = formatMessengerListTime(item.timestamp);
   const suppressNextPressRef = useRef(false);
   return (
     <Pressable
@@ -310,13 +314,6 @@ export function MessengerHubEmpty({ tab }: { tab: 'people' | 'chats' }) {
       <Text style={styles.emptyDetail}>{tab === 'people' ? '잠시 후 다시 불러와 주세요.' : '사람 탭에서 대화를 시작할 수 있습니다.'}</Text>
     </View>
   );
-}
-
-function formatConversationTime(value: string | null) {
-  if (!value) return '';
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return '';
-  return date.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
 }
 
 const styles = StyleSheet.create({

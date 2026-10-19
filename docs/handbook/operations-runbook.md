@@ -7,6 +7,12 @@ source_of_truth: web/src/app/api/* + supabase/functions/* + scripts/ops/*
 
 # 운영 런북
 
+## 사진 첨부와 native 촬영·마이크 권한 (2026-10-13)
+
+모바일은 시험 증빙·게시판·메신저의 사진 선택만 사용한다. app.json의 기존 expo-image-picker plugin은 microphonePermission=false·cameraPermission=false로 iOS 마이크·촬영 사용 설명을 제거하고 Android RECORD_AUDIO·CAMERA를 차단한다. photosPermission에는 가입 서류·시험 접수 증빙·채팅 사진 첨부를 위한 보관함 접근 목적을 한국어로 명시한다. 사진 권한과 첨부 동작은 유지한다. 변경 검증은 기존 android-drawing-order-fix config plugin suite의 실제 Expo mods를 사용한다. 배포에는 새 native binary가 필요하며 OTA 완료는 InfoPlist·Manifest 변경의 증거가 아니다.
+
+iOS 4.2.19/111의 실제 IPA에서 미사용 microphone/camera 설명 부재와 정확한 사진 목적 설명을 확인했다. 제품 source는 a15457d4be6ed04c531fcca581f6cfca3fe04058이며 후속 문서 commit과 구분한다. Apple 처리 VALID·같은 심사 건 재제출 및 version/build readback을 완료했지만 현재 WAITING_FOR_REVIEW다. 공개 버전은 4.2.18이며 AFTER_APPROVAL 설정으로 승인 후 자동 출시한다. 심사 접수나 IPA 검증 성공만으로 승인·공개 출시를 보고하지 않는다.
+
 ## 관리자 웹 배포 검증 (2026-10-02)
 
 - Vercel `admin_web`의 Root Directory는 `web`이며 저장소 밖 소스 포함 옵션을 켠다. `next.config.ts`의 `outputFileTracingRoot`와 `turbopack.root`는 모두 저장소 루트로 지정한다. Next가 Vercel의 tracing 기본값으로 Turbopack 경계를 좁히면 공유 인증·수당 모듈을 찾지 못한다.
@@ -198,6 +204,19 @@ rotation은 새 current → old current를 previous → 최대 token TTL 경과 
 - 값을 채팅·티켓·보고서에 복사하지 않는다.
 - 외부 owner가 revoke/rotate하고, active config 제거와 Git history/clone 영향 범위를 판정한다.
 - non-sensitive revoke 증거와 scanner zero-result만 인수인계한다.
+
+## 공통 탈퇴 정리 자동 처리 (2026-10-14)
+
+접수된 공통 탈퇴는 pg_cron `platform-withdrawal-cleanup-drain`이 5분마다 마무리한다. 최초 1회 운영자가 대시보드 SQL 편집기에서 `select vault.create_secret('<service_role key>', 'platform_withdrawal_drain_service_key');`를 실행한다. 값은 Edge의 `SUPABASE_SERVICE_ROLE_KEY`와 같아야 하며 다른 곳에 기록하지 않는다. 확인은 `select jobname, schedule, active from cron.job where jobname='platform-withdrawal-cleanup-drain';`와 `select status_code, created from net._http_response order by created desc limit 5;`로 status만 본다. 중지는 `select cron.unschedule('platform-withdrawal-cleanup-drain');`이다.
+
+## 직원 권한 수동 부여 (2026-10-14)
+
+관리자·본부장은 먼저 모두온 공통 회원으로 가입한다. 제휴 서비스 직원 권한은 운영자가 승인된 운영 DB 작업으로만 부여한다. `admin_accounts`/`manager_accounts`에 직접 insert하지 않는다. 공통 회원 번호와 겹치면 `platform_member_phone_requires_grant`로 거절된다.
+
+1. 대상 공통 회원 UUID를 확인한다. 증거에는 UUID·결과 코드만 남기고 이름·전화번호는 남기지 않는다.
+2. service_role로 `select grant_platform_staff_account_v1('<member uuid>','admin','admin',null);`를 실행한다. 본부장은 `'manager'`, 개발자는 staff_type `'developer'`를 사용한다. 이 가드 이전에 같은 번호의 직원 행이 이미 있으면 마지막 인자에 그 행의 id를 넣어 명시적으로 연결한다.
+3. 결과가 `ok:true`면 회원은 기존 모두온 비밀번호로 다시 로그인한다. 관리자 웹도 같은 비밀번호를 사용한다. `staff_phone_conflict`, `fc_member_not_supported`, `credential_unavailable`, `consent_required`는 데이터를 고치지 말고 원인을 확인한 뒤 결정한다.
+4. 같은 호출을 다시 실행하면 `alreadyGranted:true`를 반환하며 아무것도 바꾸지 않는다.
 
 ## 종료와 인수인계
 

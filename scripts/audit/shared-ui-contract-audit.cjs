@@ -64,8 +64,8 @@ const CONTRACT_AUDIT_CATEGORIES = [
   },
 ];
 
-function shouldSkipPath(filePath) {
-  const normalized = filePath.replace(/\\/g, '/');
+function shouldSkipPath(root, filePath) {
+  const normalized = path.relative(root, filePath).replace(/\\/g, '/');
   const parts = normalized.split('/');
   if (parts.some((part) => EXCLUDED_DIR_NAMES.has(part))) return true;
   return EXCLUDED_GLOBS.some((glob) => normalized.includes(glob));
@@ -79,11 +79,11 @@ function listFiles(root, relativeRoot) {
   const stack = [absoluteRoot];
   while (stack.length > 0) {
     const current = stack.pop();
-    if (!current || shouldSkipPath(current)) continue;
+    if (!current || shouldSkipPath(root, current)) continue;
 
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
       const absolute = path.join(current, entry.name);
-      if (shouldSkipPath(absolute)) continue;
+      if (shouldSkipPath(root, absolute)) continue;
       if (entry.isDirectory()) {
         stack.push(absolute);
       } else if (/\.(ts|tsx|js|jsx|mjs|cjs|json|md)$/.test(entry.name)) {

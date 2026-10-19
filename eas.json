@@ -8,6 +8,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
+        "EXPO_PUBLIC_HOSPITAL_DEMO": "true",
         "EXPO_PUBLIC_SENTRY_DSN": "https://29fc6e2ee7eb99961a604802ba381af7@o4511426401861632.ingest.de.sentry.io/4511426412740688",
         "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "development",
         "SENTRY_ORG": "hanhwa-lifelab",
@@ -17,6 +18,7 @@
     "preview": {
       "distribution": "internal",
       "env": {
+        "EXPO_PUBLIC_HOSPITAL_DEMO": "true",
         "EXPO_PUBLIC_SENTRY_DSN": "https://29fc6e2ee7eb99961a604802ba381af7@o4511426401861632.ingest.de.sentry.io/4511426412740688",
         "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "preview",
         "SENTRY_ORG": "hanhwa-lifelab",

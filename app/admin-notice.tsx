@@ -351,7 +351,7 @@ function AdminNoticeComposer() {
 
             {/* Image Previews */}
             {images.length > 0 && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+              <ScrollView keyboardShouldPersistTaps="always" horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
                 {images.map((img, idx) => (
                   <View key={idx} style={styles.imagePreview}>
                     <Image source={{ uri: img.uri }} style={styles.previewThumb} />

@@ -71,13 +71,13 @@ describe('notification navigation resume boundary', () => {
   });
 
   it('suppresses login fallback and preserves the exact handoff through identity gate', () => {
-    const login = read('app/login.tsx');
+    const login = read('app/services/login.tsx');
     const gateHook = read('hooks/use-identity-gate.ts');
     const gate = read('app/apply-gate.tsx');
     const identity = read('app/identity.tsx');
 
     expect(login).toContain('waitForNotificationNavigationDecision()');
-    expect(login).toContain('if (!active || hasPending) return');
+    // Yield timing and the stale-flag fallback are exercised by login-navigation.test.js.
     expect(gateHook).toContain('parseNotificationPushData({');
     expect(gateHook).toContain('buildNotificationTargetRoute({');
     expect(gateHook).toContain('params: { next: notificationNext');

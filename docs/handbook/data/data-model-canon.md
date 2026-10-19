@@ -7,6 +7,44 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
 
+## 2026-10-14 제휴 서비스별 추천 관계 (로컬)
+
+`supabase/migrations/20261014130000_platform_service_referrals.sql`과 schema mirror는 `platform_service_referral_codes`(회원·서비스별 코드)와 `platform_service_referrals`(회원·서비스별 추천인, 첫 등록 확정)를 추가한다. 두 테이블은 RLS/직접 접근 회수를 유지하고 service-role RPC만 사용한다. `create_platform_application`은 공통 `referrer_id` 대신 같은 서비스의 추천인을 스냅숏한다. 공통 `referrer_id`는 과거 기록으로 남고 새 정산에 쓰이지 않는다. 운영 DB 미적용.
+
+## 2026-10-15 복구 FC와 공통 회원 연결
+
+2026-10-14 FC 명단 복구는 공통 회원 행을 보호해 변경하지 않았다. 그 사이 같은 번호로 공통 가입한 9개 계정이 복구된 가입 완료 FC와 연결되지 않아 보험 추가 등록이 `forbidden`으로 거절됐다. `20261015030000_link_restored_fc_common_members.sql`은 활성 일반 공통 회원과 같은 번호의 가입 완료·미종료·미연결 FC를 한 번 연결하고, 사용자 결정에 따라 공통 비밀번호를 FC credential로 옮긴 뒤 공통 credential을 지운다. 회사 확인 cohort에 있는 FC만 보험 추가 동의 출처를 회사 확인으로 기록한다. 재실행해도 대상이 없으면 아무것도 바꾸지 않는다.
+
+## 2026-10-14 공통 탈퇴 drain 예약
+
+`20261014140000_platform_withdrawal_drain_schedule.sql`과 schema mirror는 pg_net 확장, `request_platform_withdrawal_drain_v1()`(security definer, 모든 API role 실행 회수)과 pg_cron `platform-withdrawal-cleanup-drain`(5분)을 추가한다. service key는 Vault `platform_withdrawal_drain_service_key`에서만 읽고 미등록이면 호출하지 않는다. 운영 절차는 [scheduled jobs](../backend/scheduled-jobs-and-runtime.md)를 따른다.
+
+## 2026-10-14 공통 회원 직원 권한 부여 (로컬)
+
+`20261014120000_platform_staff_grant.sql`과 schema mirror는 service-role 전용 `grant_platform_staff_account_v1`과 직원 번호 가드 trigger를 추가한다. 부여는 활성 공통 회원을 같은 phone advisory lock에서 잠그고 `staff_account_kind/id`를 먼저 연결한 뒤 admin/manager 행을 만들거나 명시된 기존 행을 갱신한다. 공통 credential 해시를 직원 계정으로 옮기고 공통 credential을 지워 비밀번호 저장소를 하나로 유지한다. `admin_accounts`/`manager_accounts`의 insert·전화번호 변경은 다른 활성 공통 회원 번호면 거절한다. 검증은 기존 platform-membership PGlite fixture 확장이며 운영 DB 적용은 미실행이다.
+
+## 2026-10-14 공통·제휴 계정 탈퇴 journal (로컬)
+
+`20261014073458_platform_affiliate_account_withdrawal.sql`과 schema mirror는 private withdrawal journal과 정확한 messenger cleanup ID 연결을 추가한다. 두 테이블은 RLS/직접 접근 회수를 유지하고 service-role RPC만 사용한다. operation UUID·source UUID·원래 세션 SHA256 digest로 소유 요청을 확인하고 완료/재시도 상태를 보존한다. raw token은 저장하지 않는다. due index·최대3개 처리·backoff로 재처리를 제한한다.
+
+begin은 기존 phone advisory→source profile→common member→credential 잠금 순서에서 일반 FC credential과 signup_completed 권한을 함께 중지한다. company staff credential은 유지한다. 원래 작업/다른 작업/enrollment의 독립 연결 경쟁은 기존 PG runner에서 검증한다. 닫힌 profile을 재활성화하거나 credential을 다시 붙이는 쓰기는 거부한다. 기존 서명 토큰도 현재 credential 조회가 사라지면 유효하지 않다.
+
+Request Board는 기존 generation ledger의 canonical `fc:UUID`와 일치하는 대상만 정리한다. 정확한 제휴 영수증과 owned upload 만료 후 messenger 정리까지 확인한 뒤 완료한다. 기존 core/outbox를 재사용하며 확정 정산의 RESTRICT FK를 cascade 삭제하지 않고 개인정보 없는 닫힌 UUID를 보존한다. 완료 account cleanup payload/journal receipt의 개인 경로는 지운다. 제한된 UUID와 관계 이력은 완전한 익명 자료라고 표현하지 않는다.
+
+legacy 신원 연결·회사 source 모순·운영 인증 예약 호출·동시 서버 채택은 별도 배포 조건이다. 현재 실제 운영 계정 삭제나 DB/Edge 배포는 수행하지 않았다. 자세한 동의·client 확인·회사 예외는 [공통 서비스 계약](../mobile/platform-services.md)을 따른다.
+
+## 2026-10-14 퇴사 FC의 수당 신원 분리
+
+게시 수당의 활성 FC FK는 nullable/ON DELETE SET NULL로 분리한다. private `beneficiary_fc_id_snapshot`은 이전 UUID를 보존하지만 인증·수당 접근 권한을 주지 않는다. 기존 불변 trigger는 삭제된 FC의 중첩 FK 갱신에만 신원 분리 예외를 두며 금액·명세·게시 상태·revision을 유지한다. 직접 또는 위조 연결 해제와 archive 변경/재연결은 거부한다. 활성 계정의 기존 conflict target과 API payload는 유지하고 archive의 출처·revision·단일 게시월 유일성을 추가 검증한다. 기존 SQL fixture로 실제 삭제, 다른 수령인 보호, 재적용, 불변성·권한·중복 제약을 검증한다.
+
+## 2026-10-14 공통 회원·보험 추가 등록 통합 (로컬)
+
+ordered migration `20261014043557_unified_common_insurance_enrollment.sql`과 schema snapshot을 함께 갱신한다. company-attested source UUID cohort는 적용 시점에 고정하고 public table RLS/직접 접근 회수를 유지한다. 새 import를 먼저 만든 뒤 기존 FC·manager-shadow 보험 추천을 canonical common inviter로 연결하며 기존 common 선택 관계(선택 없음 포함)는 덮지 않는다. 실제 수락 일시와 회사 확인의 기록 일시/출처를 구분한다. 탈퇴는 접근을 제한한 source UUID/tombstone과 cohort의 최초 연결 기록을 남겨 자동 재활성화를 막고 확인 근거를 유지하며 unknown historical withdrawal이면 migration을 중단한다. 이 UUID는 업무 계정과 연결 가능하므로 완전한 익명 자료라고 표현하지 않는다.
+
+새 common-to-FC transaction은 signed actor, 명시적 추가 동의/보험 추천/필수 항목과 요청 key/fingerprint를 확인한다. credential hash/generation 이전·FC 완료·추천·동의와 enrollment-only lost-response receipt를 원자 처리한다. canonical 비밀번호/역할/삭제 변경은 이전 회복 증표를 거부한다. common/legacy OTP 가입은 같은 잠금 순서와 source 조건을 사용하여 공통 가입 후 legacy capability가 다른 비밀번호/서비스 동의로 계정을 교체하지 못한다. 완성 일반 non-shadow FC의 누락 credential만 기존 bounded SMS reset proof로 초기화한다. 프로필 업무 상태는 reset으로 초기화하지 않는다.
+
+검증은 기존 platform/recovery PGlite+Edge fixture와 실제 PostgreSQL signup/recovery suite의 동시성·single-use·세션 generation·탈퇴 FK 사례다. 새 runner나 auth provider는 없다. 로컬 검증과 운영 적용을 구분한다.
+
 ## 2026-10-11 공통 회원·제휴 데이터 (로컬)
 
 `20261012072525_platform_common_membership.sql`과 canonical schema에 공통 회원·회원 인증·가입 인증번호·제휴사·관심 등록·제휴 정산·혜택 테이블을 추가했다. 모든 테이블은 RLS를 사용하며 직접 anon/authenticated 접근과 관련 RPC 실행을 회수한다. Edge의 서비스 역할이 서명된 세션과 현재 계정/관리자 권한을 검증한 뒤 호출한다. 클라이언트가 역할을 지정하여 권한을 얻지 않는다.
@@ -242,5 +280,13 @@ Read-only preflight found zero catalog/cron dependencies and zero legacy challen
 
 ## 2026-10-16 모두온 가입 인증 코드 단독 확인
 
-- `check_platform_signup_otp(phone, code_hash)`는 `register_platform_member`와 같은 advisory lock, 만료, 5회 실패 10분 잠금, 시도 횟수를 공유하고 challenge를 소비하지 않는다. 최종 가입은 같은 코드를 다시 검증한다. 실행 권한은 `service_role`만 가진다.
+- `check_platform_signup_otp(phone, code_hash)`는 `register_platform_member`와 같은 두 advisory lock(741012, 8102026), 만료, 5회 실패 10분 잠금, 시도 횟수를 공유하고 challenge를 소비하지 않는다. 최종 가입은 같은 코드를 다시 검증한다. 실행 권한은 `service_role`만 가진다.
 - Edge `platform-service`의 `check_signup_otp` 액션이 이 함수를 호출한다. 마이그레이션 `20261016040348_check_platform_signup_otp.sql`, 검증 `supabase/tests/platform-membership-sql.test.mjs`.
+
+## 2026-10-16 서비스별 탈퇴 범위
+
+- `platform_account_withdrawals.scope`: `all_affiliates`(모두온 탈퇴, 회원당 1건)와 `insurance`(가람in만 탈퇴, 진행 중 1건). 가람in을 다시 등록한 뒤 다시 탈퇴할 수 있다.
+- `begin_platform_insurance_withdrawal_v1`: 가입·등록과 같은 잠금 순서로 FC를 닫고, `detach_platform_member_insurance_v1`로 FC에 옮겨 둔 비밀번호를 공통 회원으로 되돌린 뒤(세션 세대 +1) 연결과 가람in 동의·등록 기록을 지운다. 모두온 회원·로그인·다른 서비스 신청·서비스 추천인은 남는다.
+- `erase_platform_withdrawal_v1`: 두 범위 모두 FC를 closure 방식으로 지우고(정산이 참조하는 UUID만 익명으로 남음), `all_affiliates`일 때만 `delete_platform_member`를 부른다.
+- `delete_platform_member`: 정산 기록이 없는 서비스 신청은 삭제하고, 정산된 신청은 익명화해 UUID만 남긴다.
+- FC 행 삭제 트리거(`platform_fc_delete_identity`)는 더 이상 모두온 계정을 탈퇴시키지 않고 연결만 끊는다. 관리자·본부장 계정 삭제는 기존처럼 연결된 회원을 지운다.

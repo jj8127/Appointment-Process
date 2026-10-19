@@ -144,7 +144,7 @@ export function BottomNavigation({
         return;
       }
       if (pathname === targetPath) return;
-      router.push(item.route as any);
+      router.navigate(item.route as any);
     }
   };
 

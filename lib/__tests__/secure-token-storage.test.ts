@@ -1,12 +1,14 @@
 import fs from 'fs';
 import path from 'path';
 import * as ts from 'typescript';
-import { SIGNUP_COMPLETION_TOKEN_STORAGE_KEY } from '../signup-completion-capability';
 
 import {
   createMigratingSensitiveTokenStorage,
   type SensitiveTokenStorage,
 } from '../secure-token-storage';
+
+// Preserve installed legacy SecureStore key compatibility after retiring its client screen.
+const SIGNUP_COMPLETION_TOKEN_STORAGE_KEY = 'fc-onboarding.signup-completion-token-v1';
 
 jest.mock('../safe-storage', () => ({
   safeStorage: {

@@ -1,8 +1,7 @@
 import { Feather } from '@expo/vector-icons';
-import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
+import { randomUUID } from 'expo-crypto';
 import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
 import {
   Stack,
   useFocusEffect,
@@ -30,6 +29,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import MessengerImageAttachment from '@/components/MessengerImageAttachment';
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { KeyboardSafeBottomBar } from '@/components/KeyboardSafeBottomBar';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
@@ -37,11 +37,15 @@ import { MessageUnreadReceiptBadge } from '@/components/MessageUnreadReceiptBadg
 import {
   MessageSelectCopySheet,
   MessengerMessageActionSheet,
+  MESSENGER_MESSAGE_LONG_PRESS_MS,
   MESSENGER_REACTIONS,
 } from '@/components/MessengerMessageActionSheet';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { ConversationSettingsSheet } from '@/components/messenger/ConversationSettingsSheet';
+import { JumpToLatestButton } from '@/components/messenger/JumpToLatestButton';
+import { MessengerDayDivider } from '@/components/messenger/MessengerDayDivider';
 import { useKeyboardVisible } from '@/hooks/use-keyboard-padding';
+import { useLatestMessageJump } from '@/hooks/use-latest-message-jump';
 import { getChatComposerBottomPadding } from '@/lib/chat-keyboard-layout';
 import { useSession } from '@/hooks/use-session';
 import { createReadScope } from '@/lib/request-board-read-state';
@@ -57,16 +61,17 @@ import {
   normalizeGroupChatMemberSearch,
   resolveGroupChatSendPermission,
 } from '@/lib/group-chat-display';
+import { startsMessengerDay } from '@/lib/messenger-time';
+import { goBackOrReplace } from '@/lib/back-navigation';
+import { pickMessengerFiles, pickMessengerPhotos } from '@/lib/messenger-attachment-picker';
 import {
   openAuthorizedMessengerAttachment,
   openMessengerAttachment,
 } from '@/lib/messenger-attachment-actions';
 import {
-  appendMessengerAttachmentCandidates,
+  classifyMessengerSendFailure,
   formatMessengerAttachmentSize,
   isPreparedMessengerAttachmentBatchForDraft,
-  MAX_MESSENGER_ATTACHMENTS,
-  MESSENGER_ATTACHMENT_MIME_BY_EXTENSION,
   prepareMessengerAttachmentBatch,
   removeSelectedMessengerAttachment,
   uploadMessengerAttachmentBatch,
@@ -112,12 +117,14 @@ import {
 import {
   buildMessengerRoomRef,
   getNotificationPreferences,
+  resolveMessengerRoomMuted,
 } from '@/lib/notification-preferences-api';
 import { NotificationReceiptStatusBanner } from '@/lib/notification-receipt-ui';
 import {
   hasPresentRouteParam,
   parseExactlyOneUuidRouteParam,
 } from '@/lib/strict-route-params';
+import { createRealtimeChannelTopic } from '@/lib/realtime-channel-topic';
 import { supabase } from '@/lib/supabase';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import { safeDecodeFileName } from '@/lib/validation';
@@ -226,9 +233,15 @@ const MemberListRow = memo(function MemberListRow({
   onToggle,
 }: MemberListRowProps) {
   const statusTone = getGroupChatMemberStatusTone(member);
+  const roleLabel = getGroupChatRoleLabel(member.role);
   const canManageSendPermission = canManageMemberSendPermissions && member.role === 'fc';
+  // The switch sits in a scrolling list, so a stray touch must not change someone's permission.
   const handleSwitchChange = useCallback((nextValue: boolean) => {
-    onToggle(member, nextValue);
+    const name = member.name ?? '이 참여자';
+    Alert.alert(nextValue ? `${name} 님의 채팅을 허용할까요?` : `${name} 님의 채팅을 금지할까요?`, undefined, [
+      { text: '취소', style: 'cancel' },
+      { text: nextValue ? '허용' : '금지', onPress: () => onToggle(member, nextValue) },
+    ]);
   }, [member, onToggle]);
 
   return (
@@ -239,16 +252,22 @@ const MemberListRow = memo(function MemberListRow({
       <View style={styles.memberBody}>
         <View style={styles.memberNameRow}>
           <Text style={styles.memberName} numberOfLines={1}>{member.name ?? '이름 없음'}</Text>
-          <Text style={styles.memberRole}>{getGroupChatRoleLabel(member.role)}</Text>
+          <Text style={styles.memberRole}>{roleLabel}</Text>
         </View>
-        <Text style={styles.memberMeta} numberOfLines={1}>{member.headquarters ?? '본부 미지정'}</Text>
+        {/* Staff rows carry their role as the headquarters text; showing it twice adds nothing. */}
+        {member.headquarters !== roleLabel ? (
+          <Text style={styles.memberMeta} numberOfLines={1}>{member.headquarters ?? '본부 미지정'}</Text>
+        ) : null}
       </View>
       <View style={styles.memberTrailing}>
-        <View style={[styles.memberStatusBadge, styles[`memberStatus_${statusTone}`]]}>
-          <Text style={[styles.memberStatusText, styles[`memberStatusText_${statusTone}`]]}>
-            {member.appointment_label}
-          </Text>
-        </View>
+        {/* Only FC rows have an appointment state; staff rows always read "활성", which told nothing. */}
+        {member.role === 'fc' ? (
+          <View style={[styles.memberStatusBadge, styles[`memberStatus_${statusTone}`]]}>
+            <Text style={[styles.memberStatusText, styles[`memberStatusText_${statusTone}`]]}>
+              {member.appointment_label}
+            </Text>
+          </View>
+        ) : null}
         {canManageSendPermission && (
           <View style={styles.memberPermissionRow}>
             <Text
@@ -308,6 +327,8 @@ export default function GroupChatScreen() {
   const pendingAnchorMessageIdRef = useRef<string | null>(null);
   const anchorScrollRetryCountRef = useRef(0);
   const roomPreferenceSequenceRef = useRef(0);
+  // The bootstrap's resolved mute (canonical preference, else the legacy group setting).
+  const serverMutedRef = useRef(false);
   const historyLoadInFlightRef = useRef(false);
   const historyLoadGenerationRef = useRef(0);
   const historyExhaustedRef = useRef(false);
@@ -458,6 +479,7 @@ export default function GroupChatScreen() {
       setActor(data.actor);
       setMemberCount(data.member_count);
       setMembers(data.members);
+      serverMutedRef.current = data.muted;
       setMuted(data.muted);
       setCanSendMessages(resolveGroupChatSendPermission(data.actor, data.can_send_messages));
       setNotice(data.notice);
@@ -722,7 +744,7 @@ export default function GroupChatScreen() {
   useEffect(() => {
     if (!room?.id) return undefined;
     const channel = supabase
-      .channel(`group-chat-room-${room.id}`)
+      .channel(createRealtimeChannelTopic('group-chat-room'))
       .on(
         'postgres_changes',
         {
@@ -883,35 +905,56 @@ export default function GroupChatScreen() {
 
     const shouldClear = notice?.message_id === message.id;
     setActionMessage(null);
-    setNoticeUpdating(true);
-    try {
-      if (shouldClear) {
-        await groupChatClearNotice();
-        setNotice(null);
-      } else {
-        const result = await groupChatSetNotice(message.id);
-        setNotice(result.notice);
+    const apply = async () => {
+      setNoticeUpdating(true);
+      try {
+        if (shouldClear) {
+          await groupChatClearNotice();
+          setNotice(null);
+        } else {
+          const result = await groupChatSetNotice(message.id);
+          setNotice(result.notice);
+        }
+      } catch (error) {
+        logger.warn('[group-chat] notice update failed', error);
+        showGroupChatErrorAlert(error);
+      } finally {
+        setNoticeUpdating(false);
       }
-    } catch (error) {
-      logger.warn('[group-chat] notice update failed', error);
-      showGroupChatErrorAlert(error);
-    } finally {
-      setNoticeUpdating(false);
+    };
+    // Clearing or replacing the notice reaches every member at once, so it asks first.
+    if (shouldClear || notice) {
+      Alert.alert(shouldClear ? '공지를 내릴까요?' : '공지를 바꿀까요?', undefined, [
+        { text: '취소', style: 'cancel' },
+        { text: shouldClear ? '내리기' : '바꾸기', onPress: () => void apply() },
+      ]);
+      return;
     }
-  }, [actionMessage, canManageNotice, notice?.message_id]);
+    await apply();
+  }, [actionMessage, canManageNotice, notice]);
 
-  const handleNoticeClear = useCallback(async () => {
+  const handleNoticeClear = useCallback(() => {
     if (!canManageNotice || !notice) return;
-    setNoticeUpdating(true);
-    try {
-      await groupChatClearNotice();
-      setNotice(null);
-    } catch (error) {
-      logger.warn('[group-chat] notice clear failed', error);
-      showGroupChatErrorAlert(error);
-    } finally {
-      setNoticeUpdating(false);
-    }
+    Alert.alert('공지를 내릴까요?', undefined, [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '내리기',
+        onPress: () => {
+          void (async () => {
+            setNoticeUpdating(true);
+            try {
+              await groupChatClearNotice();
+              setNotice(null);
+            } catch (error) {
+              logger.warn('[group-chat] notice clear failed', error);
+              showGroupChatErrorAlert(error);
+            } finally {
+              setNoticeUpdating(false);
+            }
+          })();
+        },
+      },
+    ]);
   }, [canManageNotice, notice]);
 
   const handleReactionAction = useCallback(async (message: GroupChatMessage, reaction: string) => {
@@ -940,13 +983,6 @@ export default function GroupChatScreen() {
       },
     });
   }, [actionMessage, canDeleteMessage, notice?.message_id, updateMessage]);
-
-  const handleMessagePress = useCallback((message: GroupChatMessage) => {
-    if (message.deleted_at) return;
-    if ((message.message_type === 'image' || message.message_type === 'file') && message.file_url) {
-      void openMessengerAttachment(message.file_url, { logScope: 'group-chat' });
-    }
-  }, []);
 
   const buildOptimisticMessage = useCallback((input: OptimisticMessageInput): GroupChatMessage | null => {
     if (!actor || !room) return null;
@@ -989,6 +1025,8 @@ export default function GroupChatScreen() {
     if (!isCurrentSend()) return false;
     let notificationRetry: GroupChatNotificationRetry | null = null;
     let shouldShowDeliveryWarning = false;
+    // Text has no delivery key; one id per send keeps a "다시 확인" resend from posting twice.
+    const clientMessageId = input.attachmentBatch ? undefined : randomUUID().toLowerCase();
     const commit = async () => {
       let attachmentIntentIds: string[] | null = null;
       if (input.attachmentBatch) {
@@ -1006,6 +1044,7 @@ export default function GroupChatScreen() {
         content: input.content,
         messageType: input.messageType,
         replyToMessageId: input.replyToMessageId,
+        ...(clientMessageId ? { clientMessageId } : {}),
         ...(input.attachmentBatch && attachmentIntentIds
           ? {
               attachmentIntentIds,
@@ -1023,12 +1062,26 @@ export default function GroupChatScreen() {
         return await commit();
       } catch (error) {
         if (!isCurrentSend()) return null;
-        if (!input.attachmentBatch) throw error;
-        logger.warn('[group-chat] attachment send result unavailable');
+        const failure = classifyMessengerSendFailure(error);
+        logger.warn('[group-chat] send failed', {
+          code: failure.code,
+          status: failure.status,
+          uncertain: failure.uncertain,
+          attachment: Boolean(input.attachmentBatch),
+        });
+        // A refused text keeps the existing failed-bubble path and its explained alert.
+        if (!input.attachmentBatch && !failure.uncertain) throw error;
+        if (!failure.uncertain) {
+          // A definite refusal: re-sending the same request would be refused again.
+          Alert.alert('파일 전송 실패', failure.message);
+          return null;
+        }
         return new Promise((resolve) => {
           Alert.alert(
             '전송 확인 필요',
-            '파일 메시지 전송 결과를 확인하지 못했습니다. 같은 요청으로 다시 확인하면 중복 전송되지 않습니다.',
+            input.attachmentBatch
+              ? '파일 메시지 전송 결과를 확인하지 못했습니다. 같은 요청으로 다시 확인하면 중복 전송되지 않습니다.'
+              : '메시지 전송 결과를 확인하지 못했습니다. 다시 확인해도 중복으로 보내지지 않습니다.',
             [
               { text: '취소', style: 'cancel', onPress: () => resolve(null) },
               {
@@ -1092,6 +1145,41 @@ export default function GroupChatScreen() {
     }
     return true;
   }, [applyMessages, load, removeMessage, updateMessage]);
+
+  // A failed text keeps its bubble; tapping it offers a resend (a new idempotent send) or removal.
+  const handleFailedMessagePress = useCallback((message: GroupChatMessage) => {
+    if (message.send_status !== 'failed') return;
+    Alert.alert('전송 실패', undefined, [
+      { text: '취소', style: 'cancel' },
+      { text: '삭제', style: 'destructive', onPress: () => removeMessage(message.id) },
+      {
+        text: '다시 보내기',
+        onPress: () => {
+          if (!canSendMessages) {
+            showSendPermissionAlert();
+            return;
+          }
+          updateMessage(message.id, { send_status: 'sending' });
+          void sendOptimisticToServer(message.id, {
+            content: message.content,
+            messageType: message.message_type,
+            replyToMessageId: message.reply_to_message_id,
+          });
+        },
+      },
+    ]);
+  }, [canSendMessages, removeMessage, sendOptimisticToServer, showSendPermissionAlert, updateMessage]);
+
+  const handleMessagePress = useCallback((message: GroupChatMessage) => {
+    if (message.deleted_at) return;
+    if (message.send_status === 'failed') {
+      handleFailedMessagePress(message);
+      return;
+    }
+    if ((message.message_type === 'image' || message.message_type === 'file') && message.file_url) {
+      void openMessengerAttachment(message.file_url, { logScope: 'group-chat' });
+    }
+  }, [handleFailedMessagePress]);
 
   const sendPayload = useCallback(async (
     content: string,
@@ -1230,31 +1318,8 @@ export default function GroupChatScreen() {
     if (pickingRef.current || uploading) return;
     pickingRef.current = true;
     try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: Array.from(
-          new Set(Object.values(MESSENGER_ATTACHMENT_MIME_BY_EXTENSION)),
-        ),
-        copyToCacheDirectory: true,
-        multiple: true,
-        base64: false,
-      });
-      if (result.canceled) return;
-      const next = await appendMessengerAttachmentCandidates(
-        selectedAttachments,
-        result.assets.map((asset) => ({
-          uri: asset.uri,
-          name: asset.name,
-          size: asset.size,
-          mimeType: asset.mimeType,
-          webFile: asset.file,
-        })),
-      );
-      setSelectedAttachments(next);
-    } catch (error) {
-      Alert.alert(
-        '파일 선택 실패',
-        error instanceof Error ? error.message : '파일을 선택하지 못했습니다.',
-      );
+      const next = await pickMessengerFiles(selectedAttachments);
+      if (next) setSelectedAttachments(next);
     } finally {
       pickingRef.current = false;
     }
@@ -1271,41 +1336,10 @@ export default function GroupChatScreen() {
       return;
     }
     if (pickingRef.current || uploading) return;
-    if (selectedAttachments.length >= MAX_MESSENGER_ATTACHMENTS) {
-      Alert.alert('첨부 한도', `사진과 파일은 최대 ${MAX_MESSENGER_ATTACHMENTS}개까지 첨부할 수 있습니다.`);
-      return;
-    }
     pickingRef.current = true;
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert('사진 권한 필요', '사진을 첨부하려면 사진 접근 권한을 허용해 주세요.');
-        return;
-      }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsMultipleSelection: true,
-        selectionLimit: MAX_MESSENGER_ATTACHMENTS - selectedAttachments.length,
-        quality: 0.85,
-      });
-      if (result.canceled) return;
-      const selectedAt = Date.now();
-      const next = await appendMessengerAttachmentCandidates(
-        selectedAttachments,
-        result.assets.map((asset, index) => ({
-          uri: asset.uri,
-          name: asset.fileName ?? `image_${selectedAt}_${index + 1}.jpg`,
-          size: asset.fileSize,
-          mimeType: asset.mimeType ?? 'image/jpeg',
-          webFile: asset.file,
-        })),
-      );
-      setSelectedAttachments(next);
-    } catch (error) {
-      Alert.alert(
-        '사진 선택 실패',
-        error instanceof Error ? error.message : '사진을 선택하지 못했습니다.',
-      );
+      const next = await pickMessengerPhotos(selectedAttachments);
+      if (next) setSelectedAttachments(next);
     } finally {
       pickingRef.current = false;
     }
@@ -1339,7 +1373,7 @@ export default function GroupChatScreen() {
     try {
       const preferences = await getNotificationPreferences();
       if (sequence !== roomPreferenceSequenceRef.current) return;
-      setMuted(preferences.rooms.some((row) => row.roomKey === roomRef.key));
+      setMuted(resolveMessengerRoomMuted(preferences.rooms, roomRef.key, serverMutedRef.current));
       setRoomPreferenceLoadedKey(roomRef.key);
       setRoomPreferenceFailure(null);
     } catch (error) {
@@ -1399,7 +1433,7 @@ export default function GroupChatScreen() {
     try {
       const preferences = await getNotificationPreferences();
       if (sequence !== roomPreferenceSequenceRef.current) return;
-      setMuted(preferences.rooms.some((row) => row.roomKey === roomRef.key));
+      setMuted(resolveMessengerRoomMuted(preferences.rooms, roomRef.key, serverMutedRef.current));
       setRoomPreferenceLoadedKey(roomRef.key);
       setRoomPreferenceFailure(null);
     } catch (error) {
@@ -1497,18 +1531,21 @@ export default function GroupChatScreen() {
               selectable={false}
             />
           ) : null}
-          {item.attachments.map((attachment) => (
+          {item.attachments.map((attachment) => {
+            const open = () => {
+              void openAuthorizedMessengerAttachment(attachment.id, { logScope: 'group-chat' });
+            };
+            const card = (
             <Pressable
               key={attachment.id}
+              accessibilityRole="button"
               style={[
                 styles.fileCard,
                 isMe ? styles.fileCardMe : styles.fileCardOther,
               ]}
-              onPress={() => {
-                void openAuthorizedMessengerAttachment(attachment.id, {
-                  logScope: 'group-chat',
-                });
-              }}
+              onPress={open}
+              onLongPress={() => openMessageActions(item)}
+              delayLongPress={MESSENGER_MESSAGE_LONG_PRESS_MS}
             >
               <View style={[
                 styles.fileIconBox,
@@ -1555,7 +1592,11 @@ export default function GroupChatScreen() {
                 />
               </View>
             </Pressable>
-          ))}
+            );
+            return attachment.mimeType.startsWith('image/')
+              ? <MessengerImageAttachment key={attachment.id} attachment={attachment} fallback={card} onLongPress={() => openMessageActions(item)} delayLongPress={MESSENGER_MESSAGE_LONG_PRESS_MS} />
+              : card;
+          })}
         </View>
       );
     }
@@ -1599,9 +1640,9 @@ export default function GroupChatScreen() {
         selectable={false}
       />
     );
-  }, []);
+  }, [openMessageActions]);
 
-  const renderItem = useCallback(({ item }: { item: GroupChatMessage }) => {
+  const renderItem = useCallback(({ item, index }: { item: GroupChatMessage; index: number }) => {
     const isMe = item.sender_actor_id === actor?.id;
     const isHighlighted = item.id === highlightedMessageId;
     const unreadCount = Math.max(0, Number(item.unread_count ?? 0));
@@ -1613,12 +1654,27 @@ export default function GroupChatScreen() {
           <MessageUnreadReceiptBadge count={unreadCount} />
         )}
         {item.send_status === 'sending' && <Text style={styles.messageSendStatus}>전송중</Text>}
-        {item.send_status === 'failed' && <Text style={[styles.messageSendStatus, styles.messageSendStatusFailed]}>실패</Text>}
+        {item.send_status === 'failed' && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="전송 실패, 다시 보내기 또는 삭제"
+            hitSlop={8}
+            onPress={() => handleFailedMessagePress(item)}
+            style={styles.messageSendFailedButton}
+          >
+            <Feather name="rotate-cw" size={11} color="#DC2626" />
+            <Text style={[styles.messageSendStatus, styles.messageSendStatusFailed]}>실패</Text>
+          </Pressable>
+        )}
         <Text style={styles.timeText}>{formatGroupChatTime(item.created_at)}</Text>
       </View>
     );
 
     return (
+      <>
+      {startsMessengerDay(messages, index, (message) => message.created_at) ? (
+        <MessengerDayDivider createdAt={item.created_at} />
+      ) : null}
       <View style={[
         styles.msgRow,
         isMe ? styles.msgRowMe : styles.msgRowOther,
@@ -1640,7 +1696,7 @@ export default function GroupChatScreen() {
             <Pressable
               onPress={() => handleMessagePress(item)}
               onLongPress={() => openMessageActions(item)}
-              delayLongPress={220}
+              delayLongPress={MESSENGER_MESSAGE_LONG_PRESS_MS}
               style={[
                 styles.bubble,
                 isMe ? styles.bubbleMe : styles.bubbleOther,
@@ -1659,6 +1715,9 @@ export default function GroupChatScreen() {
               {reactions.map((row) => (
                 <Pressable
                   key={row.reaction}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${row.reaction} ${row.count}명${row.reacted_by_me ? ', 내 반응 취소' : ', 같은 반응 남기기'}`}
+                  hitSlop={6}
                   onPress={() => void handleReactionAction(item, row.reaction)}
                   style={[styles.reactionChip, row.reacted_by_me && styles.reactionChipMine]}
                 >
@@ -1669,8 +1728,12 @@ export default function GroupChatScreen() {
           )}
         </View>
       </View>
+      </>
     );
-  }, [actor?.id, handleMessagePress, handleReactionAction, highlightedMessageId, openMessageActions, renderMessageContent, renderReplyPreview]);
+  }, [actor?.id, handleFailedMessagePress, handleMessagePress, handleReactionAction, highlightedMessageId, messages, openMessageActions, renderMessageContent, renderReplyPreview]);
+
+  const isOwnGroupMessage = useCallback((message: GroupChatMessage) => message.sender_actor_id === actor?.id, [actor?.id]);
+  const latestJump = useLatestMessageJump(messages, isOwnGroupMessage, flatListRef);
 
   const headerSubtitle = useMemo(() => `${memberCount.toLocaleString('ko-KR')}명 참여`, [memberCount]);
   const showAnchorReturnToLatest = Boolean(
@@ -1691,7 +1754,7 @@ export default function GroupChatScreen() {
         onRetry={() => void notificationReceipt.retryMarkRead()}
       />
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 4 }]}>
-        <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]} onPress={() => router.back()}>
+        <Pressable accessibilityLabel="뒤로 가기" accessibilityRole="button" style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]} onPress={() => goBackOrReplace(router, '/messenger')}>
           <Feather name="arrow-left" size={22} color={CHARCOAL} />
         </Pressable>
         <View style={styles.headerCenter}>
@@ -1718,6 +1781,8 @@ export default function GroupChatScreen() {
 
       {notice && (
         <Pressable
+          accessibilityRole="button"
+          accessibilityHint="공지 전체 내용을 엽니다."
           style={styles.noticeBanner}
           onPress={() => setSelectCopyMessage(notice.message)}
         >
@@ -1734,7 +1799,7 @@ export default function GroupChatScreen() {
               disabled={noticeUpdating}
               onPress={(event) => {
                 event.stopPropagation();
-                void handleNoticeClear();
+                handleNoticeClear();
               }}
             >
               <Feather name="x" size={18} color={MUTED} />
@@ -1785,12 +1850,15 @@ export default function GroupChatScreen() {
         <MessengerLoadingState variant="group-chat" />
       ) : (
         <View style={{ flex: 1 }}>
+          <View style={{ flex: 1 }}>
           <FlatList
             ref={flatListRef}
             data={messages}
             keyExtractor={(item) => item.id}
             renderItem={renderItem}
             inverted
+            onScroll={latestJump.onScroll}
+            scrollEventThrottle={64}
             onScrollToIndexFailed={handleAnchorScrollToIndexFailed}
             onScrollBeginDrag={scrollFrameMonitor.onScrollBeginDrag}
             onScrollEndDrag={scrollFrameMonitor.onScrollEndDrag}
@@ -1837,6 +1905,10 @@ export default function GroupChatScreen() {
               </View>
             ) : null}
           />
+          {latestJump.awayFromLatest && !showAnchorReturnToLatest ? (
+            <JumpToLatestButton hasNewMessage={latestJump.hasNewMessage} onPress={latestJump.jumpToLatest} />
+          ) : null}
+          </View>
 
           <KeyboardSafeBottomBar>
             {uploading && (
@@ -2265,6 +2337,7 @@ const styles = StyleSheet.create({
   messageSideMetaMe: { alignItems: 'flex-end' },
   messageSideMetaOther: { alignItems: 'flex-start' },
   messageSendStatus: { fontSize: 10, lineHeight: 13, color: '#9CA3AF', fontWeight: '800' },
+  messageSendFailedButton: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   messageSendStatusFailed: { color: '#DC2626' },
   timeText: { fontSize: 11, color: '#9CA3AF' },
   replyPreview: {

@@ -278,3 +278,12 @@ export type FcProfile = {
 - snake_case (DB) → camelCase (TS)
 - nullable 컬럼 → optional property (`?`)
 - date/timestamptz → string (ISO format)
+
+## 퇴사 FC와 증원수당 이력의 신원 분리
+
+- `referral_allowance_imports.beneficiary_fc_id`는 활성 FC를 참조하는 nullable UUID다. FC 삭제의 FK `ON DELETE SET NULL`만 신원 분리를 수행한다.
+- 분리된 행은 기존 UUID를 private `beneficiary_fc_id_snapshot`에 보존한다. 두 신원 컬럼 중 정확히 하나만 값이 있어야 한다.
+- 중첩 FK 동작과 실제 원본 FC 삭제를 함께 확인한다. 직접/위조 연결 해제, 다른 FC로의 재연결, 명세·금액·상태 수정은 불변 가드가 거부한다.
+- archive에서도 출처/월별 멱등성, revision 유일성, 월별 단일 게시본을 유지한다. 기존 활성 FC RPC의 conflict target과 public 명세 응답 타입은 바꾸지 않는다.
+- RLS·권한·기존 수령인 접근 검사를 유지한다. 보존 UUID는 로그인이나 과거 FC 권한을 복원하지 않는다.
+- 공통계정 유지가 승인된 운영 정리에서는 기존 PBKDF2 credential과 잠금 상태를 같은 회원의 공통 credential로 이관하고, 회원의 FC 연결을 해제한 뒤 FC만 삭제한다. 회원·동의·추천 정보는 유지한다.

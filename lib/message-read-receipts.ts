@@ -16,7 +16,8 @@ export function getDirectMessageUnreadCount({
   return Number.isFinite(count) && count > 0 ? Math.floor(count) : 1;
 }
 
+// The exact number, as in KakaoTalk: "99+" beside every message in a large room read as a message count.
 export function formatUnreadReceiptCount(count: number): string {
   if (!Number.isFinite(count) || count <= 0) return '';
-  return count > 99 ? '99+' : String(Math.floor(count));
+  return count > 999 ? '999+' : String(Math.floor(count));
 }

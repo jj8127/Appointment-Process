@@ -1,5 +1,37 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-10-15 증분 release 빌드에서 이미지 교체 후 expo-updates 자산 목록이 갱신되지 않음
+
+- 재현: 같은 `android/`에서 `assembleRelease`를 반복하며 같은 이름의 PNG만 바꾸자 `createReleaseUpdatesResources/app.manifest`가 첫 빌드의 해시를 유지했다. JS 번들은 새 해시를 찾고 내장 목록에는 옛 해시만 있어, 홈 서비스 아이콘이 오류 로그 없이 빈칸으로 표시됐다. 레이아웃·배경·이미지 컴포넌트를 바꾸는 시험으로 원인을 잘못 좁혀 시간을 썼다.
+- 규칙: 자산 파일 내용만 바뀐 로컬 release 빌드 전에는 `app/build/generated/assets/createReleaseUpdatesResources`와 `createBundleReleaseJsAndAssets` 출력을 지우고 빌드한다. 이미지가 비면 먼저 `app.manifest`의 `packagerHash`와 원본 파일 md5를 대조한다. EAS 빌드는 매번 새로 만들어 해당하지 않는다.
+
+## 2026-10-15 압축 바이너리에서 짧은 매직 바이트를 위장 파일로 판정함
+
+- 재현: 첨부 polyglot 검사가 이미지·PDF·Office 데이터 전체에서 `#!`(2바이트)와 `PK\x03\x04`·`\x7fELF`(4바이트)를 위치와 구조 확인 없이 찾았다. 압축 데이터는 무작위에 가까워 `#!`가 약 64KiB마다 우연히 나타나므로, 실제 사진·스크린샷과 대부분의 PDF가 `invalid_attachment_polyglot`(400)으로 거부됐다. 반대로 64바이트 미만 파일은 아예 검사하지 않아 짧은 셸 스크립트가 TXT로 통과했다. 테스트는 수십 바이트 fixture만 써서 두 문제 모두 놓쳤다.
+- 연쇄: 앱의 첨부 전송은 모든 오류를 "전송 확인 필요 / 다시 확인"으로 처리해, 확정된 4xx 거부에도 같은 요청을 끝없이 다시 보내게 했고 오류 code·status를 로그에 남기지 않았다.
+- 규칙: 바이너리 내부의 서명 검사는 시작 위치에 고정하거나 헤더 구조(필드 범위, 버전, 길이)까지 검증한다. 실제 크기의 무작위 데이터에 우연한 매직 바이트를 섞은 통과 fixture를 거부 fixture와 함께 둔다. 클라이언트 재확인은 결과를 모르는 경우(네트워크 실패, 408/429/5xx, 응답 해석 실패)에만 제공하고, 확정 거부는 사유를 보여 주고 끝낸다. 실패 로그에는 code·status·uncertain을 남긴다.
+
+## 2026-10-14 승인된 진료 분야 제한을 설치 소스에 누락함
+
+- 재현: primary에는 지정6개 진료 분야와 일치하는 샘플이 있었지만 clean release checkout에 해당 hunks를 반영하지 않았다. 앱은 샘플 전체 분야의 첫6개/전체보기를 표시했고 테스트도8개 이상을 기대해 사용자 요구와 다른 상태가 설치됐다.
+- 규칙: 작업트리 사이에 승인 변경을 옮길 때 요구별 기존 구현·실제 호출 경로·가장 가까운 behavioral test를 대조한다. 순서가 정해진6개 분류는 아이콘/검색칩/샘플 catalog에 같은 기존 상수를 재사용하고 unsupported metadata가 다시 들어와도6개만 탐색되는지 확인한다. 설치 hash/실행 성공만으로 모든 사용자 요구가 반영됐다고 판단하지 않는다.
+
+## 2026-10-14 별도 로컬 staging에서 이전 Expo Router 캐시를 재사용함
+
+- 재현: 공통 node_modules를 쓰는 새 staging에서 JS 번들이 성공해도 router context가 이전 staging을 참조하면 실제 app route가0개인 빈 번들이 만들어질 수 있다. 같은 --reset-cache만 반복하는 것은 project-specific transform 입력을 보장하지 않는다.
+- 규칙: 로컬 전용 app config의 router.root와 Metro cacheVersion/FileStore를 staging마다 분리한다. 실제 sourcemap의 필수 route와 nonempty context, 이전/dirty app source 부재를 검증한 뒤에만 설치한다. APK 패키지·서명·권한·설치 후 hash와 실행도 대조한다. 공유 dependency 출력의 Windows 잠금은 다른 작업을 종료/삭제하지 않고 이번 작업 전용 경로로 분리하며, JS 입력 root 바깥에 둔다.
+
+## 2026-10-14 활성 작업트리를 절대 경로 제외 규칙으로 누락함
+
+- 재현: 공용 UI 감사가 absolute path에 .codex-tmp/node_modules/임시 이름 제외를 적용해 그 아래의 정상 checkout 전체를 제외했다. 운영 source 변경과 무관하게 실제 UI inventory가0이 되고 필수 계약 검사가 실패했다.
+- 규칙: 제외는 선택한 scan root의 상대 경로에 적용한다. 임시 상위 폴더의 활성 checkout을 실제로 검사하고, checkout 내부의 기존 archive/생성/의존성 폴더는 계속 제외하는 양쪽 행동을 가장 가까운 suite에서 확인한다. fixture 삭제는 생성한 정확한 임시 경계를 검증한다.
+
+## 2026-10-13 Expo 기본 resource 권한과 목적 설명을 확인하지 않음
+
+- 반복 원인: 사진 선택만 사용하는 앱에 image-picker plugin의 기본 마이크·카메라 권한과 일반 영어 목적 설명이 들어갔다. 앱 코드에 녹음 호출이 없다는 확인만으로 실제 binary의 InfoPlist 권한을 검증했다고 판단하면 심사 거절을 놓칠 수 있다.
+- 재발 방지: 기존 plugin에서 미사용 microphonePermission·cameraPermission을 false로 지정하고, 필요한 photosPermission에는 실제 사진 첨부 목적을 구체적으로 적는다. 자동 적용 plugin과 dependency의 기본값을 함께 검토하고 config·plugin mod·완성 IPA의 권한과 목적 설명을 차례로 대조한다.
+- 검증: 기존 native config suite의 실제 Expo mods와 iOS 4.2.19/111의 완성 IPA에서 마이크·카메라 설명 부재와 소스의 사진 목적 설명 일치를 확인했다. Apple 처리 VALID·심사 접수는 승인·공개 출시와 구분한다.
+
 ## 2026-10-13 mocked storage로 native key 제한을 놓침
 
 - 재현: 가입 completion capability의 저장 key에 native SecureStore가 허용하지 않는 문자를 사용했지만 임의 문자열을 받는 mock에서는 저장 성공으로 보였다. OTP 성공 뒤 실제 native 저장 단계가 실패할 수 있다.
@@ -89,6 +121,7 @@
 - 반복 원인: production 환경 변수를 추가해도 이전 Metro 변환 캐시가 재사용되어 Android·iOS Hermes 번들에 운영 Sentry DSN이 빠졌다. export 성공만으로 환경 변수 반영을 판단하면 오류 수집을 꺼뜨릴 수 있다.
 - 재발 방지: 배포 환경이 바뀌면 해당 production 환경과 함께 `expo export --clear`를 실행하고, 게시할 최종 번들의 공개 설정을 검사한다. 비공개 환경 값이나 원문 번들을 증거 로그로 출력하지 않는다.
 - 검증: 동일 hermesc의 합성 문자열 대조군과 실제 bytecode decode에서 캐시 초기화 전 두 플랫폼 모두 DSN 누락, 초기화 후 모두 포함을 확인했다. 최종 OTA 다운로드 해시도 해당 산출물과 일치한다.
+- 2026-10-13 후속: 공유 node_modules를 사용하는 여러 worktree에서 export하면 Router source root와 환경 변환 캐시를 같은 앱·같은 설정으로 오판할 수 있다. 기존 release helper에 명시적 source cwd·Router root, profile public 환경·--clear·runtime별 직렬 export를 적용한다. 두 플랫폼의 최종 compiled bundle에서 Sentry DSN·올바른 signup key 포함과 잘못된 key 부재를 값 출력 없이 검증하고, 같은 artifact hash만 게시한다.
 
 ## 2026-09-22 | 시험 등록 포커스 이벤트 수명
 
@@ -5875,3 +5908,23 @@
 - Cause: the work targeted `app/signup.tsx` (FC 사전등록) by file name; the account users open from 내 정보 → 회원가입 is the 모두온 common signup `app/services/signup.tsx` (모두온 is the single account).
 - Guardrail: before redesigning a user-named screen, trace the route from the visible entry point (home/내 정보/login buttons) to the file, and verify on device through that same entry path, not by deep-linking straight to the edited route.
 - Evidence: emulator screenshot of `/services/signup` unchanged after the first pass; `app/services/account.tsx` `router.navigate('/services/signup')`.
+## 2026-10-14 | Cross-service identity fixtures skipped the actual producer
+
+- Symptom: retirement initially looked up a raw FC UUID while the established password-sync producer stored canonical `fc:UUID`, so a normally linked account would appear unbound despite passing convenient local fixtures.
+- Cause: the consumer and test fixture agreed on an invented representation without checking the real issuer and its bridge-only callers.
+- Guardrail: inspect existing producer/caller identity, signed claims and canonical lookup/lock namespace before adding a cross-service operation. Extend the closest fixture with the actual builder output and preserve credential-generation semantics; do not create a second identity or a fake password generation.
+- Evidence: existing request-board-auth and bridge tests, namespaced SQL fixture and independent PostgreSQL bridge/sync-retirement races. These are local product checks, not a production binding audit.
+
+## 2026-10-14 | Deleting through a live row-locking cursor skipped rewritten targets
+
+- Symptom: an account-cleanup batch failed its final target-count guard and was fully rolled back.
+- Cause: a live FOR UPDATE cursor was traversed while account deletion rewrote later target rows through referral FK SET NULL actions.
+- Guardrail: freeze opaque approved target keys, lock rows in a stable order, then iterate the frozen keys and reread/validate each row. Keep exact count and identity postconditions; never relax them or retry an uncertain commit without checking state.
+- Verification: a rollback-only reproduction and committed per-batch count/cleanup checks. This is an operations ordering rule, not a reason to change shared grants or disable financial immutability triggers.
+
+## 2026-10-16 | A failed `cd` let a destructive build step run in the main checkout
+
+- Symptom: `git worktree move ... && cd D:/hanhwa/w1 ...; rm -rf android && npx expo prebuild` deleted and regenerated `android/` in `D:/hanhwa/fc-onboarding-app` instead of the intended worktree.
+- Cause: the move failed, `cd` into the new path failed, and the following `rm -rf` was chained with `;`, so it ran in the previous working directory.
+- Guardrail: never chain `rm -rf` or prebuild after a `cd` with `;`. Use one `cd <path> && [ "$(pwd -W)" = "<path>" ] && ...` chain, or pass absolute paths to destructive commands. Check `git check-ignore` before assuming a generated folder is safe.
+- Evidence: the main checkout's `android/` is git-ignored and regenerated with the same `AndroidManifest.xml` hash (`5b8d9284`); only build outputs were lost.

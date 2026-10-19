@@ -2,10 +2,65 @@ doc_id: FC-MOBILE-PLATFORM-SERVICES
 owner_repo: fc-onboarding-app
 owner_area: mobile-and-data
 audience: developer, operator
-last_verified: 2026-10-12
-source_of_truth: app/services + hooks/use-session.tsx + lib/platform-api.ts + supabase/functions/platform-service/index.ts + supabase/migrations/20261012072525_platform_common_membership.sql + supabase/migrations/20261012072611_hospital_directory_ad_performance.sql
+last_verified: 2026-10-14
+source_of_truth: app/services + app/apply-gate.tsx + hooks/use-session.tsx + lib/platform-api.ts + components/FamilyCareReferrer.tsx + supabase/functions/platform-service/index.ts + supabase/migrations/20261014130000_platform_service_referrals.sql + supabase/migrations/20261014120000_platform_staff_grant.sql + supabase/migrations/20261014073458_platform_affiliate_account_withdrawal.sql + supabase/migrations/20261014043557_unified_common_insurance_enrollment.sql + supabase/migrations/20261012072525_platform_common_membership.sql + supabase/migrations/20261012072611_hospital_directory_ad_performance.sql
 
 # 모두온 공통 서비스
+
+## 2026-10-14 제휴 서비스별 추천인 (가족간병 우선)
+
+사용자 확정 정책: 추천인은 제휴 시스템마다 따로 존재한다. 모두온 공통가입은 추천인을 받지 않으며 `platform_members.referrer_id`는 과거 기록으로만 남기고 정산에 쓰지 않는다. 이 절이 아래 '추천 관계는 모든 서비스에서 하나로 연결' 계약을 대체한다.
+
+- 회원은 서비스마다 추천 코드 하나(`S`+11자리, 처음 공유할 때 발급)와 추천인 하나를 가진다. 지금 등록 가능한 서비스는 가족간병(`care`)뿐이다. 보험 추천인은 기존 가람in 추가정보 절차와 `fc_profiles.recommender_*`가 그대로 담당한다.
+- 가족간병 소개하기는 간병 전용 코드로 `?code=…&service=care` 링크를 공유한다. 이 기능 이전에 공유된 링크(공통 회원 코드)는 가족간병에서만 계속 인정한다.
+- 링크로 처음 가입하면 공통가입 화면에 코드 안내만 보이고, 가입과 함께 `register_platform_member_v2`가 간병 추천인을 원자적으로 등록한다. 쓸 수 없는 코드면 가입 전체가 되돌아가고 '추천인 없이 가입하기'로 계속할 수 있다. 인증번호 확인 뒤에만 코드를 검사한다.
+- 이미 로그인한 회원이 링크를 열면 가족간병 화면에서 추천인 이름을 보고 직접 확인해 등록한다. 링크 없이 가입한 회원은 간병 신청 화면이 생길 때까지 내 정보 > 가족간병 추천인에서 코드를 입력한다.
+- 처음 등록한 추천인이 확정이다. 같은 추천인 재요청은 성공으로 처리하고 다른 추천인은 `referral_already_bound`(409)로 거절한다. 본인·순환 추천은 거절한다. 관리자 변경 기능은 아직 없다.
+- 신청(`create_platform_application`)은 해당 서비스의 추천인을 스냅숏하고 정산은 그 스냅숏만 사용한다.
+
+## 2026-10-15 탈퇴 때 가람링크 직접 가입 FC 자동 정리
+
+사용자 결정: 공통 탈퇴는 같은 번호로 가람링크에 직접 가입한 일반 FC 계정 1개를 자동으로 함께 정리한다. 탈퇴 정리 assertion에 원본 FC 번호를 서명해 보내고, 가람링크는 연결 기록이 없을 때만 그 번호의 계정이 정확히 1개이며 일반 FC·활성·설계사 아님·연결/동기화 기록 없음일 때 연결 후 정리한다. 그 외는 기존처럼 운영자 확인 보류다. 그 번호의 가람링크 계정이 아예 없으면 `no_affiliate_account`로 정리 완료 처리한다. 번호 없는 이전 assertion은 기존 동작을 유지한다.
+
+## 2026-10-14 직원 권한 수동 부여와 단일 계정
+
+사용자 확정 정책: 모두온 계정이 유일한 계정이며 가람in을 포함한 제휴 서비스는 그 아래에서 서비스 정보만 추가 등록한다. 관리자·본부장도 먼저 모두온에 가입하고, 제휴 서비스 직원 권한은 운영자가 수동으로 붙인다.
+
+`grant_platform_staff_account_v1(member_id, 'admin'|'manager', staff_type, existing_account_id)`는 service_role 전용이다. 활성 공통 회원에 직원 계정을 만들거나(기존 행이 있으면 `existing_account_id`로 명시 연결) 연결하고, 공통 비밀번호 해시를 직원 계정으로 옮긴 뒤 공통 credential을 지운다. 회원의 비밀번호는 하나로 유지되며 다음 로그인부터 직원 세션이 발급된다. 이전 일반회원 토큰은 무효가 된다. 같은 요청 재실행은 `alreadyGranted`를 반환한다. FC 회원의 직원 전환은 미정 정책이므로 `fc_member_not_supported`로 거절한다.
+
+`admin_accounts`/`manager_accounts`의 insert와 전화번호 변경은 그 번호가 다른 활성 공통 회원이면 `platform_member_phone_requires_grant`로 거절한다. 직원 행이 공통 회원 번호를 가려 직원 세션에 도달하지 못하는 상태를 막기 위함이다. 이 가드 이전에 생긴 충돌은 부여 함수의 `existing_account_id`로만 정리한다.
+
+공통 로그인에서 가람in 계정 오류(`not_found`, `inactive_admin`, `inactive_manager`, `missing_password`, `login_unavailable`)는 각자의 문구로 표시하며 '로그인 만료'로 표시하지 않는다. 미가입 번호는 "가입되지 않은 번호입니다"를 명시한 뒤 모두온 회원가입으로 이동한다.
+
+## 2026-10-14 일반 회원·FC의 전체 제휴 계정 탈퇴
+
+공통 회원 탈퇴는 연결된 일반 회원·보험 FC·가람링크 계정의 개인정보와 로그인 정보를 함께 정리한다. 사용자 확인에 따라 회사 관리자·본부장과 Request Board의 현재 회사 업무 역할 계정은 유지한다. 권한 판단은 서명된 원본과 현재 DB 연결·역할을 사용한다. 요청 본문 actor/role/소속 문자열이나 전화번호 일치만으로 다른 계정을 삭제하지 않는다. 이 절이 과거 공통 탈퇴 시 FC 유지 계약을 대체한다.
+
+withdraw_member는 confirmed:true, scope:all_affiliates, policyVersion:2026-10-14와 UUID idempotencyKey를 요구한다. 과거 delete_member 확인은 제휴 계정 삭제를 승인하지 않으므로 upgrade_required409만 반환하며 변경하지 않는다. 공통 필수 동의 버전2026-10-12를 강제로 바꾸지 않고 새 탈퇴 확인 범위를 별도로 표시한다.
+
+접수는 공통/원본 계정 잠금과 함께 일반 FC credential·활동 권한을 중지한다. 원래 세션 SHA256 digest와 operation UUID로 소유한 요청만 재처리할 수 있다. 원문 토큰은 보관하지 않는다. Request Board는 기존 password_sync_generations의 canonical fc:UUID와 검증된 signed-generation 첫 bridge에서 원자 생성한 private fc_account_bindings만 신뢰한다. 신원 binding은 비밀번호 세대/fingerprint와 별개이며 가짜 세대를 만들지 않는다. legacy phone-only 연결은 affiliate_identity_unbound로 보류하며 추정 삭제하지 않는다. 정상 영수증은 정확한 operation/source UUID·정책·삭제 또는 검증된 독립 회사 보존 범위를 확인한다.
+
+completed는 대상 계정과 본인 첨부 정리가 모두 확인된 상태만 의미한다. 첨부 upload token 만료 후 재정리까지 포함하고, 완료 outbox/receipt의 개인 경로를 지운다. 정리 실패나 연결 확인은 pending이며 deleted:false/cleanupPending:true를 반환한다. get_withdrawal은 원래 세션 digest로 본인 journal 상태만 읽으며 로그인/삭제를 시작하지 않는다. 앱은 화면 재진입 때 원래 요청 ID를 복구하고 조회 실패 시 새 삭제보다 다시 확인을 먼저 제공한다. 닫힌 화면의 확인창은 실행하지 않으며 검증된 완료에서만 전체 로컬 로그아웃한다. OS 재시작 후 기존 세션이 정리되면 사용자 재처리 대신 운영 authenticated worker가 계속 처리해야 한다. 이미 확정된 거래·정산·의뢰 이력은 cascade 삭제하지 않으며 개인정보가 지워진 접근 불가능한 UUID와 탈퇴 표시만 제한적으로 유지한다.
+
+Request Board는 persisted active/token_version과 기존 runtime revoke를 재사용한다. 송수신 socket 검증과5초 idle 재검증은 이후 접근을 제한한다. 영수증 범위는 persisted_auth_and_local_runtime이며 즉각적인 전역 in-flight 회수를 보장하지 않는다. service-only withdrawal_cleanup_drain은 정확한 두 service-key 헤더 인증 뒤 최대3개 due 요청만 처리한다. 운영 예약 호출·신원 연결·legacy producer 및 모든 서버의 새 source 채택은 별도 배포 조건이며, 현재 로컬 구현을 운영 자동 완료로 표시하지 않는다.
+
+## 2026-10-14 공통 가입·서비스 추가 등록 통합
+
+사용자가 승인한 흐름은 모두온 공통 가입·로그인 → 서비스 선택 → 서비스 추가 안내·동의와 필요 정보 입력 → 서비스 이용이다. 가람in 사전등록·별도 로그인 UI는 제거하고 기존 주소는 공통 화면의 얇은 redirect로 유지한다. 이름·인증 전화·비밀번호를 가람in에서 다시 받지 않는다. 기존 계정 로그인·비밀번호 저장·임시 비밀번호 변경·OTP 복구와 skipAuto·서비스 선택·알림 우선순위를 유지한다.
+
+회사가 동의를 받았다는 사용자 확인은 migration 적용 시점의 기존 적격 FC/직원 source UUID cohort에만 적용한다. 기존 실제 동의 일시는 보존하며 회사 확인은 company_attested_import와 별도 기록 시각으로 저장한다. 이후 생성/완료한 legacy 계정에 역사적 동의를 자동 부여하지 않는다. 탈퇴한 공통 계정은 재활성화하지 않고 원본 source tombstone으로 재가입 혼입을 차단한다. 기존 완성 FC/직원은 추가 공통 동의 화면 없이 같은 계정으로 연결한다. 미완료 사전등록은 공통 인증·가입을 마친 뒤 서비스 추가 등록에서 안전하게 이어간다.
+
+공통 회원의 가람in 진입만으로 FC를 만들지 않는다. 기존 apply-gate에서 추가정보 안내와 insurance-additional-info-v1 동의를 확인하고 소속·이메일·통신사·자격 상태·별도 보험 추천인 입력을 명시적으로 확정할 때 enroll_insurance가 FC/credential/보험 추천/동의를 하나의 트랜잭션으로 연결한다. 신원 입력은 반환된 FC 세션으로 기존 identity/store-identity를 사용한다. 중단한 신원 입력은 기존 gate에서 이어간다. 나중에는 모두온 홈으로 돌아간다. 완료 FC의 엄격한 조회 오류/재시도와 관리자·본부장·설계사 경로는 유지한다. 이후 SGI 보증보험 consent 화면은 최초 추가 동의와 다르다.
+
+공통 referrer_id와 보험 모집 관계는 별도다. 공통 추천인을 보험 후보로 표시하거나 자동 선택하지 않는다. 명시적인 보험 초대 code만 기존 보험 pending에서 소비한다. 새 서비스 등록은 signed common actor에서 이름·전화·해시를 가져오며 본문 actor/role/password를 신뢰하지 않는다. 응답 손실 후에는 같은 idempotencyKey/payload와 현재 canonical credential generation을 확인한 enrollment-only receipt로 회복한다. 공통 토큰을 기존 FC API에 허용하지 않는다.
+
+헤더는 guest 로그인, signed 별도 내 정보·로그아웃, 복원 중 확인 중으로 표시한다. 회원명은 접근성 문맥에만 사용하고 로그인됨 문구는 쓰지 않는다. 공통 로그인/내 정보 경로와 기존 local-first 로그아웃·시각 토큰을 재사용하며 긴 이름·320px·큰 글씨·44px 조작 영역을 확인한다. [공식 One Login 계정 헤더](https://www.sign-in.service.gov.uk/documentation/design-recommendations/let-users-navigate-sign-out)의 명시적인 계정 접근 원칙만 참고하고 브랜드를 복제하지 않는다. 주황 채움/흰 글씨와 내 정보 하단12px 간격은 기존 공용 구현을 유지한다.
+
+탈퇴 시 실명·전화·credential·live binding은 지우되, 자동 공통 가입 재생성을 막는 제한된 source UUID/tombstone 및 회사 확인 cohort association은 남긴다. 이를 공통 안내와 공개 개인정보 안내에 사실대로 구분한다. 필수 공통 동의 버전2026-10-12를 임의 승격하여 기존 회원에게 재동의를 강제하지 않으며, 안내 갱신일2026-10-14와 서비스 추가 동의insurance-additional-info-v1은 별도로 기록한다. 회사가 확보한 동의 문서의 법률 검토를 수행했다는 주장은 하지 않는다.
+
+이 절은 최신 로컬 구현 계약이며 아래 이전 회차의 명시적 legacy 공통 동의/FC 가입 UI 설명을 대체한다. 운영 반영·OTA·실제 단말 검증은 각각 별도 증거를 요구한다.
+
+2026-10-14 배포 준비: 가족간병 개인 초대·추천 입력은 기존 서버 관계를 사용한다. Android 신규 native source는 앞선 사진 선택 전용 image-picker 권한 제거와 초대 기능을 함께 포함한다. production `platform-service`의 오래된 SMS 완료 처리 묶음을 검증된 source에 맞추며 union 실패 사유를 `sent.ok === false`로 명시한다. OTP/RPC·추천/기존 회원·역할 정책은 유지하고 새 migration은 없다. 실제 가입/OS 공유와 source별 Android OTA·신규 스토어 성공 상태는 별도 영수증으로 확인한다. iOS 심사·공개 상태 확인은 읽기 전용이다.
 
 2026-10-12 revision-22 출시 준비: 사용자 승인 범위는 기존 앱 식별자를 유지한 모두온4.2.19 Android/iOS 출시이며 공통 가입까지 완성한 뒤 제출한다. 가입·로그인은 기존 해시/SMS/세션과 SQL 잠금 경계를 재사용한다. 소비자 비밀번호 복구는 기존 password-reset challenge RPC에 member 분기를 추가하며 FC/admin/manager 회복 계약은 별도 기존 suite로 검증한다. 공통 회원은 기존FC/직원도 명시적 동의 후에만 생성한다. 공통 탈퇴는 원래 보험·직원 계정과 세션을 유지하고 공통 이름·휴대폰·credential·원본 연결·인증 기록을 정리한다. 최신 동의 전에도 본인 탈퇴는 가능하다. 동의 문구와 버전은 기존 lib/platform-api.ts 한 곳을 두 화면이 공유한다.
 
@@ -29,6 +84,8 @@ revision-11(2026-10-11): 공통 플랫폼 이름은 ‘모두온’이다. 공�
 
 ## 추천 관계
 
+2026-10-14 로컬 가족간병 초대: 가입 화면은 검증한 `code` query를 우선 입력하고 보험 pending이 아닌 care pending만 한 번 소비한다. 명시 code가 있으면 오래된 pending을 폐기하며 직접 수정·계정 변경·이미 가입한 회원에게 지연 결과를 적용하지 않는다. 신규 가입의 기존 서버 검증으로 추천 관계를 연결한다. 기존 회원의 추천인 변경·제휴 정산·탈퇴 시 승계 정책은 이 초대 UI에서 구현하거나 변경하지 않는다. 복사 주소와 공유 문구에는 개인 추천 코드만 있으며 이름·전화번호·세션은 넣지 않는다. 설치 후에는 원래 링크 다시 열기/코드 입력이 필요할 수 있다.
+
 `platform_members.referrer_id` 하나를 모든 생활 제휴 서비스에 사용한다. 기존 FC는 최초 연결 시 기존 추천 관계를 가져온다. 공통 가입을 먼저 한 회원의 추천인은 나중에 FC가 되어도 덮어쓰지 않는다. 이후 보험 모집 관계 변경은 기존 증원수당 업무 계약에 따르며 공통 제휴 추천인을 자동 변경하지 않는다. 기존 보험 증원수당 명세와 제휴 혜택을 합산하지 않는다.
 
 신청은 직접 추천인 UUID를 보존한다. 정산은 해당 UUID와 소비자·직접 추천인 비율 및 계산 기준을 보존한다. 상위 계보 전체에 수수료를 지급하지 않는다. 제휴사 설정 변경이 이전 정산을 다시 계산하지 않는다.
@@ -44,6 +101,8 @@ revision-11(2026-10-11): 공통 플랫폼 이름은 ‘모두온’이다. 공�
 ## 병원과 보험
 
 2026-10-12 로컬 시험: 사용자가 가상 데이터를 요청하여 `EXPO_PUBLIC_HOSPITAL_DEMO=true`인 설치본에서만 서울·경기·부산·대전의 가상 병원12곳을 표시한다. 기존 목록·진료과·지역/구·검색·상세 UI와 응답 스키마를 재사용하며 기존 가상 사진3개를 앱에 포함한다. 화면 제목에 샘플을 표시한다. 전화/홈페이지는 제공하지 않고 가상 주소 길찾기는 비활성화한다. 병원 측정 요청도 로컬에서만 완료하며 운영 광고 집계에 보내지 않는다. 플래그가 없으면 기존 서버 API를 사용하고 실제 광고 계약만 표시한다. 플래그는 로컬 APK 빌더에만 설정하며 저장소 `.env`와 운영 DB/함수는 변경하지 않는다.
+
+revision-23(2026-10-14): 제휴병원 홈의 탐색 분야는 `한방병원`, `정형외과`, `안과`, `치과`, `성형외과`, `건강검진센터` 순서의 6개로 고정한다. 검색 칩과 3×2 아이콘 타일은 같은 목록을 사용하며 이전의 동적 진료과·전체 보기 동작을 대체한다. 로컬 샘플 12곳은 이 6개 분야를 각각 2곳씩 제공한다.
 
 revision-16(2026-10-11): 상단은 최소56px 헤더의 제목·시/도 선택과48px 검색으로 줄이고 중복 본문 제목·큰 지역 폼을 제거한다. 구 선택은 시/도 선택 후 제공한다. 등록 진료과는 기존 react-native-svg로 만든44px 컬러 그림으로 구분한다. 내과 청진기·정형외과 뼈·재활 관절·치과 치아·안과 눈·피부과 얼굴·소아 어린이·이비인후과 귀를 사용하며 그 외 진료과는 의료 십자를 사용한다. 소개 카드는 최대300px 폭·172px 사진과 실제 소개2줄·상세 링크, 일반 목록은88px 사진과 간결한 비교 정보를 제공한다. 병원별 photoUrl은 서버 값을 그대로 사용하며 합성 사진3장은 격리 검증에만 쓴다. 지역·검색·복귀와 아래 지면/가시성 집계 계약은 유지한다.
 
@@ -70,3 +129,12 @@ revision-15(2026-10-11): 제휴병원 홈은 빈 검색 조건으로 처음부�
 신규 테이블은 모두 RLS를 켜고 anon/authenticated 직접 접근과 RPC 실행을 회수한다. service-role은 서버에만 있다. 일반 회원 탈퇴는 이름·휴대폰·비밀번호와 관심 입력을 정리하며 UUID로 연결된 정산 이력은 남긴다. 기존 FC 탈퇴도 새 참조가 막지 않는다.
 
 현재는 로컬 구현이다. 공통 개인정보처리방침·보유기간·기존 FC의 추가 목적 동의, 소비자 비밀번호 재설정, 실제 SMS·제휴 계약과 외부 구매 시스템은 출시 전 준비가 필요하다. 운영 DB·Edge·앱 배포와 실제 기기 검증은 이 구현의 로컬 검증과 구분한다.
+
+## 2026-10-16 가입 인증 코드 확인 요청
+
+- 앱은 `check_signup_otp`(phone, 6자리 code)를 다른 인증 요청과 같은 요청 제한 시간(`PLATFORM_REQUEST_TIMEOUT_MS`)으로 보낸다. 성공해야 가입 화면의 비밀번호 질문이 열리고, 최종 `signup`이 같은 코드를 다시 검증한다.
+
+## 2026-10-16 가람in만 탈퇴
+
+- 보험 계정 설정에서 모두온 회원과 연결된 FC는 `가람in 탈퇴`를 본다. `withdraw_member`(scope `insurance`, 같은 정책 버전·멱등 키)를 보내고, 응답의 `memberSession`으로 `loginPlatformMember`를 호출해 모두온 로그인을 유지한다. 연결되지 않은 FC 계정은 기존 `delete-account` 삭제를 쓴다.
+- 내 정보의 `공통 회원 탈퇴`(scope `all_affiliates`)는 6개 서비스(가족간병·보험·통신·렌탈·자동차·제휴병원)를 모두 지운다. 제휴병원은 회원 데이터가 없는 지역 안내다.

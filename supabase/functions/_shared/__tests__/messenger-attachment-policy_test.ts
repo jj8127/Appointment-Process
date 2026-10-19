@@ -331,6 +331,17 @@ function buildLegacyOffice(
   return concat([header, fat, directory, miniFat, miniStream]);
 }
 
+function zipLocalHeader(name = "a.bin"): Uint8Array {
+  const nameBytes = encoder.encode(name);
+  const header = new Uint8Array(30);
+  const view = new DataView(header.buffer);
+  view.setUint32(0, 0x04034b50, true);
+  view.setUint16(4, 20, true);
+  view.setUint16(8, 8, true);
+  view.setUint16(26, nameBytes.length, true);
+  return concat([header, nameBytes]);
+}
+
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const hash = await crypto.subtle.digest(
     "SHA-256",
@@ -574,7 +585,7 @@ Deno.test("active content and polyglots are rejected across PDF, OOXML, CFB, ima
     "embedded.pdf",
     concat([
       encoder.encode("%PDF-1.7\n%%EOF\n"),
-      new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
+      zipLocalHeader(),
     ]),
     "attachment_pdf_embedded_content_rejected",
   );
@@ -619,7 +630,7 @@ Deno.test("active content and polyglots are rejected across PDF, OOXML, CFB, ima
     "polyglot.png",
     concat([
       new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-      new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
+      zipLocalHeader(),
     ]),
     "invalid_attachment_polyglot",
   );
@@ -630,9 +641,50 @@ Deno.test("active content and polyglots are rejected across PDF, OOXML, CFB, ima
   );
   await assertInspectionRejects(
     "archive.txt",
-    concat([encoder.encode("plain"), new Uint8Array([0x50, 0x4b, 0x03, 0x04])]),
+    concat([encoder.encode("plain"), zipLocalHeader()]),
     "invalid_attachment_content",
   );
+  await assertInspectionRejects(
+    "elf.png",
+    concat([
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0]),
+      new Uint8Array(64),
+    ]),
+    "invalid_attachment_polyglot",
+  );
+  await assertInspectionRejects(
+    "script.txt",
+    encoder.encode("#!/bin/sh\necho hi\n"),
+    "invalid_attachment_content",
+  );
+});
+
+// Regression: real photos and PDFs are compressed (random-looking) bytes in which
+// "#!", "PK\x03\x04", "\x7fELF" and "MZ" appear by chance. Only complete headers count.
+Deno.test("chance magic bytes inside real image, PDF and TXT content are not polyglots", async () => {
+  const noise = new Uint8Array(512);
+  for (let index = 0; index < noise.length; index += 1) noise[index] = (index * 131 + 7) % 251;
+  const chance = concat([
+    noise,
+    encoder.encode("#!"),
+    noise,
+    new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff, 0xff, 0xff, 0xff]),
+    noise,
+    new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 0x09, 0x09]),
+    noise,
+    new Uint8Array([0x4d, 0x5a]),
+    noise,
+  ]);
+  const fixtures: Array<[string, Uint8Array, string]> = [
+    ["screenshot.png", concat([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chance]), "png"],
+    ["photo.jpg", concat([new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), chance]), "jpeg"],
+    ["scan.pdf", concat([encoder.encode("%PDF-1.7\n"), chance, encoder.encode("\n%%EOF")]), "pdf"],
+    ["memo.txt", encoder.encode("회의 메모: 이번 안내는 중요합니다#! 꼭 확인하세요."), "txt"],
+  ];
+  for (const [name, bytes, family] of fixtures) {
+    assertEquals((await inspect(name, bytes)).family, family);
+  }
 });
 
 Deno.test("nested external OOXML relationships are rejected for DOCX, XLSX and PPTX", async () => {

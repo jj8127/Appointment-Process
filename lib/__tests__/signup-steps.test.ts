@@ -1,10 +1,10 @@
-import { advanceStackReveal, getStackOrder, PLATFORM_SIGNUP_STEPS, SIGNUP_STEPS } from '@/lib/signup-steps';
+import { advanceStackReveal, getStackOrder, INSURANCE_ENROLLMENT_STEPS, PLATFORM_SIGNUP_STEPS } from '@/lib/signup-steps';
 
 describe('stacked signup questions', () => {
   it('shows the newest question on top of the answered ones', () => {
-    expect(getStackOrder(SIGNUP_STEPS, 1)).toEqual(['name']);
-    expect(getStackOrder(SIGNUP_STEPS, 3)).toEqual(['carrier', 'phone', 'name']);
-    expect(getStackOrder(PLATFORM_SIGNUP_STEPS, 99)).toEqual([...PLATFORM_SIGNUP_STEPS].reverse());
+    expect(getStackOrder(PLATFORM_SIGNUP_STEPS, 1)).toEqual(['name']);
+    expect(getStackOrder(PLATFORM_SIGNUP_STEPS, 3)).toEqual(['code', 'phone', 'name']);
+    expect(getStackOrder(INSURANCE_ENROLLMENT_STEPS, 99)).toEqual([...INSURANCE_ENROLLMENT_STEPS].reverse());
   });
 
   it('reveals the next question only when the newest one is answered', () => {
@@ -12,6 +12,7 @@ describe('stacked signup questions', () => {
     // Editing an earlier answer keeps the stack where it is.
     expect(advanceStackReveal(PLATFORM_SIGNUP_STEPS, 4, 'phone')).toEqual({ revealed: 4, advanced: false });
     // The last question has nothing after it.
-    expect(advanceStackReveal(SIGNUP_STEPS, SIGNUP_STEPS.length, 'referral')).toEqual({ revealed: SIGNUP_STEPS.length, advanced: false });
+    expect(advanceStackReveal(INSURANCE_ENROLLMENT_STEPS, INSURANCE_ENROLLMENT_STEPS.length, 'referral'))
+      .toEqual({ revealed: INSURANCE_ENROLLMENT_STEPS.length, advanced: false });
   });
 });

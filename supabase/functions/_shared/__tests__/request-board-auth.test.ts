@@ -4,11 +4,38 @@ import {
   buildRequestBoardPasswordSyncV2AssertionPayload,
   createAssistedPasswordChangeChallenge,
   createRequestBoardPasswordSyncAssertion,
+  createRequestBoardAccountRetirementAssertion,
   parseAssistedPasswordChangeTokenDetailed,
   parseDesignerCompanyNameFromAffiliation,
 } from '../request-board-auth';
+import { buildFcPasswordSyncUpstream } from '../request-board-password-sync';
 
 describe('administrator-assisted first-password challenge contract', () => {
+  it('signs account retirement with a distinct purpose, exact source/operation and no phone or password fields', async () => {
+    const original = process.env.REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_SECRET;
+    process.env.REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_SECRET = 'synthetic-retirement-secret';
+    try {
+      const token = await createRequestBoardAccountRetirementAssertion('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222');
+      expect(token).not.toBeNull();
+      const payload = JSON.parse(Buffer.from(token!.split('.')[0], 'base64url').toString('utf8'));
+      expect(payload).toMatchObject({kind:'request_board_account_retirement',purpose:'retire_all_affiliates',
+        upstream_account_id:'11111111-1111-4111-8111-111111111111',operation_id:'22222222-2222-4222-8222-222222222222',
+        role:'fc',policyVersion:'2026-10-14'});
+      expect(payload.exp-payload.iat).toBe(60);
+      expect(buildFcPasswordSyncUpstream(payload.upstream_account_id.toUpperCase(),7)?.accountId)
+        .toBe(`fc:${payload.upstream_account_id}`);
+      expect(Object.keys(payload).sort()).toEqual(['exp','iat','kind','operation_id','policyVersion','purpose','role','upstream_account_id']);
+      const withPhone = await createRequestBoardAccountRetirementAssertion('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','01000000000');
+      expect(JSON.parse(Buffer.from(withPhone!.split('.')[0], 'base64url').toString('utf8')).phone).toBe('01000000000');
+      const malformed = await createRequestBoardAccountRetirementAssertion('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','010-0000-0000');
+      expect(JSON.parse(Buffer.from(malformed!.split('.')[0], 'base64url').toString('utf8'))).not.toHaveProperty('phone');
+      delete process.env.REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_SECRET;
+      expect(await createRequestBoardAccountRetirementAssertion('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222')).toBeNull();
+    } finally {
+      if(original === undefined) delete process.env.REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_SECRET;
+      else process.env.REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_SECRET = original;
+    }
+  });
   it('binds the FC, phone, purpose, nonce, and short expiry without granting an app role', () => {
     expect(buildAssistedPasswordChangeTokenPayload({
       phone: '010-0000-0000',

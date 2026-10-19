@@ -39,6 +39,7 @@ import {
   hasPresentRouteParam,
   parseExactlyOneUuidRouteParam,
 } from '@/lib/strict-route-params';
+import { createRealtimeChannelTopic } from '@/lib/realtime-channel-topic';
 import { supabase } from '@/lib/supabase';
 import { COLORS } from '@/lib/theme';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
@@ -332,7 +333,7 @@ function DocsUploadScreenContent() {
     if (!fc?.id) return;
 
     const docChannel = supabase
-      .channel(`docs-upload-${fc.id}`)
+      .channel(createRealtimeChannelTopic('docs-upload-documents'))
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'fc_documents', filter: `fc_id=eq.${fc.id}` },
@@ -341,7 +342,7 @@ function DocsUploadScreenContent() {
       .subscribe();
 
     const profileChannel = supabase
-      .channel(`docs-upload-profile-${fc.id}`)
+      .channel(createRealtimeChannelTopic('docs-upload-profile'))
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'fc_profiles', filter: `id=eq.${fc.id}` },

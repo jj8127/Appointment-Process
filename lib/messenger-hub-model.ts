@@ -1,4 +1,5 @@
 import type { GroupChatBootstrapResponse } from './group-chat-api';
+import { getMessengerAttachmentSummary } from './group-chat-display';
 import type {
   ChatTargetWithUnread,
   InternalChatListItem,
@@ -174,6 +175,18 @@ const targetDetail = (kind: 'manager' | 'developer' | 'admin') => {
   return '총무';
 };
 
+/**
+ * Role badge and detail line for a people row. "권슬기총무" already names the role, so a badge
+ * or detail that only repeats it is dropped.
+ */
+export function getMessengerPersonRowLabels(person: Pick<MessengerHubPerson, 'name' | 'detail' | 'role'>) {
+  const roleLabel = MESSENGER_PERSON_ROLE_LABELS[person.role];
+  return {
+    roleBadge: person.name.endsWith(roleLabel) ? '' : roleLabel,
+    detail: person.detail === roleLabel ? '' : person.detail,
+  };
+}
+
 export function formatOperationsMessengerName(value?: string | null): string {
   const realName = String(value ?? '').trim().replace(/\s*총무\s*$/, '').trim();
   return realName ? `${realName}총무` : '총무';
@@ -308,16 +321,19 @@ export function buildGroupConversation(
 ): MessengerHubConversation {
   const last = summary.last_message;
   const sender = last?.sender_name?.trim() || '참여자';
+  const attachmentSummary = getMessengerAttachmentSummary(last?.attachments);
   const preview = !last
     ? 'FC와 운영진이 함께 이야기하는 공간입니다.'
-    : last.message_type === 'image'
+    : attachmentSummary
+      ? `${sender}: ${attachmentSummary}`
+      : last.message_type === 'image'
       ? `${sender}: 사진`
       : last.message_type === 'file'
         ? `${sender}: ${last.file_name?.trim() || '파일'}`
         : `${sender}: ${last.content}`;
   return {
     key: `internal-group:${summary.room.id}`,
-    name: summary.room.title?.trim() || '가람in 단체방',
+    name: summary.room.title?.trim() || '가람PA 단톡방',
     detail: `${summary.member_count.toLocaleString('ko-KR')}명 참여`,
     role: 'other',
     sourceLabel: '가람in',

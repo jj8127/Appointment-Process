@@ -205,8 +205,16 @@ export function buildGroupChatSendBody(input: {
   attachmentIntentIds?: readonly string[];
   deliveryKey?: string;
   payloadFingerprint?: string;
+  /** Lets a resend after an unknown outcome return the stored message instead of a duplicate. */
+  clientMessageId?: string;
 }) {
   const messageType = input.messageType ?? 'text';
+  const clientMessageId = input.clientMessageId?.trim().toLowerCase();
+  if (clientMessageId !== undefined && !isNotificationUuid(clientMessageId)) {
+    throw new GroupChatRequestError('메시지 식별자가 올바르지 않습니다.', {
+      code: 'invalid_message_id',
+    });
+  }
   const hasAttachmentFields =
     input.attachmentIntentIds !== undefined
     || input.deliveryKey !== undefined
@@ -249,6 +257,7 @@ export function buildGroupChatSendBody(input: {
     ...(input.fileName ? { file_name: input.fileName } : {}),
     ...(typeof input.fileSize === 'number' ? { file_size: input.fileSize } : {}),
     ...(input.replyToMessageId ? { reply_to_message_id: input.replyToMessageId } : {}),
+    ...(clientMessageId ? { client_message_id: clientMessageId } : {}),
     ...(attachmentIntentIds
       ? {
           attachment_intent_ids: attachmentIntentIds,
@@ -431,7 +440,7 @@ async function readGroupChatFunctionErrorPayload(error: unknown) {
 async function invokeGroupChat<T>(body: Record<string, unknown>): Promise<T> {
   const appSessionToken = await getStoredAppSessionToken();
   if (!appSessionToken) {
-    throw new GroupChatRequestError('단톡방 세션이 없습니다. 다시 로그인해주세요.', {
+    throw new GroupChatRequestError('로그인이 만료되었습니다. 다시 로그인해 주세요.', {
       code: 'missing_app_session',
       status: 401,
     });

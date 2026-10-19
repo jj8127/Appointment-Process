@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, Keyboard, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -15,6 +15,7 @@ import { clearSavedLoginCredentials } from '@/lib/saved-login-credentials';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { validatePassword } from '@/lib/validation';
+import { resolvePlatformAuthRoute } from '@/lib/session-landing';
 
 type CompletionResponse = {
   ok?: boolean;
@@ -23,6 +24,12 @@ type CompletionResponse = {
 };
 
 export default function FirstPasswordChangeScreen() {
+  const { service } = useLocalSearchParams<{ service?: string }>();
+  const returnToLogin = useCallback(() => {
+    const loginRoute = resolvePlatformAuthRoute(service, 'login');
+    router.replace({ pathname: '/services/login',
+      params: { ...(typeof loginRoute === 'string' ? {} : loginRoute.params), skipAuto: '1' } });
+  }, [service]);
   const [challenge] = useState(() => getPendingAssistedPasswordChange());
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -32,9 +39,9 @@ export default function FirstPasswordChangeScreen() {
   useEffect(() => {
     if (challenge?.token) return;
     Alert.alert('다시 로그인이 필요합니다', '비밀번호 변경 요청을 찾을 수 없습니다.', [
-      { text: '확인', onPress: () => router.replace('/login?skipAuto=1') },
+      { text: '확인', onPress: returnToLogin },
     ]);
-  }, [challenge]);
+  }, [challenge, returnToLogin]);
 
   const handleSubmit = async () => {
     Keyboard.dismiss();
@@ -70,7 +77,7 @@ export default function FirstPasswordChangeScreen() {
         ) {
           clearPendingAssistedPasswordChange();
           Alert.alert('다시 로그인이 필요합니다', data.message ?? '변경 시간이 만료되었습니다.', [
-            { text: '확인', onPress: () => router.replace('/login?skipAuto=1') },
+            { text: '확인', onPress: returnToLogin },
           ]);
           return;
         }
@@ -81,7 +88,7 @@ export default function FirstPasswordChangeScreen() {
       clearPendingAssistedPasswordChange();
       await clearSavedLoginCredentials().catch(() => undefined);
       Alert.alert('변경 완료', '새 비밀번호로 다시 로그인해주세요.', [
-        { text: '로그인', onPress: () => router.replace('/login?skipAuto=1') },
+        { text: '로그인', onPress: returnToLogin },
       ]);
     } catch {
       Alert.alert('변경 실패', '새 비밀번호를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.');

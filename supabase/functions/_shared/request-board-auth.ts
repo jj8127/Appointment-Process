@@ -1,6 +1,7 @@
 import {
   verifySessionGeneration,
   sessionGenerationClaims,
+  parseSessionGenerationClaims,
   type OptionalSessionGenerationClaims,
   type SessionGenerationClaims,
   type SessionGenerationLookup,
@@ -17,6 +18,7 @@ type SignedTokenKind =
   | 'request_board_bridge'
   | 'request_board_password_sync'
   | 'request_board_password_sync_v2'
+  | 'request_board_account_retirement'
   | 'fc_onboarding_session'
   | 'platform_member_session'
   | 'fc_assisted_password_change';
@@ -112,7 +114,7 @@ type AppSessionTokenParseResult =
   };
 
 type BridgeTokenParseResult =
-  | { ok: true; payload: BridgeTokenPayload & SessionGenerationClaims }
+  | { ok: true; payload: BridgeTokenPayload & SessionGenerationClaims; signedGeneration?: SessionGenerationClaims }
   | {
     ok: false;
     code: 'invalid_bridge_token' | 'expired_bridge_token' | 'session_verification_unavailable';
@@ -244,14 +246,14 @@ async function signPayload(payloadPart: string, secret: string) {
   return toBase64Url(new Uint8Array(signatureBuffer));
 }
 
-async function sha256Hex(value: string) {
+export async function sha256Hex(value: string) {
   const digest = await crypto.subtle.digest('SHA-256', encoder.encode(value));
   return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('');
 }
 
-async function buildSignedToken<TPayload extends SignedTokenPayloadBase>(
+async function buildSignedToken<TPayload extends Pick<SignedTokenPayloadBase, 'kind' | 'iat' | 'exp'>>(
   payload: TPayload,
   secret: string,
 ) {
@@ -457,6 +459,17 @@ export async function createRequestBoardPasswordSyncV2Assertion(
     ttlSec: requestBoardPasswordSyncAssertionTtlSec(),
   });
   return buildSignedToken(payload, secret);
+}
+
+/** Domain-separated destructive authority; never reuse a password/bridge token. */
+/** The optional source phone lets GaramLink claim a lone direct FC account. */
+export async function createRequestBoardAccountRetirementAssertion(upstreamAccountId: string, operationId: string, phone?: string) {
+  const secret = getPasswordSyncAssertionSigningSecret();
+  if (!secret) return null;
+  const iat = Math.floor(Date.now() / 1000);
+  return buildSignedToken({ kind: 'request_board_account_retirement', purpose: 'retire_all_affiliates',
+    upstream_account_id: upstreamAccountId, operation_id: operationId, role: 'fc',
+    policyVersion: '2026-10-14', ...(phone && /^01[0-9]{9}$/.test(phone) ? { phone } : {}), iat, exp: iat + 60 }, secret);
 }
 
 export async function createAppSessionToken(
@@ -728,7 +741,9 @@ export async function parseRequestBoardBridgeTokenDetailed(
       status: 401,
     };
   }
-  return { ok: true, payload: { ...payload, ...generation.claims } };
+  const signed = parseSessionGenerationClaims(payload);
+  return { ok: true, payload: { ...payload, ...generation.claims },
+    ...(signed && signed.legacy === false ? { signedGeneration: generation.claims } : {}) };
 }
 
 export async function parseRequestBoardBridgeToken(token: string) {

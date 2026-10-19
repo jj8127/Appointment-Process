@@ -1,6 +1,6 @@
 import { parseRequestBoardBridgeTokenDetailed } from './request-board-auth.ts';
 
-/** This endpoint returns no identity, database row, or token contents. */
+/** Return only the role and immutable generation already verified from signed claims. */
 export function createRequestBoardSessionVerificationHandler(
   verify = parseRequestBoardBridgeTokenDetailed,
   allowedOrigins: string[] = [],
@@ -26,7 +26,7 @@ export function createRequestBoardSessionVerificationHandler(
     try {
       const result = await verify(token);
       if (result.ok === false) return json({ ok: false, code: result.code, message: result.message }, result.status ?? 401);
-      return json({ ok: true, role: result.payload.role });
+      return json({ ok: true, role: result.payload.role, ...(result.signedGeneration ?? {}) });
     } catch {
       return json({ ok: false, code: 'session_verification_unavailable' }, 503);
     }

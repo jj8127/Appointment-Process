@@ -468,6 +468,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           isRequestBoardDesigner,
           requestBoardRole,
         });
+        // The login response installer already owns this signed token. Expose
+        // it with the FC state, before clearing the last common token can
+        // produce a transient signed-in state with no usable credential.
+        setAppSessionTokenState(nextAppSessionToken);
         void replaceAppSessionToken(nextAppSessionToken);
         setRequestBoardSyncStatus('idle');
         setRequestBoardSyncError(null);

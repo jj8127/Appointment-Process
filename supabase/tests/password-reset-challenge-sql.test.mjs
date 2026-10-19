@@ -33,11 +33,13 @@ async function applyMigration(db, sql) {
   }
 }
 
-async function fixture(kind) {
+async function fixture(kind, currentReset = false) {
   const db = new PGlite();
   await db.exec(`
     create role anon; create role authenticated; create role service_role;
-    create table public.fc_profiles (id uuid primary key, phone text, signup_completed boolean);
+    create table public.fc_profiles (id uuid primary key, phone text, signup_completed boolean,
+      is_manager_referral_shadow boolean not null default false, affiliation text, status text default 'draft');
+    create table public.platform_members (id uuid primary key, phone text, active boolean, fc_id uuid);
     create table public.admin_accounts (
       id uuid primary key, phone text, active boolean not null default true,
       password_hash text not null default 'old', password_salt text not null default 'old',
@@ -51,13 +53,26 @@ async function fixture(kind) {
     alter table public.fc_credentials add column must_change_password boolean default true;
     alter table public.fc_credentials add column temporary_password_issued_at timestamptz default now();
     grant usage on schema public to anon, authenticated, service_role;
-    grant select, update on all tables in schema public to service_role;
+    grant select, insert, update on all tables in schema public to service_role;
   `);
   await applyMigration(db, migration);
   await applyMigration(db, validationMigration);
+  if (currentReset) {
+    const unified = await readFile(new URL('../migrations/20261014043557_unified_common_insurance_enrollment.sql', import.meta.url), 'utf8');
+    const definition = unified.match(/create or replace function public\.process_password_reset_challenge\([\s\S]*?\n\$\$;/);
+    assert.ok(definition, 'unified migration must preserve the existing reset RPC with its recovery extension');
+    await db.exec(definition[0]);
+    await db.exec('alter table fc_credentials add column session_version bigint not null default 0');
+    const generations = await readFile(new URL('../migrations/20261004133155_credential_session_generations.sql', import.meta.url), 'utf8');
+    await db.exec(generations.slice(generations.indexOf('create or replace function public.advance_credential_session_version()'),
+      generations.indexOf('-- The service verifies')));
+    await db.exec('create trigger credential_session_version before update on fc_credentials for each row execute function advance_credential_session_version()');
+    const wrappers = await readFile(new URL('../migrations/20261013094543_fc_password_sync_generation_results.sql', import.meta.url), 'utf8');
+    await db.exec(wrappers.slice(wrappers.indexOf('create or replace function public.process_password_reset_challenge_v2(')));
+  }
   const table = kind === 'fc' ? 'fc_credentials' : `${kind}_accounts`;
   const key = kind === 'fc' ? 'fc_id' : 'id';
-  await db.query('insert into fc_profiles values ($1, $2, true)', [id, phone]);
+  await db.query('insert into fc_profiles(id,phone,signup_completed) values ($1, $2, true)', [id, phone]);
   await db.query(`insert into ${table} (${key}, phone) values ($1, $2)`, [id, phone]);
   async function rpc(action, hash = codeHash, options = {}) {
     const result = await db.query('select public.process_password_reset_challenge($1,$2,$3,$4,$5,$6,$7) result',
@@ -210,13 +225,20 @@ async function loadTs(relativePath, dependencies, globals = {}) {
   return exports;
 }
 
-async function edgeFixture(kind) {
-  const f = await fixture(kind);
+const accountHelpers = await loadTs('../functions/_shared/password-reset-account.ts', {
+  './manager-affiliation.ts': { resolveManagerAffiliation: name => name },
+  './request-board-auth.ts': { parseDesignerCompanyNameFromAffiliation: affiliation =>
+    affiliation?.includes('설계매니저') ? 'Synthetic company' : null },
+});
+
+async function edgeFixture(kind, { currentReset = false, accountOverrides = {} } = {}) {
+  const f = await fixture(kind, currentReset);
   const deliveries = [];
   const tracking = [];
   const syncs = [];
   const account = { kind, id, phone, name: 'Fictional account', active: true,
-    signupCompleted: true, passwordSetAt: '2026-01-01T00:00:00Z', resetTokenHash: null };
+    signupCompleted: true, passwordSetAt: '2026-01-01T00:00:00Z', resetTokenHash: null,
+    ...accountOverrides };
   let rpcFailure = false;
   let trackingBeginOk = true;
   let trackingFinalizeOk = true;
@@ -231,11 +253,11 @@ async function edgeFixture(kind) {
       return { data: cancelled.rows.length ? { ok: true, cancelled: true } : { ok: false, code: 'stale_challenge' }, error: null };
     }
     assert.equal(name, 'process_password_reset_challenge_v2');
-    const { rows } = await f.db.query('select public.process_password_reset_challenge($1,$2,$3,$4,$5,$6,$7) result',
+    const { rows } = await f.db.query(`select public.${currentReset ? 'process_password_reset_challenge_v2' : 'process_password_reset_challenge'}($1,$2,$3,$4,$5,$6,$7) result`,
       [args.p_action, args.p_account_kind, args.p_account_id, args.p_phone, args.p_token_hash, args.p_password_hash, args.p_password_salt]);
     const result = rows[0].result;
     return {
-      data: result?.ok === true && args.p_action === 'consume' && args.p_account_kind === 'fc'
+      data: !currentReset && result?.ok === true && args.p_action === 'consume' && args.p_account_kind === 'fc'
         ? { ...result, sessionVersion: 1 }
         : result,
       error: null,
@@ -252,6 +274,7 @@ async function edgeFixture(kind) {
       '../_shared/serve-with-cors.ts': { serveWithConfiguredCors: callback => { serveHandler = callback; } },
       'https://esm.sh/@supabase/supabase-js@2.45.4': { createClient: () => supabase },
       '../_shared/password-reset-account.ts': {
+        canInitializeFcPassword: accountHelpers.canInitializeFcPassword,
         findPasswordResetAccount: async () => ({ account, error: null }),
         buildRequestBoardPasswordSyncOptions: () => kind === 'admin' ? null : { role: kind },
       },
@@ -302,6 +325,113 @@ async function edgeFixture(kind) {
       reason: 'provider_rejected', providerRequestId: null, providerStatusCode: '400', message: 'safe' }; },
   };
 }
+
+test('missing FC passwords require completed ordinary identities and preserve staff/designer boundaries', async () => {
+  const base = { kind: 'fc', signupCompleted: true, isManagerReferralShadow: false, affiliation: 'Synthetic headquarters' };
+  assert.equal(accountHelpers.canInitializeFcPassword(base), true);
+  for (const input of [
+    { ...base, signupCompleted: false }, { ...base, signupCompleted: null },
+    { ...base, isManagerReferralShadow: true }, { ...base, affiliation: 'Synthetic 설계매니저' },
+    { ...base, kind: 'admin' }, { ...base, kind: 'manager' },
+  ]) assert.equal(accountHelpers.canInitializeFcPassword(input), false);
+  const profile = { id, phone, name: 'Synthetic FC', signup_completed: true,
+    affiliation: 'Synthetic headquarters', is_manager_referral_shadow: true };
+  const lookup = { from: table => {
+    const query = { select: () => query, eq: () => query,
+      maybeSingle: async () => ({ data: table === 'fc_profiles' ? profile : null, error: null }) };
+    return query;
+  } };
+  const found = await accountHelpers.findPasswordResetAccount(lookup, phone);
+  assert.equal(found.account.isManagerReferralShadow, true);
+  profile.is_manager_referral_shadow = 'invalid';
+  assert.ok((await accountHelpers.findPasswordResetAccount(lookup, phone)).error);
+
+  for (const [kind, accountOverrides, code] of [
+    ['fc', { signupCompleted: false, passwordSetAt: null }, 'not_completed'],
+    ['fc', { isManagerReferralShadow: true, passwordSetAt: null }, 'not_completed'],
+    ['fc', { affiliation: 'Synthetic 설계매니저', passwordSetAt: null }, 'not_set'],
+    ['admin', { passwordSetAt: null }, 'not_set'],
+    ['manager', { passwordSetAt: null }, 'not_set'],
+  ]) {
+    const f = await edgeFixture(kind, { accountOverrides });
+    try {
+      for (const [handler, body] of [
+        ['request-password-reset', { phone }],
+        ['reset-password', { phone, token: '123456', newPassword: 'SyntheticA!23' }],
+      ]) assert.equal((await (await f.handler(handler))(body)).body.code, code);
+      assert.equal(f.deliveries.length, 0);
+      assert.equal(f.syncs.length, 0);
+      assert.equal((await f.row()).reset_token_hash, null);
+    } finally { await f.db.close(); }
+  }
+});
+
+test('initial FC credential creation rejects ineligible sources and keeps five-guess/cooldown limits', async () => {
+  const f = await fixture('fc', true);
+  try {
+    await f.db.query('delete from fc_credentials');
+    for (const patch of [
+      "signup_completed=false", "signup_completed=true,is_manager_referral_shadow=true",
+      "is_manager_referral_shadow=false,affiliation='Synthetic 설계매니저'",
+    ]) {
+      await f.db.exec(`update fc_profiles set ${patch}`);
+      assert.equal((await f.rpc('issue')).code, 'account_unavailable');
+      assert.equal(Number((await f.db.query('select count(*) n from fc_credentials')).rows[0].n), 0);
+    }
+    await f.db.query("update fc_profiles set affiliation='Synthetic headquarters'");
+    for (const table of ['admin_accounts', 'manager_accounts']) {
+      await f.db.query(`insert into ${table}(id,phone,password_set_at) values($1,$2,null)`, [id, phone]);
+      assert.equal((await f.rpc('issue')).code, 'account_unavailable');
+      assert.equal(Number((await f.db.query('select count(*) n from fc_credentials')).rows[0].n), 0);
+      await f.db.query(`delete from ${table}`);
+    }
+    assert.equal((await f.rpc('issue')).ok, true);
+    const initial = await f.row();
+    await f.db.query('update fc_profiles set is_manager_referral_shadow=true');
+    assert.equal((await f.rpc('consume')).code, 'account_unavailable');
+    assert.equal((await f.row()).reset_failed_count, 0);
+    await f.db.query('update fc_profiles set is_manager_referral_shadow=false');
+    for (let guess = 0; guess < 5; guess++) {
+      assert.equal((await f.rpc('consume', wrongHash)).code, guess === 4 ? 'attempts_exhausted' : 'invalid_token');
+    }
+    assert.equal((await f.rpc('consume')).code, 'attempts_exhausted');
+    assert.equal((await f.rpc('issue')).code, 'cooldown');
+    assert.equal((await f.row()).password_set_at, null);
+    await f.ageChallenge();
+    assert.equal((await f.rpc('issue', replacementHash)).ok, true);
+    assert.equal((await f.rpc('consume', replacementHash)).ok, true);
+    assert.equal(Number((await f.row()).session_version), Number(initial.session_version) + 1);
+  } finally { await f.db.close(); }
+});
+
+test('completed FC missing credentials uses the same SMS proof once without rewriting the workflow', async () => {
+  for (const missingRow of [true, false]) {
+    const f = await edgeFixture('fc', { currentReset: true, accountOverrides: { passwordSetAt: null } });
+    try {
+      await f.db.query("update fc_profiles set status='appointment-completed'");
+      if (missingRow) await f.db.query('delete from fc_credentials');
+      else await f.db.query('update fc_credentials set password_set_at=null');
+      const profileBefore = (await f.db.query('select * from fc_profiles')).rows[0];
+      const reset = await f.handler('reset-password');
+      assert.equal((await reset({ phone, token: '123456', newPassword: 'SyntheticA!23' })).body.ok, false);
+      assert.equal(f.syncs.length, 0);
+      const requestCode = await f.handler('request-password-reset');
+      assert.equal((await requestCode({ phone })).body.ok, true);
+      assert.equal((await f.row()).password_set_at, null);
+      assert.equal((await requestCode({ phone })).status, 429);
+      const token = f.deliveries[0].content.match(/: (\d{6}) /)[1];
+      assert.equal((await reset({ phone, token: token === '000000' ? '000001' : '000000', newPassword: 'SyntheticA!23' })).body.code, 'invalid_token');
+      assert.equal((await f.row()).password_set_at, null);
+      assert.equal((await reset({ phone, token, newPassword: 'SyntheticA!23' })).body.ok, true);
+      assert.ok((await f.row()).password_set_at);
+      assert.equal(f.syncs.length, 1);
+      assert.equal(f.syncs[0].upstream.credentialVersion, Number((await f.row()).session_version));
+      assert.equal((await reset({ phone, token, newPassword: 'SyntheticB!45' })).body.code, 'invalid_token');
+      assert.equal(f.syncs.length, 1);
+      assert.deepEqual((await f.db.query('select * from fc_profiles')).rows[0], profileBefore);
+    } finally { await f.db.close(); }
+  }
+});
 
 for (const kind of ['admin', 'manager', 'fc']) {
   test(`${kind}: real Edge handlers count failures and only the successful reset syncs`, async () => {

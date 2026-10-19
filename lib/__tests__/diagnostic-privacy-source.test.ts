@@ -178,7 +178,7 @@ describe('diagnostic privacy source boundary', () => {
     expect(attachmentSign).not.toContain("console.error('[storage_error]'");
     expect(attachmentSign).toContain("reason: 'signed_upload_url_failed'");
 
-    const deleteAccount = read('supabase/functions/delete-account/index.ts');
+    const deleteAccount = read('supabase/functions/delete-account/index.ts') + read('supabase/functions/_shared/account-deletion-cleanup.ts');
     expect(deleteAccount).not.toContain('profileId, authDeleteError.message');
     expect(deleteAccount).not.toContain('fc-documents storage remove failed');
     expect(deleteAccount).not.toContain('board-attachments storage remove failed');

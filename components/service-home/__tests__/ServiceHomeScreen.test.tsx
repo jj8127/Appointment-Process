@@ -56,7 +56,7 @@ const Screen = exported.default as (props: Record<string, unknown>) => ReactElem
 function props(overrides: Record<string, unknown> = {}) {
   return {
     isSignedIn: false, bottomInset: 34, navigation: createElement('Navigation'),
-    onAccountPress: jest.fn(), onCarePress: jest.fn(), onInsurancePress: jest.fn(),
+    onAccountPress: jest.fn(), onLogoutPress: jest.fn(), onCarePress: jest.fn(), onInsurancePress: jest.fn(),
     onTelecomPress: jest.fn(), onCarPress: jest.fn(), onRentalPress: jest.fn(), onHospitalPress: jest.fn(), onHelpPress: jest.fn(),
     onResumeInsurancePress: jest.fn(), ...overrides,
   };
@@ -98,7 +98,8 @@ describe('service selection and promotion carousel', () => {
 
   it('has six equal entries, no separate FC action and a blocked loading account', () => {
     const input = props({ loading: true }); mount(input);
-    expect(button('로그인').props.disabled).toBe(true);
+    expect(button('로그인 상태 확인 중').props.disabled).toBe(true);
+    expect(button('로그인')).toBeUndefined();
     const entries = [
       ['가족간병 · 준비 중', input.onCarePress], ['보험 · FC 업무', input.onInsurancePress],
       ['통신 · 준비 중', input.onTelecomPress], ['렌탈 · 준비 중', input.onRentalPress],
@@ -122,6 +123,46 @@ describe('service selection and promotion carousel', () => {
     act(() => button('보험 · FC 업무').props.onPress());
     expect(input.onResumeInsurancePress).toHaveBeenCalledTimes(1);
     expect(button('내 정보')).toBeDefined();
+    expect(button('로그아웃')).toBeDefined();
+  });
+  it.each([
+    [false, undefined, '로그인', ['로그인']],
+    [true, '합성 회원', '합성 회원님 · 내 정보', ['내 정보']],
+    [true, undefined, '내 정보', ['내 정보']],
+  ])('keeps header account state readable for signed=%s and name=%s', (isSignedIn, accountName, label, text) => {
+    const input = props({ isSignedIn, accountName }); mount(input);
+    const account = button(label as string);
+    expect(account.props.disabled).toBe(false);
+    expect(account.findAllByType('Text').map((entry: { props: Record<string, unknown> }) => entry.props.children)).toEqual(text);
+    expect(account.findByType('Feather').props.name).toBe('user');
+    expect(account.props.style({ pressed: false })[0]).toMatchObject({ minWidth: 44, minHeight: 44 });
+    act(() => account.props.onPress());
+    expect(input.onAccountPress).toHaveBeenCalledTimes(1);
+    if (isSignedIn) {
+      const logout = button('로그아웃');
+      expect(logout.props.style({ pressed: false })[0]).toMatchObject({ minWidth: 44, minHeight: 44 });
+      act(() => logout.props.onPress());
+      expect(input.onLogoutPress).toHaveBeenCalledTimes(1);
+      expect(input.onAccountPress).toHaveBeenCalledTimes(1);
+    } else expect(button('로그아웃')).toBeUndefined();
+  });
+  it('shows restoration before any guest or retained account label', () => {
+    mount(props({ loading: true, isSignedIn: true, accountName: '이전 합성 회원' }));
+    const account = button('로그인 상태 확인 중');
+    expect(account.props.accessibilityState).toEqual({ disabled: true, busy: true });
+    expect(account.findAllByType('Text').map((entry: { props: Record<string, unknown> }) => entry.props.children)).toEqual(['확인 중']);
+    expect(button('로그인')).toBeUndefined();
+    expect(button('로그아웃')).toBeUndefined();
+  });
+  it.each([320, 360, 390])('keeps long names as accessible context while preserving both header actions at %ipx and enlarged text', width => {
+    dimensions = { width, fontScale: 2 };
+    const accountName = '긴 이름을 가진 합성 검증 회원';
+    mount(props({ isSignedIn: true, accountName }));
+    const account = button(`${accountName}님 · 내 정보`);
+    const text = account.findAllByType('Text')[0];
+    expect(text.props).toMatchObject({ numberOfLines: 1, children: '내 정보' });
+    expect(button('로그아웃')).toBeDefined();
+    expect(renderer.root.findAllByType('Text').some((entry: { props: Record<string, unknown> }) => entry.props.children === '로그인됨')).toBe(false);
   });
 
   it('uses measured width and loops forward through a non-interactive clone', () => {

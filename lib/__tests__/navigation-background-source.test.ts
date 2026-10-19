@@ -19,7 +19,12 @@ describe('navigation background fallbacks', () => {
     expect(layoutSource).toContain('background: DEFAULT_SCREEN_BACKGROUND');
     expect(layoutSource).toContain('card: DEFAULT_SCREEN_BACKGROUND');
     expect(layoutSource).toContain('backgroundColor: DEFAULT_SCREEN_BACKGROUND');
-    expect(layoutSource).toContain('NavigationBar.setBackgroundColorAsync(DEFAULT_SCREEN_BACKGROUND)');
+    // Edge-to-edge ignores setBackgroundColorAsync; an opaque backdrop paints behind the bar instead.
+    expect(layoutSource).not.toMatch(/NavigationBar\.setBackgroundColorAsync\(/);
+    expect(layoutSource).toContain('<AndroidNavigationBarBackdrop />');
+    expect(layoutSource).toMatch(/backgroundColor: DEFAULT_SCREEN_BACKGROUND,\s*borderTopWidth: StyleSheet\.hairlineWidth/);
+    // A light bar style keeps dark buttons readable on the white backdrop.
+    expect(layoutSource).toContain("NavigationBar.setStyle('light')");
     expect(layoutSource.match(/<StatusBar style="dark" backgroundColor=\{DEFAULT_SCREEN_BACKGROUND\}/g)?.length).toBeGreaterThanOrEqual(
       2,
     );

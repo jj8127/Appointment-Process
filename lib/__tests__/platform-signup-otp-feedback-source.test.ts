@@ -4,17 +4,29 @@ import { join } from 'node:path';
 const read = (path: string) => readFileSync(join(process.cwd(), path), 'utf8');
 
 describe('common signup OTP feedback contract', () => {
-  it('shows OTP request failures next to the request control before the code field', () => {
+  it('shows OTP request results on the phone question that requests the code, before the code question', () => {
     const source = read('app/services/signup.tsx');
-    const requestButton = source.indexOf("<Button onPress={() => submit('otp')}");
-    const feedback = source.indexOf('{otpError ?');
-    const codeField = source.indexOf('<FormInput label="인증 코드"');
+    // The phone question's keyboard-docked action requests the code; its notice and failure sit under the phone line.
+    const requestAction = source.indexOf("onPress: () => { void submit('otp'); }");
+    const feedback = source.indexOf('<StackField label="휴대폰 번호" active={isTyping(\'phone\')} message={notice} error={otpError}>');
+    const codeField = source.indexOf('<StackField label="인증 코드"');
 
-    expect(requestButton).toBeGreaterThan(-1);
-    expect(feedback).toBeGreaterThan(requestButton);
+    expect(requestAction).toBeGreaterThan(-1);
+    expect(feedback).toBeGreaterThan(-1);
     expect(codeField).toBeGreaterThan(feedback);
-    expect(source).toContain('accessibilityRole="alert"');
+    expect(read('components/StackedForm.tsx')).toContain('accessibilityRole="alert"');
     expect(source).toContain('인증 문자 발송 요청이 접수되었습니다.');
+  });
+
+  it('keeps auth CTAs working while the keyboard is open and confirms completion', () => {
+    const source = read('app/services/signup.tsx');
+    const stacked = read('components/StackedForm.tsx');
+    expect(source).toContain('keyboardShouldPersistTaps="always"');
+    // Keyboard-docked actions (code request, 확인, 다음) and the final consent submit fire on press-in.
+    expect(stacked).toContain('<StackButton label={label} disabled={disabled} onPress={onPress} submitOnPressIn />');
+    expect(source).toMatch(/onPress=\{\(\) => \{ void submit\('signup'\); \}\}\s+submitOnPressIn/);
+    expect(source).toContain('if (blocked) { Keyboard.dismiss(); setError(blocked); return; }');
+    expect(source).toContain('모두온 가입이 완료됐어요');
   });
 
   it('keeps duplicate membership distinct from cooldown and lock throttles', () => {

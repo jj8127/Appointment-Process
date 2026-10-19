@@ -15,11 +15,13 @@ const HERO_OVERLAP = 28;
 
 export interface ServiceHomeScreenProps {
   isSignedIn: boolean;
+  accountName?: string;
   loading?: boolean;
   canResumeInsurance?: boolean;
   bottomInset: number;
   navigation: ReactNode;
   onAccountPress: () => void;
+  onLogoutPress: () => void;
   onCarePress: () => void;
   onInsurancePress: () => void;
   onTelecomPress: () => void;
@@ -39,12 +41,14 @@ function ControlIcon({ name, size = 18, color = COLORS.text.secondary }: {
 }
 
 export default function ServiceHomeScreen({
-  isSignedIn, loading = false, canResumeInsurance = false, bottomInset, navigation,
-  onAccountPress, onCarePress, onInsurancePress, onTelecomPress, onCarPress, onRentalPress, onHospitalPress,
+  isSignedIn, accountName, loading = false, canResumeInsurance = false, bottomInset, navigation,
+  onAccountPress, onLogoutPress, onCarePress, onInsurancePress, onTelecomPress, onCarPress, onRentalPress, onHospitalPress,
   onHelpPress, onResumeInsurancePress,
 }: ServiceHomeScreenProps) {
   const { width, fontScale } = useWindowDimensions();
   const compact = width <= 360;
+  const name = isSignedIn ? accountName?.trim() : '';
+  const accountLabel = loading ? '로그인 상태 확인 중' : isSignedIn ? `${name ? `${name}님 · ` : ''}내 정보` : '로그인';
   const bannerWidth = Math.max(1, Math.min(width, 480));
   const resumeInsurance = isSignedIn && canResumeInsurance;
   const services: { service: ServiceName; label: string; status: string; onPress: () => void }[] = [
@@ -74,18 +78,25 @@ export default function ServiceHomeScreen({
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.column}>
-          <View style={styles.header}>
+          <View style={[styles.header, fontScale > 1.35 && styles.expandedHeader]}>
             <ModuonBrand />
+            <View style={[styles.accountControls, fontScale > 1.35 && styles.expandedAccountControls]}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={isSignedIn ? '내 정보' : '로그인'}
+              accessibilityLabel={accountLabel}
               accessibilityState={{ disabled: loading, busy: loading }}
               disabled={loading}
               onPress={onAccountPress}
               style={({ pressed }) => [styles.account, pressed && styles.pressed, loading && styles.disabled]}
             >
-              {isSignedIn ? <ControlIcon name="user" size={21} /> : <Text style={styles.loginText}>로그인</Text>}
+              <ControlIcon name="user" size={18} />
+              <Text numberOfLines={1} style={styles.loginText}>{loading ? '확인 중' : isSignedIn ? '내 정보' : '로그인'}</Text>
             </Pressable>
+            {isSignedIn && !loading ? <Pressable accessibilityRole="button" accessibilityLabel="로그아웃"
+              onPress={onLogoutPress} style={({ pressed }) => [styles.account, pressed && styles.pressed]}>
+              <Text numberOfLines={1} style={styles.loginText}>로그아웃</Text>
+            </Pressable> : null}
+            </View>
           </View>
 
           <View ref={carousel.webSurface} style={styles.carousel} onLayout={(event) => setPageWidth(event.nativeEvent.layout.width)}>
@@ -169,7 +180,10 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   column: { width: '100%', maxWidth: 480, alignSelf: 'center', backgroundColor: COLORS.white },
   header: { minHeight: 72, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 20, paddingVertical: 12, backgroundColor: COLORS.white },
-  account: { minHeight: 44, minWidth: 44, paddingHorizontal: 8, paddingVertical: 9, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  expandedHeader: { flexWrap: 'wrap' },
+  accountControls: { maxWidth: '60%', marginLeft: 'auto', flexShrink: 0, flexDirection: 'row', gap: 2, alignItems: 'center' },
+  expandedAccountControls: { maxWidth: '100%' },
+  account: { minHeight: 44, minWidth: 44, flexDirection: 'row', gap: 5, paddingHorizontal: 6, paddingVertical: 6, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   loginText: { fontSize: 13, fontWeight: '500', color: COLORS.text.secondary },
   content: { paddingHorizontal: 16, paddingTop: 22, paddingBottom: 24, marginTop: -HERO_OVERLAP, borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: COLORS.white },
   serviceCard: { paddingHorizontal: 4 },

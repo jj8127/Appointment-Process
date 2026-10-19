@@ -2,10 +2,26 @@ doc_id: FC-APP-AUTH-GATES
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-10-09
-source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx + hooks/use-login.ts + hooks/use-session.tsx + hooks/use-referral-allowance.ts + app/referral-allowance.tsx
+last_verified: 2026-10-14
+source_of_truth: app/services/login.tsx + app/services/signup.tsx + app/login.tsx + app/signup*.tsx + app/first-password-change.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx + hooks/use-login.ts + hooks/use-session.tsx + hooks/use-referral-allowance.ts + app/referral-allowance.tsx
 
 # Mobile Playbook: Auth And Gates
+
+## 2026-10-15 보험 추가 정보 안내 화면
+
+`apply-gate`는 2단계 진행 표시, 짧은 제목, 준비할 정보 목록, 필수 동의 카드(내용 보기 펼침)와 하단 고정 버튼으로 구성한다. 설명 문장은 정책상 필요한 동의 내용만 펼침 안에 둔다. 입력 단계는 소속·통신사를 하단 시트 선택 필드로, 이메일은 도메인 추천과 함께 받는다. 빈 칸·잘못된 값은 확인 창 대신 해당 칸 아래 문구와 첫 오류 칸 이동으로 알리며, 동의 누락은 저장 오류 문구로 막는다. 제출·추천인 검증·계정 전환 보호 로직은 바꾸지 않았다.
+
+## 2026-10-14 추천인은 제휴 서비스별
+
+공통 가입 화면은 추천 코드를 입력받지 않는다. 가족간병 초대 링크로 들어온 경우에만 간병 추천 코드 안내와 '추천인 없이 가입하기'를 보여 주고 가입과 함께 간병 추천인을 등록한다. apply-gate의 보험 추천인은 다른 제휴 서비스 추천인과 별도라는 문구로 맞췄다. 동의 문구의 추천 표현 변경은 사용자 확인(서면 동의 완료)에 따라 동의 버전 2026-10-12를 유지한다. 상세는 platform-services.md를 따른다.
+
+## 2026-10-14 계정 가입과 서비스 등록 분리
+
+공통 가입/로그인만 사용자에게 표시한다. legacy login/signup/verify/password 경로는 service·skipAuto·명시 보험 초대 의도를 보존하는 공통 진입 alias다. 공통 optional 추천 코드에 보험 초대를 혼입하지 않는다. 기존 임시 비밀번호와 완성 FC의 초기 비밀번호는 기존 OTP 복구를 사용하며 미완료 FC의 복구만으로 가입 완료/권한을 부여하지 않는다.
+
+공통 회원의 보험 선택은 apply-gate로 이동한다. 추가 동의와 서비스 필수 입력의 명시적 확정 전에는 FC를 생성하지 않는다. 서버 enrollment 후 기존 FC 세션 설치·identity 저장을 재사용한다. 설치 중 FC 상태와 이미 설치된 signed token을 함께 공개하여 common token 정리 때 무토큰 상태가 생기지 않는다. 늦은 가입/신원/주소 결과는 다른 계정에 적용하지 않는다. 주민번호/주소 draft는 계정 변경 때 지우고 같은 계정 token 갱신에는 유지한다.
+
+기존 회사 동의 회원의 공통 연결과 별도 보험 추천인·철회/세션 generation 경계는 [공통 서비스 계약](platform-services.md#2026-10-14-공통-가입서비스-추가-등록-통합)을 따른다. 나중에는 모두온 홈으로 돌아간다. 이후 SGI 동의를 최초 서비스 등록과 합치지 않는다. 아래 이전 FC 가입/로그인 UI 설명은 과거 이력이다.
 
 ## 2026-10-13 가입 증표 저장과 홈 조회 오류
 
@@ -32,6 +48,7 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 
 - 앱 기본 시작과 FC 로그인 후 landing은 공개 서비스 홈 `/`이다. 저장 세션의 linked designer는 focused 상태에서 알림 네비게이션 결정을 기다린 뒤 `/request-board`로 이동한다.
 - 보험/FC 카드의 FC 진입은 기존 apply-gate에 `next=/?mode=insurance`를 전달한다. 비회원은 `/login?service=insurance`에서 로그인한 뒤 같은 선택을 이어간다. 본인확인 완료와 실패·재시도는 기존 gate가 판단한다. 관리자/매니저/개발자는 기존 보험 mode, designer는 기존 request-board를 사용한다. 다른 service 값·배열은 일반 landing을 사용하며 skipAuto·hydration·알림 우선순위는 유지한다.
+- 보험 홈 다음 단계 카드는 고정 높이 대신 최소 높이로 내용에 맞게 늘어난다(레이아웃만 변경, 로그아웃·진입 gate 동작은 그대로).
 - 보호된 보험 mode·알림 문맥은 로그인 전에 LegacyInsuranceHome를 mount하지 않는다. signed-out 진입은 `/login?skipAuto=1`이며 명시적 로그아웃·수동 재로그인과 알림 우선순위를 보존한다.
 - 현재 회원가입은 FC용이다. 로그인 화면의 `서비스 둘러보기`는 공개 홈으로 돌아간다. 세부 계약: [서비스 선택 홈](./service-home.md).
 - 로그인 화면의 관리자/FC 번호 안내는 제거했다. 안전 영역 상단44px `서비스 홈으로 돌아가기` 버튼은 `router.replace('/')`로 공개 홈을 연다. 일반 방문·보험 직접 진입·세션 복구 전에도 동일하며 로그인 처리 중에는 비활성화한다.
@@ -78,6 +95,7 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 
 - `/login?skipAuto=1` suppresses stale-session automatic entry only until a new manual login succeeds. Pending or failed login keeps that protection active.
 - Successful login resumes the existing hydrated session landing route and respects pending notification navigation. Saving login preferences must not delay this transition. The effect cancels pending navigation on unmount.
+- The notification coordinator's pending flag lasts for the app process and can outlive an intent that was already opened or whose read acknowledgement failed. After a manual login on the common login screen, a pending decision therefore yields only for 1.2s: if the login screen is still focused (no notification destination took over), it lands on the normal route. Automatic entry without a manual login still never overrides a pending notification. `lib/__tests__/login-navigation.test.js` covers both.
 - Runtime regression: `lib/__tests__/login-navigation.test.js`. Both checkouts pass the related 8 suites / 39 tests, TypeScript and scoped ESLint; release Android/iOS offline Hermes exports pass. These local checks do not establish installed-device recovery or deployment.
 
 ### 2026-09-09 Focused logout navigation and native transition
@@ -174,6 +192,7 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/first-password-change.tsx
 - 추천인 검색/검증/본등록은 같은 추천인 허용 기준을 써야 합니다. `search-signup-referral`, `validate-referral-code`, `set-password`는 모두 `signup_completed=true` 또는 `is_manager_referral_shadow=true` 추천인을 허용하고, 설계매니저 소속 프로필은 계속 제외합니다.
 - 전체 홈 unlock은 `identity_completed === true`만 신뢰합니다. `resident_id_masked`나 `address`는 표시/보조 필드이며, 잔존값만으로 `home-lite`를 건너뛰면 회귀입니다.
 - `delete-account`는 `user_presence`까지 정리하고, 삭제 후 blocker row(`fc_profiles` / `admin_accounts` / `manager_accounts`)가 남아 있으면 성공으로 끝내지 않아야 합니다.
+- 새 공통 `withdraw_member`는 [전체 제휴 계정 탈퇴](platform-services.md#2026-10-14-일반-회원fc의-전체-제휴-계정-탈퇴)를 따른다. 일반 FC의 credential과 signup 권한을 접수 시 중지하고 정확한 제휴·첨부 정리를 확인한다. 확정 금융 이력의 RESTRICT 참조를 위해 개인정보 없는 닫힌 원본 UUID를 유지하는 것은 legacy delete-account blocker 성공 판정과 별도 계약이다. 회사 업무 계정은 유지한다.
 - legacy 로컬 세션에 과거 `role='manager'` payload가 남아 있어도 restore 단계에서 현재 앱 권한모델인 `admin + readOnly`로 정규화해야 합니다. 그렇지 않으면 본부장용 읽기 전용 화면과 referral self-service gate가 재로그인 전까지 어긋날 수 있습니다.
 - referral self-service gate의 실제 모바일 surface는 `app/referral.tsx`다. FC 또는 `admin + readOnly` 본부장만 열고, plain admin/developer와 request_board designer는 같은 trusted path를 공유하지 않는다.
 - referral self-service는 로그인 화면 상태와 별개 `appSessionToken`을 쓴다. `/referral` 진입 시 현재 token이 없거나 만료되면 `hooks/use-referral-app-session.ts -> refresh-app-session`이 저장된 bridge token으로 1회 silent refresh를 시도하고, bridge token까지 없거나 만료면 relogin CTA를 보여야 한다.
@@ -256,15 +275,13 @@ Identity query errors stop the apply/home gate and offer retry; they are not use
 - 설정의 추천 코드 복사는 `copyTextWithFeedback` 토스트를 사용한다.
 - 로그인 CTA의 `submitOnPressIn`은 2026-06-16 Android 키보드 회귀를 막는 문서화된 예외로 유지한다. 다른 이동·탭 컨트롤은 `onPress`를 사용한다. 규칙은 `docs/handbook/shared-ui-action-contracts.md`의 피드백 등급을 따른다.
 
-## 2026-10-16 쌓이는 회원가입 입력
+## 2026-10-16 쌓이는 가입·추가 정보 입력
 
-- 모두온 공통 회원가입 `app/services/signup.tsx`와 FC 사전등록 `app/signup.tsx`는 한 화면에서 질문을 하나씩 연다. 공용 부품은 `components/StackedForm.tsx`다. 새 질문은 맨 위에 생기고, 답한 질문은 아래로 밀려 남아 다시 고칠 수 있다. 순서와 시간은 `lib/signup-steps.ts`(`SIGNUP_STEPS`, `SIGNUP_MOTION`)가 소유한다.
-- 모두온 공통 회원가입 순서는 이름 → 휴대폰(키보드 위 `인증 코드 받기`) → 인증 코드(6자리면 자동) → 비밀번호 → 비밀번호 확인 → 추천 코드(선택, `건너뛰기`)이고, 마지막에 동의 시트에서 `동의하고 가입하기`로 제출한다. `submit` 검증·요청·쿨다운·세션 처리는 바꾸지 않았다.
-- FC 사전등록 순서는 이름 → 휴대폰 번호 → 통신사 → 소속 → 자격증 → 이메일 → 추천인이다. 휴대폰 11자리가 유효하면 저절로 통신사 시트를 연다. 통신사·소속은 고르면 같은 시트가 다음 질문으로 바뀐다. 이름·이메일은 키보드 위 `다음` 바로 넘어간다.
-- 마지막 `다음`은 추천인 확인(`valid`)이 끝나야 눌린다. 검증·중복 확인·저장 payload(`fc-onboarding/signup`)는 그대로다.
-- 시간은 신한 SOL라이프 녹화 측정값 원본 속도(삽입 300ms, 시트 300ms, 시트 내용 교체 330ms)이고, Reanimated 레이아웃 애니메이션이라 시스템 "동작 줄이기"를 따른다.
+- 모두온 공통 회원가입(`app/services/signup.tsx`)과 가람in 추가 정보(`app/apply-gate.tsx` 폼)는 신한 SOL라이프 녹화를 기준으로 한 화면에서 질문을 하나씩 연다. 새 질문은 맨 위에 생기고 답한 질문은 아래로 밀려 다시 고칠 수 있다. 공용 부품은 `components/StackedForm.tsx`, 순서와 시간(원본 속도 약 300ms)은 `lib/signup-steps.ts`가 소유한다.
+- 공통 회원가입: 이름 → 휴대폰(키보드 위 `인증 코드 받기`) → 인증 코드(6자리면 `check_signup_otp`로 자동 확인, `확인` 버튼도 있음) → 비밀번호 → 비밀번호 확인 → 동의 시트(가족간병 초대 코드가 있으면 시트 안에 표시) → `동의하고 가입하기`. `submit` 검증·요청·쿨다운·세션 처리는 그대로다.
+- 가람in 추가 정보: 동의 후 `시작하기`를 누르면 소속 시트가 바로 열리고, 소속 → 통신사 → 자격증이 같은 시트 안에서 이어진다. 그다음 이메일(도메인 시트) → 보험 추천인 검색 → `저장하고 신원 정보 입력`. `submitEnrollment`·`startIdentityInput`·`validateReferral`은 바꾸지 않았다.
+- 키보드 위 버튼은 둥근 `StackButton`(공용 `Button` 재사용)이고 키보드가 열린 상태에서 누르므로 `submitOnPressIn`을 쓴다. 화면은 아래 안전 영역을 두지 않고 키보드가 내려간 마지막 버튼만 하단 inset을 더한다.
 
-## 2026-10-16 모두온 가입 인증 코드 확인
+## 2026-10-16 보험 계정 설정의 가람in 탈퇴
 
-- 인증 코드 질문은 6자리가 차면 `check_signup_otp`로 바로 확인하고, 키보드 위 `확인` 버튼으로도 확인한다. 성공해야 비밀번호 질문이 열린다. 실패 문구는 코드 칸 아래에 표시한다. 번호를 바꾸면 코드와 확인 상태를 지운다.
-- 키보드 위 `다음`/`확인`은 둥근 버튼이며 화면은 아래 안전 영역을 두지 않는다. 키보드가 내려간 마지막 버튼만 하단 inset을 더한다.
+- 모두온 회원과 연결된 FC가 설정에서 탈퇴하면 `withdraw_member`(scope `insurance`)로 가람in만 탈퇴하고, 응답의 `memberSession`으로 모두온 로그인을 다시 세운 뒤 서비스 홈(`/`)으로 이동한다. 세션이 오지 않으면 기존처럼 전체 로그아웃한다. 연결되지 않은 FC는 `delete-account` 삭제와 `appLogout`을 그대로 쓴다.

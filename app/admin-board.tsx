@@ -790,7 +790,7 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
         <View style={styles.form}>
           <View style={styles.field}>
             <Text style={styles.label}>카테고리</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
+            <ScrollView keyboardShouldPersistTaps="always" horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
               {isCategoriesError ? (
                 <QueryReadState error={categoriesError} message="카테고리를 불러오지 못했습니다." onRetry={() => void refetchCategories()} retrying={isCategoriesFetching} />
               ) : isCategoriesPending ? (

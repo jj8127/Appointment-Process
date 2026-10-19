@@ -1,6 +1,7 @@
 import { Feather } from '@expo/vector-icons';
+import { randomUUID } from 'expo-crypto';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Alert, Modal, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,6 +12,7 @@ import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useMyReferralCode } from '@/hooks/use-my-referral-code';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
+import { PLATFORM_WITHDRAWAL_VERSION, platformRequest, type PlatformWithdrawal } from '@/lib/platform-api';
 import { buildReferralShareText } from '@/lib/referral-share';
 import { getAccountRoleLabel } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
@@ -22,7 +24,15 @@ const INVITE_BASE_URL = process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? '';
 
 export default function SettingsScreen() {
   const { surface } = useLocalSearchParams<{ surface?: string }>();
-  const { role, residentId, displayName, isRequestBoardDesigner, readOnly, hydrated, staffType, appSessionToken } = useSession();
+  const { role, residentId, displayName, isRequestBoardDesigner, readOnly, hydrated, staffType, appSessionToken,
+    platformMember, platformSessionToken, loginPlatformMember } = useSession();
+  // An FC linked to a 모두온 member leaves only 가람in; an unlinked FC account is deleted as before.
+  const garaminOnly = Boolean(platformMember);
+  const withdrawalKey = useRef<string | null>(null);
+  const deleteTitle = garaminOnly ? '가람in 탈퇴' : '계정 삭제';
+  const deleteMessage = garaminOnly
+    ? '가람in에 입력한 추가 정보와 가람링크 계정을 삭제해요. 모두온 계정과 다른 서비스는 그대로예요.'
+    : '계정 로그인과 연결된 프로필은 삭제됩니다. 다른 사람이 작성한 대화와 업무 이력 등 일부 기록은 남을 수 있습니다. 삭제 후에는 이 계정으로 로그인할 수 없습니다.';
   const appLogout = useAppLogout();
   const insets = useSafeAreaInsets();
   const { scrollHandler, animatedStyle } = useBottomNavAnimation();
@@ -58,9 +68,34 @@ export default function SettingsScreen() {
     setShowDeleteConfirm(true);
   };
 
+  const withdrawGaramin = async () => {
+    const token = platformSessionToken ?? appSessionToken;
+    if (!token) return;
+    const idempotencyKey = withdrawalKey.current ?? (withdrawalKey.current = randomUUID());
+    const receipt = await platformRequest<PlatformWithdrawal>('withdraw_member',
+      { confirmed: true, scope: 'insurance', policyVersion: PLATFORM_WITHDRAWAL_VERSION, idempotencyKey }, token);
+    withdrawalKey.current = null;
+    setShowDeleteConfirm(false);
+    if (!receipt.memberSession) { appLogout(); return; }
+    await loginPlatformMember({ id: receipt.memberSession.memberId, name: receipt.memberSession.displayName }, receipt.memberSession.appSessionToken);
+    Alert.alert(receipt.status === 'completed' ? '가람in 탈퇴 완료' : '가람in 탈퇴 처리 중',
+      receipt.status === 'completed' ? '모두온 계정은 그대로 이용할 수 있어요.' : '가람링크 정리가 끝나면 자동으로 완료돼요.');
+    router.replace('/');
+  };
+
   const confirmDelete = async () => {
     if (!canDeleteAccount || !residentId || !appSessionToken) return;
     setDeleting(true);
+    if (garaminOnly) {
+      try {
+        await withdrawGaramin();
+      } catch (err: unknown) {
+        Alert.alert('탈퇴 실패', err instanceof Error ? err.message : '가람in 탈퇴를 처리하지 못했습니다. 다시 시도해 주세요.');
+      } finally {
+        setDeleting(false);
+      }
+      return;
+    }
     try {
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; deleted?: boolean; error?: string }>('delete-account', {
         body: {
@@ -184,8 +219,8 @@ export default function SettingsScreen() {
         )}
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>계정 삭제</Text>
-          <Text style={styles.sectionText}>계정 로그인과 연결된 프로필은 삭제됩니다. 다른 사람이 작성한 대화와 업무 이력 등 일부 기록은 남을 수 있습니다. 삭제 후에는 이 계정으로 로그인할 수 없습니다.</Text>
+          <Text style={styles.sectionTitle}>{deleteTitle}</Text>
+          <Text style={styles.sectionText}>{deleteMessage}</Text>
           <Pressable
             style={[
               styles.deleteButton,
@@ -197,10 +232,10 @@ export default function SettingsScreen() {
               || !canDeleteAccount
             }
             testID="settings-delete-account"
-            accessibilityLabel="계정 삭제"
+            accessibilityLabel={deleteTitle}
           >
             <Feather name="trash-2" size={16} color={COLORS.white} />
-            <Text style={styles.deleteText}>{deleting ? '삭제 중...' : '계정 삭제'}</Text>
+            <Text style={styles.deleteText}>{deleting ? '처리 중...' : deleteTitle}</Text>
           </Pressable>
         </View>
 
@@ -239,8 +274,8 @@ export default function SettingsScreen() {
       <Modal visible={showDeleteConfirm} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>계정 삭제</Text>
-            <Text style={styles.modalText}>계정 로그인과 연결된 프로필은 삭제됩니다. 다른 사람이 작성한 대화와 업무 이력 등 일부 기록은 남을 수 있습니다. 삭제 후에는 이 계정으로 로그인할 수 없습니다.</Text>
+            <Text style={styles.modalTitle}>{deleteTitle}</Text>
+            <Text style={styles.modalText}>{deleteMessage}</Text>
             <View style={styles.modalButtons}>
               <Pressable
                 style={[styles.modalButton, styles.modalCancel]}
@@ -254,7 +289,7 @@ export default function SettingsScreen() {
                 onPress={confirmDelete}
                 disabled={deleting}
               >
-                <Text style={styles.modalDeleteText}>{deleting ? '삭제 중...' : '삭제'}</Text>
+                <Text style={styles.modalDeleteText}>{deleting ? '처리 중...' : garaminOnly ? '탈퇴' : '삭제'}</Text>
               </Pressable>
             </View>
           </View>

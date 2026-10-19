@@ -20,7 +20,7 @@ describe('signup flow background fallback', () => {
     expect(source).toContain('name="signup-password"');
   });
 
-  it.each(['login.tsx', 'signup.tsx', 'signup-verify.tsx', 'signup-password.tsx', 'reset-password.tsx'])(
+  it.each(['services/login.tsx', 'services/signup.tsx', 'reset-password.tsx'])(
     'uses a plain light auth background instead of a full-screen native gradient in %s',
     (fileName) => {
       const source = readAppFile(fileName);
@@ -29,8 +29,7 @@ describe('signup flow background fallback', () => {
       expect(source).not.toContain('<LinearGradient');
       expect(source).not.toContain('StyleSheet.absoluteFill');
       expect(source).not.toContain('styles.gradientFallback');
-      expect(source).toContain('styles.authBackground');
-      expect(source).toContain('backgroundColor: AUTH_SCREEN_BACKGROUND');
+      expect(source).toMatch(/backgroundColor: (?:AUTH_SCREEN_BACKGROUND|COLORS.white)/);
     },
   );
 });

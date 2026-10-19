@@ -18289,6 +18289,2331 @@ drop function if exists public.complete_fc_signup_atomic_v1(
   uuid, text, text, text, text, text, text, text, text, text[], uuid, uuid, text
 ) restrict;
 
+-- Migration: unified common insurance enrollment (20261014043557).
+-- One common login, with explicit insurance registration as a separate operation.
+-- Import attestations are not fabricated user acceptance dates. Historical
+-- anonymized withdrawals must be resolved before an automatic import is safe.
+set local lock_timeout = '3s';
+set local statement_timeout = '30s';
+
+do $$ begin
+  if exists(select from public.platform_members where not active and phone is null
+    and fc_id is null and staff_account_id is null) then
+    raise exception 'platform_withdrawal_provenance_required';
+  end if;
+end $$;
+
+alter table public.platform_members
+  add column terms_basis text check (terms_basis in ('user_acceptance','company_attested_import')),
+  add column terms_recorded_at timestamptz,
+  add column insurance_consent_version text,
+  add column insurance_consent_source text check (insurance_consent_source in ('user_acceptance','company_attested_import')),
+  add column insurance_consent_recorded_at timestamptz,
+  add column insurance_enrollment_key uuid,
+  add column insurance_enrollment_fingerprint text,
+  add column insurance_enrollment_member_version bigint,
+  add column insurance_enrollment_fc_version bigint,
+  add column withdrawal_source_kind text check (withdrawal_source_kind in ('member','fc','admin','manager')),
+  add column withdrawal_source_id uuid;
+
+-- Existing genuine acceptance dates stay exactly as recorded.
+update public.platform_members set terms_basis='user_acceptance',terms_recorded_at=terms_accepted_at
+where terms_accepted_at is not null;
+
+alter table public.fc_profiles drop constraint if exists fc_profiles_signup_verification_method_check;
+alter table public.fc_profiles add constraint fc_profiles_signup_verification_method_check
+  check (signup_verification_method is null or signup_verification_method in
+    ('phone_otp','admin_written_consent','platform_member_session'));
+
+-- Freeze the company-attested cohort at migration application. Source UUIDs,
+-- rather than creation dates, prevent an old incomplete draft completed later
+-- from acquiring the company's historical attestation.
+create table public.platform_legacy_membership_cohort (
+  account_kind text not null check (account_kind in ('fc','admin','manager')),
+  account_id uuid not null,
+  recorded_at timestamptz not null default clock_timestamp(),
+  created_member_id uuid references public.platform_members(id) on delete restrict,
+  primary key(account_kind,account_id)
+);
+alter table public.platform_legacy_membership_cohort enable row level security;
+revoke all on public.platform_legacy_membership_cohort from public,anon,authenticated;
+grant select on public.platform_legacy_membership_cohort to service_role;
+
+insert into platform_legacy_membership_cohort(account_kind,account_id)
+  select 'admin',id from admin_accounts where active and phone ~ '^[0-9]{11}$' and length(trim(name)) between 1 and 80
+  union all select 'manager',id from manager_accounts where active and phone ~ '^[0-9]{11}$' and length(trim(name)) between 1 and 80
+  union all select 'fc',f.id from fc_profiles f where f.signup_completed and not coalesce(f.is_manager_referral_shadow,false)
+    and f.phone ~ '^[0-9]{11}$' and length(trim(f.name)) between 1 and 80
+    and not exists(select from admin_accounts a where regexp_replace(a.phone,'[^0-9]','','g')=f.phone)
+    and not exists(select from manager_accounts a where regexp_replace(a.phone,'[^0-9]','','g')=f.phone);
+
+-- Create every new source member before resolving any referral. This includes
+-- completed FCs awaiting initial password recovery, without granting a session.
+with sources as (
+  select c.account_kind,c.account_id,c.recorded_at,f.phone,f.name from platform_legacy_membership_cohort c
+    join fc_profiles f on c.account_kind='fc' and c.account_id=f.id
+  union all select c.account_kind,c.account_id,c.recorded_at,a.phone,a.name from platform_legacy_membership_cohort c
+    join admin_accounts a on c.account_kind='admin' and c.account_id=a.id
+  union all select c.account_kind,c.account_id,c.recorded_at,a.phone,a.name from platform_legacy_membership_cohort c
+    join manager_accounts a on c.account_kind='manager' and c.account_id=a.id
+), inserted as (
+  insert into platform_members(phone,name,fc_id,staff_account_kind,staff_account_id,terms_version,terms_basis,terms_recorded_at,
+    insurance_consent_version,insurance_consent_source,insurance_consent_recorded_at)
+  select phone,name,case when account_kind='fc' then account_id end,
+    case when account_kind<>'fc' then account_kind end,case when account_kind<>'fc' then account_id end,
+    '2026-10-12','company_attested_import',recorded_at,'insurance-additional-info-v1','company_attested_import',recorded_at
+    from sources order by account_kind,account_id on conflict(phone) do nothing
+  returning id,fc_id,staff_account_kind,staff_account_id
+)
+update platform_legacy_membership_cohort c set created_member_id=i.id from inserted i
+  where (c.account_kind='fc' and c.account_id=i.fc_id)
+    or (c.account_kind=i.staff_account_kind and c.account_id=i.staff_account_id);
+
+-- Preserve actual acceptance dates and any genuine chosen common referrer,
+-- including NULL, on preexisting rows. Record the imported purpose separately.
+update platform_members m set terms_version='2026-10-12',
+  terms_basis=case when m.terms_version='2026-10-12' and m.terms_accepted_at is not null then 'user_acceptance' else 'company_attested_import' end,
+  terms_recorded_at=coalesce(m.terms_recorded_at,c.recorded_at),
+  insurance_consent_version=coalesce(m.insurance_consent_version,'insurance-additional-info-v1'),
+  insurance_consent_source=coalesce(m.insurance_consent_source,'company_attested_import'),
+  insurance_consent_recorded_at=coalesce(m.insurance_consent_recorded_at,c.recorded_at)
+from platform_legacy_membership_cohort c where m.active and
+  ((c.account_kind='fc' and c.account_id=m.fc_id) or (c.account_kind=m.staff_account_kind and c.account_id=m.staff_account_id));
+
+update platform_members m set referrer_id=inviter.id
+from platform_legacy_membership_cohort c join fc_profiles f on c.account_kind='fc' and c.account_id=f.id
+  join fc_profiles recruiter on recruiter.id=f.recommender_fc_id
+  join platform_members inviter on inviter.active and
+    ((not coalesce(recruiter.is_manager_referral_shadow,false) and inviter.fc_id=recruiter.id)
+      or (recruiter.is_manager_referral_shadow and inviter.staff_account_kind='manager' and exists(
+        select from manager_accounts manager where manager.active and manager.id=inviter.staff_account_id
+          and regexp_replace(manager.phone,'[^0-9]','','g')=recruiter.phone)))
+where m.id=c.created_member_id and m.referrer_id is null and inviter.id<>m.id;
+
+create or replace function public.import_platform_legacy_member_v1(
+  p_phone text,p_account_kind text,p_account_id uuid
+) returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare m platform_members; source_name text; source_fc uuid; cohort platform_legacy_membership_cohort;
+begin
+  if p_phone is null or p_phone !~ '^[0-9]{11}$' or p_account_id is null
+    or p_account_kind is null or p_account_kind not in ('fc','admin','manager') then raise exception 'invalid_input'; end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_phone,741012));
+  if exists(select from platform_members where not active and
+    ((withdrawal_source_kind=p_account_kind and withdrawal_source_id=p_account_id)
+      or (withdrawal_source_kind is null and phone is null and fc_id is null and staff_account_id is null))) then
+    return jsonb_build_object('ok',false,'code','common_membership_withdrawn'); end if;
+  select * into cohort from platform_legacy_membership_cohort where account_kind=p_account_kind and account_id=p_account_id;
+  if not found then return jsonb_build_object('ok',false,'code','company_attestation_unavailable'); end if;
+  if p_account_kind='fc' then
+    select f.name,f.id into source_name,source_fc from fc_profiles f where f.id=p_account_id and f.phone=p_phone
+      and f.signup_completed and not coalesce(f.is_manager_referral_shadow,false) for update;
+    if source_fc is null or exists(select from admin_accounts where regexp_replace(phone,'[^0-9]','','g')=p_phone)
+      or exists(select from manager_accounts where regexp_replace(phone,'[^0-9]','','g')=p_phone) then raise exception 'forbidden'; end if;
+  elsif p_account_kind='admin' then
+    select name into source_name from admin_accounts where id=p_account_id and phone=p_phone and active for update;
+  else
+    select name into source_name from manager_accounts where id=p_account_id and phone=p_phone and active for update;
+  end if;
+  if nullif(trim(source_name),'') is null then raise exception 'forbidden'; end if;
+  select * into m from platform_members where phone=p_phone for update;
+  if found then
+    if not m.active or (m.fc_id is not null and m.fc_id is distinct from source_fc)
+      or (m.staff_account_id is not null and (m.staff_account_kind is distinct from p_account_kind
+        or m.staff_account_id is distinct from p_account_id)) then raise exception 'forbidden'; end if;
+    update platform_members set name=source_name,fc_id=source_fc,
+      staff_account_kind=case when source_fc is null then p_account_kind end,
+      staff_account_id=case when source_fc is null then p_account_id end,
+      terms_version='2026-10-12',terms_basis=case when terms_version='2026-10-12' and terms_accepted_at is not null
+        then 'user_acceptance' else 'company_attested_import' end,
+      terms_recorded_at=coalesce(terms_recorded_at,terms_accepted_at,cohort.recorded_at),
+      insurance_consent_version=coalesce(insurance_consent_version,'insurance-additional-info-v1'),
+      insurance_consent_source=coalesce(insurance_consent_source,'company_attested_import'),
+      insurance_consent_recorded_at=coalesce(insurance_consent_recorded_at,cohort.recorded_at) where id=m.id;
+  else
+    -- A deleted or erased cohort source must never be silently recreated.
+    return jsonb_build_object('ok',false,'code','common_membership_unavailable');
+  end if;
+  delete from platform_member_credentials where member_id=m.id;
+  return jsonb_build_object('ok',true,'memberId',m.id);
+end $$;
+revoke all on function public.import_platform_legacy_member_v1(text,text,uuid) from public,anon,authenticated;
+grant execute on function public.import_platform_legacy_member_v1(text,text,uuid) to service_role;
+
+create or replace function public.delete_platform_member(p_member_id uuid)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare m platform_members;
+begin
+  select * into m from platform_members where id=p_member_id for update;
+  if not found then raise exception 'member_unavailable'; end if;
+  delete from platform_member_credentials where member_id=m.id;
+  delete from platform_signup_challenges where phone=m.phone or consumed_member_id=m.id;
+  update platform_service_applications set details='{"region":"삭제","requestType":"삭제"}'::jsonb,
+    status=case when status='interest' then 'cancelled' else status end where member_id=m.id;
+  -- Erase live source bindings and direct identifying fields. Restricted source
+  -- tombstones/cohort associations remain solely as no-auto-import/audit evidence.
+  update platform_members set phone=null,name='탈퇴 회원',active=false,fc_id=null,
+    staff_account_kind=null,staff_account_id=null,terms_accepted_at=null,terms_version=null,
+    terms_basis=null,terms_recorded_at=null,insurance_consent_version=null,
+    insurance_consent_source=null,insurance_consent_recorded_at=null,
+    insurance_enrollment_key=null,insurance_enrollment_fingerprint=null,
+    insurance_enrollment_member_version=null,insurance_enrollment_fc_version=null,
+    withdrawal_source_kind=coalesce(withdrawal_source_kind,case when m.fc_id is not null then 'fc'
+      when m.staff_account_id is not null then m.staff_account_kind else 'member' end),
+    withdrawal_source_id=coalesce(withdrawal_source_id,m.fc_id,m.staff_account_id,m.id)
+    where id=m.id;
+  return jsonb_build_object('ok',true,'deleted',true);
+end $$;
+
+-- Keep the old explicit-consent RPC for old app installations. Fresh verified
+-- user acceptance may create a new UUID after withdrawal. It never reactivates
+-- the old row or clears its withdrawal/settlement/referral evidence. Automatic
+-- company import remains blocked by the original-source withdrawal tombstone.
+create or replace function public.enroll_platform_legacy_member(
+  p_phone text,p_name text,p_fc_id uuid,p_terms_version text,p_account_kind text default null,p_account_id uuid default null
+) returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare m platform_members; inviter uuid;
+begin
+  if p_phone is null or p_phone !~ '^[0-9]{11}$' or p_name is null or length(trim(p_name)) not between 1 and 80
+    or p_terms_version is distinct from '2026-10-12' then raise exception 'invalid_input'; end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_phone,741012));
+  if p_fc_id is not null then
+    if (p_account_kind is not null and p_account_kind<>'fc') or (p_account_id is not null and p_account_id<>p_fc_id)
+      then raise exception 'forbidden'; end if;
+    perform from fc_profiles where id=p_fc_id and phone=p_phone and signup_completed and not coalesce(is_manager_referral_shadow,false) for update;
+    if not found then raise exception 'forbidden'; end if;
+    select r.id into inviter from fc_profiles f join platform_members r on r.fc_id=f.recommender_fc_id
+      where f.id=p_fc_id and r.active and r.terms_accepted_at is not null;
+  elsif p_account_kind='admin' then
+    perform from admin_accounts where id=p_account_id and phone=p_phone and active for update;
+    if not found then raise exception 'forbidden'; end if;
+  elsif p_account_kind='manager' then
+    perform from manager_accounts where id=p_account_id and phone=p_phone and active for update;
+    if not found then raise exception 'forbidden'; end if;
+  else raise exception 'forbidden'; end if;
+  insert into platform_members(phone,name,fc_id,referrer_id,terms_accepted_at,terms_version,staff_account_kind,staff_account_id)
+    values(p_phone,trim(p_name),p_fc_id,inviter,clock_timestamp(),p_terms_version,
+      case when p_fc_id is null then p_account_kind end,case when p_fc_id is null then p_account_id end)
+    on conflict(phone) do nothing;
+  select * into m from platform_members where phone=p_phone for update;
+  if not m.active or (m.fc_id is not null and m.fc_id is distinct from p_fc_id)
+    or (m.staff_account_id is not null and (m.staff_account_kind is distinct from p_account_kind
+      or m.staff_account_id is distinct from p_account_id)) then raise exception 'forbidden'; end if;
+  -- Explicit consent may follow a verified FC/staff role transition on the
+  -- same phone. Keep the shared graph UUID, bind only the locked source above,
+  -- and invalidate tokens backed by the previous canonical source.
+  update platform_members set terms_accepted_at=coalesce(terms_accepted_at,clock_timestamp()),
+    terms_version=p_terms_version,terms_basis='user_acceptance',terms_recorded_at=clock_timestamp(),name=trim(p_name),fc_id=p_fc_id,
+    staff_account_kind=case when p_fc_id is null then p_account_kind end,
+    staff_account_id=case when p_fc_id is null then p_account_id end where id=m.id;
+  delete from platform_member_credentials where member_id=m.id;
+  return jsonb_build_object('ok',true);
+end $$;
+
+create or replace function public.validate_platform_insurance_referral_v1(p_phone text,p_code text)
+returns jsonb language plpgsql stable security invoker set search_path=public,pg_temp as $$
+declare inviter fc_profiles; code_row referral_codes;
+begin
+  if p_phone is null or p_phone !~ '^[0-9]{11}$' or length(trim(coalesce(p_code,''))) not between 1 and 64 then
+    return jsonb_build_object('ok',false,'code','invalid_referral'); end if;
+  select * into code_row from referral_codes where code=upper(trim(p_code)) and is_active;
+  if not found then return jsonb_build_object('ok',false,'code','invalid_referral'); end if;
+  select * into inviter from fc_profiles where id=code_row.fc_id;
+  if not found or inviter.phone=p_phone or position('설계매니저' in coalesce(inviter.affiliation,''))>0
+    or not ((inviter.signup_completed and not coalesce(inviter.is_manager_referral_shadow,false))
+      or (inviter.is_manager_referral_shadow and exists(
+      select from manager_accounts a where a.active and regexp_replace(a.phone,'[^0-9]','','g')=inviter.phone))) then
+    return jsonb_build_object('ok',false,'code','invalid_referral'); end if;
+  return jsonb_build_object('ok',true,'inviterFcId',inviter.id,'inviterName',inviter.name,
+    'inviterAffiliation',inviter.affiliation,'referralCode',code_row.code);
+end $$;
+revoke all on function public.validate_platform_insurance_referral_v1(text,text) from public,anon,authenticated;
+grant execute on function public.validate_platform_insurance_referral_v1(text,text) to service_role;
+
+create or replace function public.enroll_platform_insurance_v1(
+  p_member_id uuid,p_phone text,p_member_session_version bigint,p_idempotency_key uuid,p_request_fingerprint text,
+  p_consent_version text,p_affiliation text,p_email text,p_carrier text,p_license_statuses text[],
+  p_referral_code text,p_referral_inviter_fc_id uuid
+) returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare m platform_members; c platform_member_credentials; f fc_profiles; v bigint;
+  referral jsonb; code_row referral_codes; checked_at timestamptz; normalized_statuses text[];
+begin
+  if p_member_id is null or p_phone is null or p_phone !~ '^[0-9]{11}$'
+    or p_member_session_version is null or p_member_session_version<0 or p_idempotency_key is null
+    or coalesce(p_request_fingerprint,'') !~ '^[a-f0-9]{64}$' then raise exception 'invalid_input'; end if;
+  -- Shared phone locks serialize common signup, old FC signup and conversion.
+  perform pg_advisory_xact_lock(hashtextextended(p_phone,741012));
+  perform pg_advisory_xact_lock(hashtextextended(p_phone,8102026));
+  select * into m from platform_members where id=p_member_id and phone=p_phone for update;
+  if not found or not m.active or m.staff_account_id is not null then raise exception 'forbidden'; end if;
+  if m.fc_id is not null then
+    select * into f from fc_profiles where id=m.fc_id and phone=p_phone for update;
+    select session_version into v from fc_credentials where fc_id=m.fc_id and password_set_at is not null
+      and not coalesce(must_change_password,false) for update;
+    if f.id is null or not f.signup_completed or coalesce(f.is_manager_referral_shadow,false)
+      or m.insurance_enrollment_key is distinct from p_idempotency_key
+      or m.insurance_enrollment_fingerprint is distinct from p_request_fingerprint
+      or m.insurance_enrollment_member_version is distinct from p_member_session_version
+      or v is null or v is distinct from m.insurance_enrollment_fc_version then raise exception 'idempotency_conflict'; end if;
+    return jsonb_build_object('ok',true,'fcId',f.id,'sessionVersion',v,'alreadyApplied',true);
+  end if;
+  select * into c from platform_member_credentials where member_id=m.id for update;
+  if not found or c.session_version is distinct from p_member_session_version then raise exception 'forbidden'; end if;
+  if m.terms_version is distinct from '2026-10-12' or m.terms_accepted_at is null then raise exception 'consent_required'; end if;
+  select array_agg(distinct trim(s)) into normalized_statuses from unnest(p_license_statuses) s;
+  if p_consent_version is distinct from 'insurance-additional-info-v1'
+    or length(trim(coalesce(p_affiliation,''))) not between 1 and 120
+    or position('설계매니저' in coalesce(p_affiliation,''))>0
+    or length(trim(coalesce(p_email,''))) not between 3 and 254
+    or p_email !~ '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$'
+    or p_carrier is null or p_carrier not in ('SKT','KT','LGU+','SKT 알뜰폰','KT 알뜰폰','LGU+ 알뜰폰')
+    or coalesce(cardinality(normalized_statuses),0)=0
+    or exists(select from unnest(normalized_statuses) s where s is null or s not in ('third','life','nonlife','none'))
+    or ('none'=any(normalized_statuses) and cardinality(normalized_statuses)>1) then raise exception 'invalid_input'; end if;
+  if exists(select from admin_accounts where regexp_replace(phone,'[^0-9]','','g')=p_phone)
+    or exists(select from manager_accounts where regexp_replace(phone,'[^0-9]','','g')=p_phone) then raise exception 'forbidden'; end if;
+  select * into f from fc_profiles where phone=p_phone for update;
+  if found and (f.signup_completed or coalesce(f.is_manager_referral_shadow,false)
+    or coalesce(f.status,'draft')<>'draft' or f.identity_completed or f.temp_id is not null
+    or exists(select from fc_credentials where fc_id=f.id and password_set_at is not null)
+    or exists(select from fc_identity_secure where fc_id=f.id)
+    or exists(select from fc_documents where fc_id=f.id)) then raise exception 'forbidden'; end if;
+  referral:=validate_platform_insurance_referral_v1(p_phone,p_referral_code);
+  if coalesce((referral->>'ok')::boolean,false) is not true
+    or (referral->>'inviterFcId')::uuid is distinct from p_referral_inviter_fc_id then raise exception 'invalid_referral'; end if;
+  perform from fc_profiles where id=p_referral_inviter_fc_id for update;
+  select * into code_row from referral_codes where code=upper(trim(p_referral_code))
+    and fc_id=p_referral_inviter_fc_id and is_active for update;
+  if not found then raise exception 'invalid_referral'; end if;
+  checked_at:=clock_timestamp();
+  if f.id is null then
+    insert into fc_profiles(name,phone,affiliation,status,signup_completed)
+      values(m.name,p_phone,trim(p_affiliation),'draft',false) returning * into f;
+  end if;
+  referral:=apply_referral_link_state(p_invitee_fc_id=>f.id,p_inviter_fc_id=>p_referral_inviter_fc_id,
+    p_referral_code_id=>code_row.id,p_referral_code=>code_row.code,p_source=>'signup',
+    p_actor_phone=>p_phone,p_actor_role=>'system',p_actor_staff_type=>null,p_reason=>'common_member_insurance_registration');
+  if coalesce((referral->>'ok')::boolean,false) is not true then raise exception 'invalid_referral'; end if;
+  insert into fc_credentials(fc_id,password_hash,password_salt,password_set_at,session_version,
+    failed_count,locked_until,must_change_password,created_at,updated_at)
+    values(f.id,c.password_hash,c.password_salt,c.password_set_at,c.session_version,
+      c.failed_count,c.locked_until,false,checked_at,checked_at)
+    on conflict(fc_id) do update set password_hash=excluded.password_hash,password_salt=excluded.password_salt,
+      password_set_at=excluded.password_set_at,failed_count=excluded.failed_count,locked_until=excluded.locked_until,
+      must_change_password=false,reset_token_hash=null,reset_token_expires_at=null,reset_sent_at=null,
+      reset_failed_count=0,updated_at=excluded.updated_at returning session_version into v;
+  update platform_members set fc_id=f.id,insurance_consent_version=p_consent_version,
+    insurance_consent_source='user_acceptance',insurance_consent_recorded_at=checked_at,
+    insurance_enrollment_key=p_idempotency_key,insurance_enrollment_fingerprint=p_request_fingerprint,
+    insurance_enrollment_member_version=p_member_session_version,insurance_enrollment_fc_version=v where id=m.id;
+  update fc_profiles set name=m.name,affiliation=trim(p_affiliation),email=lower(trim(p_email)),carrier=p_carrier,
+    license_statuses=normalized_statuses,status='draft',life_commission_completed=false,nonlife_commission_completed=false,
+    signup_completed=true,signup_verification_method='platform_member_session',signup_verified_at=checked_at,
+    signup_verified_by_admin_id=null,phone_verification_hash=null,phone_verification_expires_at=null,updated_at=checked_at
+    where id=f.id;
+  -- Projection removes the common credential only after its compatible hash
+  -- and salt have committed to the canonical FC account in this transaction.
+  delete from platform_member_credentials where member_id=m.id;
+  return jsonb_build_object('ok',true,'fcId',f.id,'sessionVersion',v,'alreadyApplied',false);
+end $$;
+revoke all on function public.enroll_platform_insurance_v1(uuid,text,bigint,uuid,text,text,text,text,text,text[],text,uuid)
+  from public,anon,authenticated;
+grant execute on function public.enroll_platform_insurance_v1(uuid,text,bigint,uuid,text,text,text,text,text,text[],text,uuid) to service_role;
+
+create or replace function public.process_password_reset_challenge(
+  p_action text,
+  p_account_kind text,
+  p_account_id uuid,
+  p_phone text,
+  p_token_hash text,
+  p_password_hash text default null,
+  p_password_salt text default null
+) returns jsonb
+language plpgsql
+security invoker
+set search_path = pg_catalog, public
+as $$
+declare
+  account_table text;
+  account_key text;
+  account_row jsonb;
+  profile_row public.fc_profiles%rowtype;
+  member_row public.platform_members%rowtype;
+  checked_at timestamptz;
+  failed_attempts integer;
+begin
+  if coalesce(p_action, '') not in ('issue', 'consume')
+    or p_account_id is null
+    or coalesce(p_phone, '') !~ '^[0-9]{11}$'
+    or coalesce(p_token_hash, '') !~ '^[A-Za-z0-9+/]{43}=$'
+    or (p_action = 'consume' and (
+      coalesce(p_password_hash, '') !~ '^[A-Za-z0-9+/]{43}=$'
+      or coalesce(p_password_salt, '') !~ '^[A-Za-z0-9+/]{22}==$'
+    )) then
+    return jsonb_build_object('ok', false, 'code', 'invalid_request');
+  end if;
+
+  case p_account_kind
+    when 'admin' then account_table := 'admin_accounts'; account_key := 'id';
+    when 'manager' then account_table := 'manager_accounts'; account_key := 'id';
+    when 'fc' then account_table := 'fc_credentials'; account_key := 'fc_id';
+    when 'member' then account_table := 'platform_member_credentials'; account_key := 'member_id';
+    else return jsonb_build_object('ok', false, 'code', 'invalid_request');
+  end case;
+
+  -- Match existing FC lifecycle lock order: profile, then credentials. This
+  -- also prevents completion/phone changes while a challenge is processed.
+  if p_account_kind = 'fc' then
+    select * into profile_row from public.fc_profiles
+    where id = p_account_id for update;
+    if not found or profile_row.phone is distinct from p_phone
+      or profile_row.signup_completed is distinct from true
+      or coalesce(profile_row.is_manager_referral_shadow,false) then
+      return jsonb_build_object('ok', false, 'code', 'account_unavailable');
+    end if;
+  end if;
+
+  if p_account_kind = 'member' then
+    select * into member_row from public.platform_members where id=p_account_id for update;
+    if not found or member_row.phone is distinct from p_phone or not member_row.active or member_row.fc_id is not null then
+      return jsonb_build_object('ok',false,'code','account_unavailable');
+    end if;
+  end if;
+
+  execute format(
+    'select to_jsonb(a) from public.%I a where %I = $1 for update',
+    account_table, account_key
+  ) into account_row using p_account_id;
+  -- A completed ordinary FC may set its missing initial password through
+  -- the existing bounded reset proof. The placeholder itself cannot log in.
+  if p_account_kind='fc' and (account_row is null or account_row->>'password_set_at' is null) then
+    if position('설계매니저' in coalesce(profile_row.affiliation,''))>0
+      or exists(select from public.admin_accounts where regexp_replace(phone,'[^0-9]','','g')=p_phone)
+      or exists(select from public.manager_accounts where regexp_replace(phone,'[^0-9]','','g')=p_phone) then
+      return jsonb_build_object('ok',false,'code','account_unavailable'); end if;
+    if account_row is null and p_action='issue' then
+      insert into public.fc_credentials(fc_id,password_hash,password_salt,password_set_at)
+        values(p_account_id,'','',null) on conflict(fc_id) do nothing;
+      select to_jsonb(c) into account_row from public.fc_credentials c where fc_id=p_account_id for update;
+    end if;
+  end if;
+  if account_row is null
+    or (p_account_kind<>'fc' and account_row->>'password_set_at' is null)
+    or (p_account_kind not in ('fc','member') and (
+      account_row->>'phone' is distinct from p_phone
+      or account_row->>'active' = 'false'
+    )) then
+    return jsonb_build_object('ok', false, 'code', 'account_unavailable');
+  end if;
+
+  -- Evaluate expiry/cooldown after any lock wait, not at transaction start.
+  checked_at := clock_timestamp();
+  if p_action = 'issue' then
+    if (account_row->>'reset_sent_at')::timestamptz > checked_at - interval '60 seconds' then
+      return jsonb_build_object('ok', false, 'code', 'cooldown');
+    end if;
+    execute format(
+      'update public.%I set reset_token_hash = $2,
+       reset_token_expires_at = $3::timestamptz + interval ''15 minutes'',
+       reset_sent_at = $3, reset_failed_count = 0, updated_at = $3
+       where %I = $1', account_table, account_key
+    ) using p_account_id, p_token_hash, checked_at;
+    return jsonb_build_object('ok', true);
+  end if;
+
+  failed_attempts := (account_row->>'reset_failed_count')::integer;
+  if failed_attempts >= 5 then
+    return jsonb_build_object('ok', false, 'code', 'attempts_exhausted');
+  end if;
+  if account_row->>'reset_token_hash' is null
+    or account_row->>'reset_token_expires_at' is null then
+    return jsonb_build_object('ok', false, 'code', 'invalid_token');
+  end if;
+  if (account_row->>'reset_token_expires_at')::timestamptz <= checked_at then
+    return jsonb_build_object('ok', false, 'code', 'expired_token');
+  end if;
+  if account_row->>'reset_token_hash' is distinct from p_token_hash then
+    failed_attempts := failed_attempts + 1;
+    execute format(
+      'update public.%I set reset_failed_count = $2, updated_at = $3 where %I = $1',
+      account_table, account_key
+    ) using p_account_id, failed_attempts, checked_at;
+    -- Return, do not raise: a raised exception would roll back the counter.
+    return jsonb_build_object('ok', false, 'code',
+      case when failed_attempts >= 5 then 'attempts_exhausted' else 'invalid_token' end);
+  end if;
+
+  execute format(
+    'update public.%I set password_hash = $2, password_salt = $3,
+     password_set_at = $4, failed_count = 0, locked_until = null,
+     reset_token_hash = null, reset_token_expires_at = null,
+     reset_failed_count = 0, updated_at = $4%s where %I = $1',
+    account_table,
+    case when p_account_kind = 'fc' then
+      ', must_change_password = false, temporary_password_issued_at = null'
+      else '' end,
+    account_key
+  ) using p_account_id, p_password_hash, p_password_salt, checked_at;
+  -- Preserve reset_sent_at so success cannot bypass the issuance cooldown.
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+-- Common referral signup accepts attested imports without inventing a user
+-- Old installations retain their OTP signup protocol for nonmembers. Once
+-- common signup wins the shared phone lock, the old protocol cannot replace
+-- that canonical credential or bypass explicit service registration.
+create or replace function public.issue_fc_signup_otp_v1(
+  p_phone text,
+  p_code_hash text
+) returns jsonb
+language plpgsql
+security invoker
+set search_path = pg_catalog, public
+as $$
+declare
+  normalized_phone text := regexp_replace(coalesce(p_phone, ''), '[^0-9]', '', 'g');
+  profile_row public.fc_profiles%rowtype;
+  credential_row public.fc_credentials%rowtype;
+  profile_exists boolean := false;
+  credential_exists boolean := false;
+  should_reset boolean := false;
+  checked_at timestamptz;
+  delivery_id uuid;
+  auth_profile_ids jsonb := '[]'::jsonb;
+begin
+  if normalized_phone !~ '^01[0-9]{9}$'
+    or coalesce(p_code_hash, '') !~ '^[A-Za-z0-9+/]{43}=$' then
+    return jsonb_build_object('ok', false, 'code', 'invalid_request');
+  end if;
+
+  -- verify_fc_signup_otp_v1 and complete_fc_otp_signup_v1 use this exact
+  -- namespace. Issuance must participate in the same per-phone lifecycle.
+  perform pg_advisory_xact_lock(hashtextextended(normalized_phone, 8102026));
+  if exists(select from public.platform_members where phone=normalized_phone and active) then
+    return jsonb_build_object('ok',false,'code','already_exists'); end if;
+
+
+  select profile.*
+    into profile_row
+  from public.fc_profiles profile
+  where profile.phone = normalized_phone
+  for update;
+  profile_exists := found;
+
+  if profile_exists then
+    select credential.*
+      into credential_row
+    from public.fc_credentials credential
+    where credential.fc_id = profile_row.id
+    for update;
+    credential_exists := found;
+
+    if profile_row.is_manager_referral_shadow is true
+      or (
+        profile_row.signup_completed is true
+        and credential_exists
+        and credential_row.password_set_at is not null
+      ) then
+      return jsonb_build_object('ok', false, 'code', 'already_exists');
+    end if;
+  end if;
+
+  perform 1
+  from public.admin_accounts account
+  where regexp_replace(coalesce(account.phone, ''), '[^0-9]', '', 'g') = normalized_phone
+  for share;
+  if found then
+    return jsonb_build_object('ok', false, 'code', 'already_exists');
+  end if;
+
+  perform 1
+  from public.manager_accounts account
+  where regexp_replace(coalesce(account.phone, ''), '[^0-9]', '', 'g') = normalized_phone
+  for share;
+  if found then
+    return jsonb_build_object('ok', false, 'code', 'already_exists');
+  end if;
+
+  -- Evaluate lock and cooldown after every lock wait, never from an Edge
+  -- timestamp captured before the critical section.
+  checked_at := clock_timestamp();
+
+  if profile_exists
+    and profile_row.phone_verification_locked_until is not null
+    and profile_row.phone_verification_locked_until > checked_at then
+    return jsonb_build_object('ok', false, 'code', 'locked');
+  end if;
+
+  if profile_exists
+    and profile_row.phone_verification_sent_at is not null
+    and profile_row.phone_verification_sent_at > checked_at - interval '60 seconds' then
+    return jsonb_build_object('ok', false, 'code', 'cooldown');
+  end if;
+
+  insert into public.platform_sms_delivery_attempts(purpose)
+    values('fc_signup')
+    returning id into delivery_id;
+
+  if not profile_exists then
+    insert into public.fc_profiles (
+      phone,
+      name,
+      affiliation,
+      recommender,
+      recommender_fc_id,
+      recommender_code_id,
+      recommender_code,
+      recommender_linked_at,
+      recommender_link_source,
+      email,
+      address,
+      status,
+      identity_completed,
+      signup_completed,
+      phone_verified,
+      phone_verified_at,
+      phone_verification_hash,
+      phone_verification_expires_at,
+      phone_verification_sent_at,
+      phone_verification_attempts,
+      phone_verification_locked_until,
+      phone_verification_delivery_id,
+      signup_verification_method,
+      signup_verified_at,
+      signup_verified_by_admin_id,
+      updated_at
+    ) values (
+      normalized_phone,
+      '',
+      '',
+      '',
+      null,
+      null,
+      null,
+      null,
+      null,
+      '',
+      '',
+      'draft',
+      false,
+      false,
+      false,
+      null,
+      p_code_hash,
+      checked_at + interval '5 minutes',
+      checked_at,
+      0,
+      null,
+      delivery_id,
+      null,
+      null,
+      null,
+      checked_at
+    )
+    returning * into profile_row;
+  else
+    should_reset := profile_row.phone_verified is true
+      or profile_row.signup_completed is true
+      or profile_row.status is distinct from 'draft'
+      or profile_row.identity_completed is true
+      or credential_exists
+      or exists (
+        select 1 from public.profiles auth_profile
+        where auth_profile.fc_id = profile_row.id
+      );
+
+    if should_reset then
+      delete from public.fc_identity_secure secure
+      where secure.fc_id = profile_row.id;
+
+      delete from public.fc_credentials credential
+      where credential.fc_id = profile_row.id;
+
+      with deleted_auth_profile as (
+        delete from public.profiles auth_profile
+        where auth_profile.fc_id = profile_row.id
+        returning auth_profile.id
+      )
+      select coalesce(jsonb_agg(id order by id), '[]'::jsonb)
+        into auth_profile_ids
+      from deleted_auth_profile;
+
+      update public.fc_profiles
+      set phone_verification_hash = p_code_hash,
+          phone_verification_expires_at = checked_at + interval '5 minutes',
+          phone_verification_sent_at = checked_at,
+          phone_verification_attempts = 0,
+          phone_verification_locked_until = null,
+          phone_verification_delivery_id = delivery_id,
+          name = '',
+          affiliation = '',
+          recommender = '',
+          recommender_fc_id = null,
+          recommender_code_id = null,
+          recommender_code = null,
+          recommender_linked_at = null,
+          recommender_link_source = null,
+          email = '',
+          address = '',
+          address_detail = null,
+          resident_id_masked = null,
+          resident_id_hash = null,
+          identity_completed = false,
+          status = 'draft',
+          life_commission_completed = false,
+          nonlife_commission_completed = false,
+          temp_id = null,
+          allowance_date = null,
+          allowance_prescreen_requested_at = null,
+          allowance_reject_reason = null,
+          appointment_url = null,
+          appointment_date = null,
+          appointment_schedule_life = null,
+          appointment_schedule_nonlife = null,
+          appointment_date_life = null,
+          appointment_date_nonlife = null,
+          appointment_date_life_sub = null,
+          appointment_date_nonlife_sub = null,
+          appointment_reject_reason_life = null,
+          appointment_reject_reason_nonlife = null,
+          docs_deadline_at = null,
+          docs_deadline_last_notified_at = null,
+          hanwha_commission_date_sub = null,
+          hanwha_commission_date = null,
+          hanwha_commission_reject_reason = null,
+          hanwha_commission_pdf_path = null,
+          hanwha_commission_pdf_name = null,
+          dawichok_url_sent_at = null,
+          dawichok_url_sent_by = null,
+          signup_completed = false,
+          phone_verified = false,
+          phone_verified_at = null,
+          signup_verification_method = null,
+          signup_verified_at = null,
+          signup_verified_by_admin_id = null,
+          updated_at = checked_at
+      where id = profile_row.id;
+    else
+      update public.fc_profiles
+      set phone_verification_hash = p_code_hash,
+          phone_verification_expires_at = checked_at + interval '5 minutes',
+          phone_verification_sent_at = checked_at,
+          phone_verification_attempts = 0,
+          phone_verification_locked_until = null,
+          phone_verification_delivery_id = delivery_id,
+          updated_at = checked_at
+      where id = profile_row.id;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'deliveryId', delivery_id,
+    'authProfileIds', auth_profile_ids,
+    'resetApplied', should_reset
+  );
+end;
+$$;
+
+create or replace function public.complete_fc_otp_signup_v1(
+  p_phone text,
+  p_completion_token_hash text,
+  p_request_fingerprint text,
+  p_name text,
+  p_affiliation text,
+  p_email text,
+  p_carrier text,
+  p_license_statuses text[],
+  p_referral_code text,
+  p_referral_inviter_fc_id uuid,
+  p_password_hash text,
+  p_password_salt text
+) returns jsonb
+language plpgsql
+security invoker
+set search_path = pg_catalog, public
+as $$
+declare
+  profile_row public.fc_profiles%rowtype;
+  credential_row public.fc_credentials%rowtype;
+  proof_row public.fc_signup_completion_challenges%rowtype;
+  inviter_row public.fc_profiles%rowtype;
+  referral_code_row public.referral_codes%rowtype;
+  referral_result jsonb;
+  stored_result jsonb;
+  credential_session_version bigint;
+  normalized_phone text := regexp_replace(coalesce(p_phone, ''), '[^0-9]', '', 'g');
+  normalized_name text := trim(coalesce(p_name, ''));
+  normalized_affiliation text := trim(coalesce(p_affiliation, ''));
+  normalized_email text := lower(trim(coalesce(p_email, '')));
+  normalized_carrier text := trim(coalesce(p_carrier, ''));
+  normalized_referral_code text := upper(trim(coalesce(p_referral_code, '')));
+  normalized_license_statuses text[];
+  checked_at timestamptz;
+  next_status text;
+  next_life_completed boolean;
+  next_nonlife_completed boolean;
+begin
+  select coalesce(array_agg(distinct status_value order by status_value), array[]::text[])
+    into normalized_license_statuses
+  from unnest(coalesce(p_license_statuses, array[]::text[])) status_value;
+
+  if normalized_phone !~ '^01[0-9]{9}$'
+    or coalesce(p_completion_token_hash, '') !~ '^[a-f0-9]{64}$'
+    or coalesce(p_request_fingerprint, '') !~ '^[a-f0-9]{64}$'
+    or char_length(normalized_name) not between 2 and 40
+    or char_length(normalized_affiliation) not between 2 and 80
+    or normalized_email !~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'
+    or normalized_carrier not in (
+      'SKT', 'KT', 'LGU+', 'SKT 알뜰폰', 'KT 알뜰폰', 'LGU+ 알뜰폰'
+    )
+    or cardinality(normalized_license_statuses) = 0
+    or exists (
+      select 1
+      from unnest(normalized_license_statuses) status_value
+      where status_value is null
+        or status_value not in ('third', 'life', 'nonlife', 'none')
+    )
+    or (
+      'none' = any(normalized_license_statuses)
+      and cardinality(normalized_license_statuses) > 1
+    )
+    or normalized_referral_code = ''
+    or char_length(normalized_referral_code) > 64
+    or p_referral_inviter_fc_id is null
+    or coalesce(p_password_hash, '') !~ '^[A-Za-z0-9+/]{43}=$'
+    or coalesce(p_password_salt, '') !~ '^[A-Za-z0-9+/]{22}==$' then
+    return jsonb_build_object('ok', false, 'code', 'invalid_request');
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(normalized_phone, 8102026));
+  if exists(select from public.platform_members where phone=normalized_phone and active and fc_id is null and staff_account_id is null) then
+    return jsonb_build_object('ok',false,'code','already_exists'); end if;
+
+
+  select profile.*
+    into profile_row
+  from public.fc_profiles profile
+  where profile.phone = normalized_phone
+  for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'code', 'not_found');
+  end if;
+
+  select challenge.*
+    into proof_row
+  from public.fc_signup_completion_challenges challenge
+  where challenge.fc_id = profile_row.id
+  for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'code', 'proof_required');
+  end if;
+
+  checked_at := clock_timestamp();
+
+  if proof_row.token_hash is distinct from p_completion_token_hash then
+    return jsonb_build_object('ok', false, 'code', 'proof_invalid');
+  end if;
+
+  if proof_row.expires_at <= checked_at then
+    return jsonb_build_object('ok', false, 'code', 'proof_expired');
+  end if;
+
+  if proof_row.consumed_at is not null then
+    if proof_row.request_fingerprint is not distinct from p_request_fingerprint
+      and proof_row.result is not null then
+      return jsonb_set(proof_row.result, '{alreadyApplied}', 'true'::jsonb, true);
+    end if;
+    return jsonb_build_object('ok', false, 'code', 'request_conflict');
+  end if;
+
+  -- phone_verified without the matching, live proof above is never authority.
+  if profile_row.phone_verified is distinct from true
+    or profile_row.signup_verification_method is distinct from 'phone_otp'
+    or profile_row.phone_verified_at is null
+    or profile_row.signup_verified_at is null then
+    return jsonb_build_object('ok', false, 'code', 'proof_required');
+  end if;
+
+  if profile_row.signup_completed is true
+    or profile_row.is_manager_referral_shadow is true then
+    return jsonb_build_object('ok', false, 'code', 'already_exists');
+  end if;
+
+  perform 1
+  from public.admin_accounts account
+  where regexp_replace(coalesce(account.phone, ''), '[^0-9]', '', 'g') = normalized_phone
+  for share;
+  if found then
+    return jsonb_build_object('ok', false, 'code', 'already_exists');
+  end if;
+
+  perform 1
+  from public.manager_accounts account
+  where regexp_replace(coalesce(account.phone, ''), '[^0-9]', '', 'g') = normalized_phone
+  for share;
+  if found then
+    return jsonb_build_object('ok', false, 'code', 'already_exists');
+  end if;
+
+  select credential.*
+    into credential_row
+  from public.fc_credentials credential
+  where credential.fc_id = profile_row.id
+  for update;
+
+  if found and credential_row.password_set_at is not null then
+    return jsonb_build_object('ok', false, 'code', 'already_exists');
+  end if;
+
+  if p_referral_inviter_fc_id = profile_row.id then
+    return jsonb_build_object('ok', false, 'code', 'referral_invalid');
+  end if;
+
+  select inviter.*
+    into inviter_row
+  from public.fc_profiles inviter
+  where inviter.id = p_referral_inviter_fc_id
+  for update;
+
+  if not found
+    or (
+      inviter_row.signup_completed is distinct from true
+      and inviter_row.is_manager_referral_shadow is distinct from true
+    ) then
+    return jsonb_build_object('ok', false, 'code', 'referral_invalid');
+  end if;
+
+  select referral_code.*
+    into referral_code_row
+  from public.referral_codes referral_code
+  where referral_code.code = normalized_referral_code
+    and referral_code.fc_id = p_referral_inviter_fc_id
+    and referral_code.is_active is true
+  for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'code', 'referral_invalid');
+  end if;
+
+  -- Keep the current onboarding gate: license selections do not bypass the
+  -- workflow. The database, rather than the client, derives all three fields.
+  next_status := 'draft';
+  next_life_completed := false;
+  next_nonlife_completed := false;
+
+  -- apply_referral_link_state is authoritative for inviter eligibility and
+  -- graph invariants. Its writes run in a subtransaction so a failure cannot
+  -- leave a partial referral mutation or consume the completion proof.
+  begin
+    referral_result := public.apply_referral_link_state(
+      p_invitee_fc_id => profile_row.id,
+      p_inviter_fc_id => p_referral_inviter_fc_id,
+      p_referral_code_id => referral_code_row.id,
+      p_referral_code => referral_code_row.code,
+      p_source => 'signup',
+      p_actor_phone => normalized_phone,
+      p_actor_role => 'system',
+      p_actor_staff_type => null,
+      p_reason => 'complete_fc_otp_signup_v1'
+    );
+
+    if coalesce((referral_result ->> 'ok')::boolean, false) is not true then
+      raise exception 'fc_signup_referral_failed';
+    end if;
+  exception when others then
+    return jsonb_build_object('ok', false, 'code', 'referral_invalid');
+  end;
+
+  update public.fc_profiles
+  set name = normalized_name,
+      affiliation = normalized_affiliation,
+      email = normalized_email,
+      carrier = normalized_carrier,
+      license_statuses = normalized_license_statuses,
+      status = next_status,
+      life_commission_completed = next_life_completed,
+      nonlife_commission_completed = next_nonlife_completed,
+      address = '',
+      address_detail = null,
+      resident_id_masked = null,
+      resident_id_hash = null,
+      identity_completed = false,
+      temp_id = null,
+      allowance_date = null,
+      allowance_prescreen_requested_at = null,
+      allowance_reject_reason = null,
+      docs_deadline_at = null,
+      docs_deadline_last_notified_at = null,
+      appointment_url = null,
+      appointment_date = null,
+      appointment_schedule_life = null,
+      appointment_schedule_nonlife = null,
+      appointment_date_life = null,
+      appointment_date_nonlife = null,
+      appointment_date_life_sub = null,
+      appointment_date_nonlife_sub = null,
+      appointment_reject_reason_life = null,
+      appointment_reject_reason_nonlife = null,
+      hanwha_commission_date_sub = null,
+      hanwha_commission_date = null,
+      hanwha_commission_reject_reason = null,
+      hanwha_commission_pdf_path = null,
+      hanwha_commission_pdf_name = null,
+      dawichok_url_sent_at = null,
+      dawichok_url_sent_by = null,
+      signup_completed = true,
+      signup_verification_method = 'phone_otp',
+      signup_verified_by_admin_id = null,
+      updated_at = checked_at
+  where id = profile_row.id;
+
+  insert into public.fc_credentials (
+    fc_id,
+    password_hash,
+    password_salt,
+    password_set_at,
+    failed_count,
+    locked_until,
+    reset_token_hash,
+    reset_token_expires_at,
+    reset_sent_at,
+    reset_failed_count,
+    must_change_password,
+    temporary_password_issued_at,
+    created_at,
+    updated_at
+  ) values (
+    profile_row.id,
+    p_password_hash,
+    p_password_salt,
+    checked_at,
+    0,
+    null,
+    null,
+    null,
+    null,
+    0,
+    false,
+    null,
+    checked_at,
+    checked_at
+  )
+  on conflict (fc_id) do update
+  set password_hash = excluded.password_hash,
+      password_salt = excluded.password_salt,
+      password_set_at = excluded.password_set_at,
+      failed_count = 0,
+      locked_until = null,
+      reset_token_hash = null,
+      reset_token_expires_at = null,
+      reset_sent_at = null,
+      reset_failed_count = 0,
+      must_change_password = false,
+      temporary_password_issued_at = null,
+      updated_at = excluded.updated_at
+  returning session_version into credential_session_version;
+
+  stored_result := jsonb_build_object(
+    'ok', true,
+    'fcId', profile_row.id,
+    'residentId', normalized_phone,
+    'displayName', normalized_name,
+    'affiliation', normalized_affiliation,
+    'sessionVersion', credential_session_version,
+    'alreadyApplied', false
+  );
+
+  update public.fc_signup_completion_challenges
+  set consumed_at = checked_at,
+      request_fingerprint = p_request_fingerprint,
+      result = stored_result,
+      updated_at = checked_at
+  where fc_id = profile_row.id
+    and token_hash = p_completion_token_hash
+    and consumed_at is null;
+
+  if not found then
+    raise exception 'fc_signup_completion_proof_lost';
+  end if;
+
+  return stored_result;
+end;
+$$;
+
+
+-- Common referral signup accepts attested imports without inventing a user
+-- terms acceptance timestamp. All existing OTP and retry boundaries stay.
+create or replace function public.register_platform_member(p_phone text,p_code_hash text,p_name text,
+  p_password_hash text,p_password_salt text,p_referral_code text default null)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare c platform_signup_challenges; m platform_members; inviter uuid; checked_at timestamptz;
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_phone,741012));
+  perform pg_advisory_xact_lock(hashtextextended(p_phone,8102026));
+  select * into c from platform_signup_challenges where phone=p_phone for update;
+  checked_at:=clock_timestamp();
+  if not found or c.expires_at<=checked_at then return jsonb_build_object('ok',false,'code','expired_code'); end if;
+  if c.locked_until>checked_at then return jsonb_build_object('ok',false,'code','locked'); end if;
+  if c.code_hash is distinct from p_code_hash then
+    update platform_signup_challenges set attempts=attempts+1,
+      locked_until=case when attempts>=4 then checked_at+interval '10 minutes' else null end where phone=p_phone;
+    return jsonb_build_object('ok',false,'code','invalid_code');
+  end if;
+  if p_name is null or length(trim(p_name)) not between 1 and 80
+    or coalesce(p_password_hash,'') !~ '^[A-Za-z0-9+/]{43}=$'
+    or coalesce(p_password_salt,'') !~ '^[A-Za-z0-9+/]{22}==$' then raise exception 'invalid_input'; end if;
+  -- An uncertain successful signup may be retried during the original OTP
+  -- window only with the same verified phone, code and current password.
+  -- The already-consumed challenge never creates another account.
+  if c.consumed_member_id is not null then
+    select * into m from platform_members where id=c.consumed_member_id and phone=p_phone and active and fc_id is null;
+    if m.id is null or not exists(select from platform_member_credentials
+      where member_id=m.id and password_hash=p_password_hash and password_salt=p_password_salt)
+    then return jsonb_build_object('ok',false,'code','already_exists'); end if;
+    return jsonb_build_object('ok',true,'memberId',m.id,'displayName',m.name,
+      'sessionVersion',(select session_version from platform_member_credentials where member_id=m.id));
+  end if;
+  if exists(select from platform_members where phone=p_phone) or exists(select from fc_profiles where phone=p_phone and signup_completed)
+    or exists(select from admin_accounts where phone=p_phone) or exists(select from manager_accounts where phone=p_phone)
+  then return jsonb_build_object('ok',false,'code','already_exists'); end if;
+  if nullif(trim(p_referral_code),'') is not null then
+    select id into inviter from platform_members where referral_code=upper(trim(p_referral_code)) and active and (terms_accepted_at is not null or terms_basis='company_attested_import');
+    if inviter is null then
+      select m2.id into inviter from referral_codes r join platform_members m2 on m2.fc_id=r.fc_id
+      where r.code=upper(trim(p_referral_code)) and r.is_active and m2.active and (m2.terms_accepted_at is not null or m2.terms_basis='company_attested_import');
+    end if;
+    if inviter is null then return jsonb_build_object('ok',false,'code','invalid_referral'); end if;
+  end if;
+  insert into platform_members(phone,name,referrer_id,terms_accepted_at,terms_version)
+    values(p_phone,trim(p_name),inviter,checked_at,'2026-10-12') returning * into m;
+  insert into platform_member_credentials(member_id,password_hash,password_salt) values(m.id,p_password_hash,p_password_salt);
+  update platform_signup_challenges set consumed_member_id=m.id where phone=p_phone;
+  return jsonb_build_object('ok',true,'memberId',m.id,'displayName',m.name,'sessionVersion',0);
+end $$;
+
+-- 20261014073458_platform_affiliate_account_withdrawal
+-- Ordinary common/FC withdrawal. Company admin/manager accounts are exempt.
+-- Two databases cannot share a transaction: revoke admission first, require an
+-- exact affiliate receipt, then erase locally and confirm external cleanup.
+set local lock_timeout='3s';
+set local statement_timeout='30s';
+alter table public.fc_profiles add column account_closed_at timestamptz;
+
+create table public.platform_account_withdrawals (
+  operation_id uuid primary key,
+  member_id uuid not null unique references public.platform_members(id) on delete restrict,
+  session_digest text not null check(session_digest ~ '^[0-9a-f]{64}$'),
+  source_fc_id uuid references public.fc_profiles(id) on delete restrict,
+  preserved_company_role text check(preserved_company_role in ('admin','manager','designer','developer')),
+  local_erased boolean not null default false,
+  completed boolean not null default false,
+  cleanup_receipt jsonb,
+  cleanup_outbox_id uuid references public.account_deletion_cleanup_outbox(id) on delete restrict,
+  created_at timestamptz not null default clock_timestamp(),
+  completed_at timestamptz,
+  next_attempt_at timestamptz not null default clock_timestamp(),
+  attempt_count integer not null default 0 check(attempt_count>=0),
+  pending_reason text check(pending_reason in ('affiliate_identity_unbound','affiliate_unavailable','cleanup_pending'))
+);
+alter table public.platform_account_withdrawals enable row level security;
+revoke all on public.platform_account_withdrawals from public,anon,authenticated;
+grant select,insert,update on public.platform_account_withdrawals to service_role;
+create index platform_withdrawals_due on public.platform_account_withdrawals(next_attempt_at,created_at)
+  where not completed;
+
+create table public.platform_withdrawal_messenger_cleanup (
+  operation_id uuid references public.platform_account_withdrawals(operation_id) on delete restrict,
+  cleanup_id uuid references public.messenger_attachment_cleanup_outbox(id) on delete restrict,
+  primary key(operation_id,cleanup_id)
+);
+alter table public.platform_withdrawal_messenger_cleanup enable row level security;
+revoke all on public.platform_withdrawal_messenger_cleanup from public,anon,authenticated;
+grant select,insert on public.platform_withdrawal_messenger_cleanup to service_role;
+
+create function public.erase_completed_account_cleanup_payload_v1() returns trigger
+language plpgsql security invoker set search_path=public,pg_temp as $$
+begin
+  if new.status='completed' then
+    new.cleanup_payload:='{}'::jsonb;
+    update platform_account_withdrawals set cleanup_receipt=null where cleanup_outbox_id=new.id;
+  end if;
+  return new;
+end $$;
+revoke all on function public.erase_completed_account_cleanup_payload_v1() from public,anon,authenticated;
+create trigger account_completed_cleanup_payload before update of status on public.account_deletion_cleanup_outbox
+  for each row execute function public.erase_completed_account_cleanup_payload_v1();
+
+create function public.guard_closed_fc_account_v1() returns trigger
+language plpgsql security invoker set search_path=public,pg_temp as $$
+declare target uuid;
+begin
+  if tg_table_name='fc_profiles' then target:=old.id; else target:=new.fc_id; end if;
+  if exists(select from fc_profiles where id=target and account_closed_at is not null)
+    and current_setting('moduon.fc_closure_id',true) is distinct from target::text then
+    raise exception 'account_closed';
+  end if;
+  return new;
+end $$;
+revoke all on function public.guard_closed_fc_account_v1() from public,anon,authenticated;
+create trigger fc_closed_account_write_guard before update on public.fc_profiles
+  for each row execute function public.guard_closed_fc_account_v1();
+create trigger fc_closed_credentials_guard before insert or update on public.fc_credentials
+  for each row execute function public.guard_closed_fc_account_v1();
+create trigger fc_closed_completion_guard before insert or update on public.fc_signup_completion_challenges
+  for each row execute function public.guard_closed_fc_account_v1();
+
+create or replace function public.queue_messenger_attachment_actor_cleanup_v2()
+returns trigger
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+  v_actor_role text;
+  v_operation_id uuid:=nullif(current_setting('moduon.withdrawal_operation_id',true),'')::uuid;
+  v_batch public.messenger_attachment_delivery_batches%rowtype;
+  v_lock record;
+  v_lock_conversation_id uuid;
+  v_target_conversation_ids uuid[];
+  v_broadcast_batch record;
+  v_reconciled_conversation_ids uuid[];
+  v_remaining integer;
+begin
+  v_actor_role := case tg_table_name
+    when 'fc_profiles' then 'fc'
+    when 'manager_accounts' then 'manager'
+    when 'admin_accounts' then 'admin'
+    else null
+  end;
+  if v_actor_role is null then
+    raise exception 'invalid_attachment_actor_cleanup_trigger';
+  end if;
+  perform pg_advisory_xact_lock(
+    hashtextextended(v_actor_role || ':' || old.id::text, 0)
+  );
+
+  if v_actor_role = 'fc' then
+    select array_agg(conversation.id order by conversation.id)
+      into v_target_conversation_ids
+      from public.garamin_direct_conversations conversation
+     where conversation.fc_id = old.id;
+
+    -- Lock every affected batch owner before taking batch row locks. This keeps
+    -- reserve/commit/delete serialization in the same actor-lock order.
+    for v_lock in
+      select distinct affected.actor_role, affected.actor_id
+        from (
+          select batch.actor_role, batch.actor_id
+            from public.messenger_attachment_delivery_batches batch
+           where batch.context_kind = 'direct'
+             and batch.conversation_id = any(v_target_conversation_ids)
+             and batch.status not in ('deleted', 'revoked')
+          union
+          select batch.actor_role, batch.actor_id
+            from public.messenger_attachment_delivery_batches batch
+           where batch.context_kind = 'direct_broadcast'
+             and batch.conversation_ids && v_target_conversation_ids
+             and batch.status not in ('deleted', 'revoked')
+        ) affected
+       order by affected.actor_role, affected.actor_id
+    loop
+      perform pg_advisory_xact_lock(
+        hashtextextended(v_lock.actor_role || ':' || v_lock.actor_id::text, 0)
+      );
+    end loop;
+
+    -- Reserve and commit take the same context locks after their actor lock.
+    -- Once these are held no new pending/committed delivery can enter a
+    -- conversation that is being cascaded away.
+    for v_lock_conversation_id in
+      select conversation_id
+        from unnest(v_target_conversation_ids) requested(conversation_id)
+       order by conversation_id
+    loop
+      perform pg_advisory_xact_lock(
+        hashtextextended(
+          'messenger-direct-context:' || v_lock_conversation_id::text,
+          0
+        )
+      );
+    end loop;
+
+    -- The legacy account-delete transaction may hard-delete recipient message
+    -- rows before this profile trigger runs. Reconcile broadcast batches from
+    -- their durable conversation context, then derive the surviving reference
+    -- count from whichever undeleted messages remain.
+    for v_broadcast_batch in
+      select batch.id, batch.status
+        from public.messenger_attachment_delivery_batches batch
+       where batch.context_kind = 'direct_broadcast'
+         and batch.conversation_ids && v_target_conversation_ids
+         and batch.status not in ('deleted', 'revoked')
+       order by batch.id
+       for update
+    loop
+      update public.messages
+         set deleted_at = coalesce(deleted_at, v_now),
+             deleted_by_actor_id = coalesce(deleted_by_actor_id, old.id),
+             content = ''
+       where attachment_batch_id = v_broadcast_batch.id
+         and conversation_id = any(v_target_conversation_ids)
+         and deleted_at is null;
+
+      if v_broadcast_batch.status = 'committed' then
+        select array_agg(
+                 distinct message.conversation_id
+                 order by message.conversation_id
+               ),
+               count(*)
+          into v_reconciled_conversation_ids, v_remaining
+          from public.messages message
+         where message.attachment_batch_id = v_broadcast_batch.id
+           and message.conversation_id is not null
+           and message.deleted_at is null;
+        if v_remaining > 0 then
+          update public.messenger_attachment_delivery_batches
+             set conversation_ids = v_reconciled_conversation_ids,
+                 updated_at = v_now
+           where id = v_broadcast_batch.id;
+          update public.messenger_attachment_objects
+             set reference_count = v_remaining
+           where batch_id = v_broadcast_batch.id
+             and status = 'active';
+        end if;
+      end if;
+    end loop;
+  end if;
+
+  for v_batch in
+    select batch.*
+      from public.messenger_attachment_delivery_batches batch
+     where (
+         (
+           batch.actor_id = old.id
+           and batch.actor_role = v_actor_role
+         )
+         or (
+           v_actor_role = 'fc'
+           and batch.context_kind = 'direct'
+           and batch.conversation_id = any(v_target_conversation_ids)
+         )
+         or (
+           v_actor_role = 'fc'
+           and batch.context_kind = 'direct_broadcast'
+           and batch.conversation_ids && v_target_conversation_ids
+           and (
+             batch.status in ('pending', 'expired')
+             or (
+               batch.status = 'committed'
+               and not exists (
+                 select 1
+                   from public.messages message
+                  where message.attachment_batch_id = batch.id
+                    and message.deleted_at is null
+               )
+             )
+           )
+         )
+       )
+       and batch.status not in ('deleted', 'revoked')
+     for update
+  loop
+    update public.messages
+       set deleted_at = coalesce(deleted_at, v_now),
+           deleted_by_actor_id = coalesce(deleted_by_actor_id, old.id),
+           content = ''
+     where attachment_batch_id = v_batch.id
+       and deleted_at is null;
+    update public.group_chat_messages
+       set deleted_at = coalesce(deleted_at, v_now),
+           content = ''
+     where attachment_batch_id = v_batch.id
+       and deleted_at is null;
+    delete from public.group_chat_notices notice
+     where notice.message_id in (
+       select message.id
+         from public.group_chat_messages message
+        where message.attachment_batch_id = v_batch.id
+     );
+
+    insert into public.messenger_attachment_deletion_audit (
+      original_name,
+      byte_size,
+      sha256,
+      reason_code,
+      deleted_at
+    )
+    select case when v_operation_id is not null then '삭제' else attachment.original_name end,
+           attachment.byte_size,
+           attachment.sha256,
+           'account_deleted',
+           v_now
+      from public.messenger_attachment_objects attachment
+     where attachment.batch_id = v_batch.id
+       and attachment.status = 'active';
+
+    insert into public.messenger_attachment_cleanup_outbox (
+      attachment_id,
+      batch_id,
+      bucket_id,
+      storage_path,
+      reason_code,
+      sweep_phase,
+      not_before
+    )
+    select candidate.attachment_id,
+           v_batch.id,
+           candidate.bucket_id,
+           candidate.storage_path,
+           'account_deleted',
+           phase.sweep_phase,
+           case phase.sweep_phase
+             when 'immediate' then v_now
+             else greatest(v_batch.expires_at, v_now) + interval '5 minutes'
+           end
+      from (
+        select attachment.id as attachment_id,
+               attachment.bucket_id,
+               attachment.storage_path
+          from public.messenger_attachment_objects attachment
+         where attachment.batch_id = v_batch.id
+           and attachment.storage_path is not null
+        union all
+        select null::uuid,
+               intent.bucket_id,
+               intent.object_path
+          from public.messenger_attachment_upload_intents intent
+         where intent.batch_id = v_batch.id
+           and intent.object_path is not null
+      ) candidate
+      cross join (
+        values ('immediate'::text), ('post_token_expiry'::text)
+      ) phase(sweep_phase)
+    on conflict (bucket_id, storage_path, sweep_phase)
+      where bucket_id is not null and storage_path is not null
+    do update set
+      not_before = least(
+        public.messenger_attachment_cleanup_outbox.not_before,
+        excluded.not_before
+      ),
+      status = case
+        when public.messenger_attachment_cleanup_outbox.status = 'completed'
+          then 'pending'
+        else public.messenger_attachment_cleanup_outbox.status
+      end,
+      completed_at = null,
+      updated_at = v_now;
+
+    update public.messenger_attachment_upload_intents
+       set status = 'revoked',
+           object_path = null,
+           updated_at = v_now
+     where batch_id = v_batch.id
+       and status in ('pending', 'validated', 'expired');
+    update public.messenger_attachment_objects
+       set bucket_id = null,
+           storage_path = null,
+           reference_count = 0,
+           status = 'tombstoned',
+           tombstoned_at = coalesce(tombstoned_at, v_now)
+     where batch_id = v_batch.id
+       and status = 'active';
+    update public.messenger_attachment_delivery_batches
+       set status = 'deleted',
+           deleted_at = coalesce(deleted_at, v_now),
+           updated_at = v_now
+     where id = v_batch.id;
+    if v_operation_id is not null then
+      if not exists(select from platform_account_withdrawals where operation_id=v_operation_id
+        and source_fc_id=old.id) then raise exception 'forbidden'; end if;
+      insert into platform_withdrawal_messenger_cleanup(operation_id,cleanup_id)
+        select v_operation_id,id from messenger_attachment_cleanup_outbox where batch_id=v_batch.id
+        on conflict do nothing;
+      update messenger_attachment_deletion_audit audit set original_name='삭제'
+        where exists(select from messenger_attachment_objects o where o.batch_id=v_batch.id
+          and o.sha256=audit.sha256 and o.original_name=audit.original_name);
+      update messenger_attachment_upload_intents set original_name='삭제',object_path=null,status='revoked'
+        where batch_id=v_batch.id;
+      update messenger_attachment_objects set original_name='삭제' where batch_id=v_batch.id;
+    end if;
+  end loop;
+  if tg_op='UPDATE' then return new; end if;
+  return old;
+end;
+$$;
+create trigger trg_queue_fc_withdrawal_messenger_cleanup before update of account_closed_at on public.fc_profiles
+  for each row when(old.account_closed_at is null and new.account_closed_at is not null)
+  execute function public.queue_messenger_attachment_actor_cleanup_v2();
+
+create or replace function public.delete_account_core_transaction_v1(
+  p_target_role text,
+  p_target_id uuid
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_phone text;
+  v_phone_digits text;
+  v_fc_ids uuid[] := array[]::uuid[];
+  v_fc_id uuid;
+  v_proof_paths text[] := array[]::text[];
+  v_new_proof_paths text[] := array[]::text[];
+  v_document_paths text[] := array[]::text[];
+  v_board_paths text[] := array[]::text[];
+  v_auth_user_ids uuid[] := array[]::uuid[];
+  v_post_ids uuid[] := array[]::uuid[];
+  v_cleanup_outbox_id uuid;
+  v_deleted_count integer := 0;
+begin
+  if p_target_id is null or p_target_role not in ('fc', 'admin', 'manager') then
+    raise exception using errcode = '22023', message = 'invalid_account_delete_target';
+  end if;
+
+  if p_target_role = 'fc' then
+    select profile.phone
+      into v_phone
+      from public.fc_profiles profile
+     where profile.id = p_target_id
+       and not profile.is_manager_referral_shadow
+     for update;
+    if v_phone is null then
+      raise exception using errcode = 'P0002', message = 'account_delete_target_not_found';
+    end if;
+    v_fc_ids := array[p_target_id];
+  elsif p_target_role = 'admin' then
+    select account.phone
+      into v_phone
+      from public.admin_accounts account
+     where account.id = p_target_id
+     for update;
+    if v_phone is null then
+      raise exception using errcode = 'P0002', message = 'account_delete_target_not_found';
+    end if;
+  else
+    select account.phone
+      into v_phone
+      from public.manager_accounts account
+     where account.id = p_target_id
+     for update;
+    if v_phone is null then
+      raise exception using errcode = 'P0002', message = 'account_delete_target_not_found';
+    end if;
+
+    select coalesce(array_agg(profile.id order by profile.id), array[]::uuid[])
+      into v_fc_ids
+      from public.fc_profiles profile
+     where profile.is_manager_referral_shadow
+       and regexp_replace(coalesce(profile.phone, ''), '[^0-9]', '', 'g')
+           = regexp_replace(coalesce(v_phone, ''), '[^0-9]', '', 'g');
+  end if;
+
+  v_phone_digits := nullif(regexp_replace(coalesce(v_phone, ''), '[^0-9]', '', 'g'), '');
+  if v_phone_digits is null then
+    raise exception using errcode = '23514', message = 'account_delete_phone_missing';
+  end if;
+
+  if cardinality(v_fc_ids) > 0 then
+    perform 1
+      from public.fc_profiles profile
+     where profile.id = any(v_fc_ids)
+     for update;
+
+    if exists (
+      select 1
+        from public.exam_registrations registration
+       where registration.resident_id not like 'deleted-exam:%'
+         and (
+           (
+             registration.fc_id = any(v_fc_ids)
+             and nullif(
+               regexp_replace(coalesce(registration.resident_id, ''), '[^0-9]', '', 'g'),
+               ''
+             ) is distinct from v_phone_digits
+           )
+           or (
+             nullif(
+               regexp_replace(coalesce(registration.resident_id, ''), '[^0-9]', '', 'g'),
+               ''
+             ) = v_phone_digits
+             and (
+               registration.fc_id is null
+               or not (registration.fc_id = any(v_fc_ids))
+             )
+           )
+         )
+    ) then
+      raise exception using
+        errcode = '23514',
+        message = 'account_delete_exam_ownership_mismatch';
+    end if;
+
+    select coalesce(array_agg(document.storage_path), array[]::text[])
+      into v_document_paths
+      from public.fc_documents document
+     where document.fc_id = any(v_fc_ids)
+       and document.storage_path is not null
+       and document.storage_path <> 'deleted';
+
+    select coalesce(array_agg(profile.id), array[]::uuid[])
+      into v_auth_user_ids
+      from public.profiles profile
+     where profile.fc_id = any(v_fc_ids);
+
+    foreach v_fc_id in array v_fc_ids
+    loop
+      select coalesce(array_agg(detached.proof_path), array[]::text[])
+        into v_new_proof_paths
+        from public.detach_exam_registration_identity_for_account_deletion(v_fc_id) detached;
+      v_proof_paths := v_proof_paths || v_new_proof_paths;
+    end loop;
+  end if;
+
+  select coalesce(array_agg(post.id), array[]::uuid[])
+    into v_post_ids
+    from public.board_posts post
+   where regexp_replace(coalesce(post.author_resident_id, ''), '[^0-9]', '', 'g')
+         = v_phone_digits;
+
+  select coalesce(array_agg(distinct attachment.storage_path), array[]::text[])
+    into v_board_paths
+    from public.board_attachments attachment
+   where regexp_replace(coalesce(attachment.created_by_resident_id, ''), '[^0-9]', '', 'g')
+         = v_phone_digits
+      or attachment.post_id = any(v_post_ids);
+
+  -- Legacy chat uploads used shared `chat/` and `group-chat/` prefixes without
+  -- an owner identifier. A message row therefore cannot prove ownership of the
+  -- referenced object. Keep these objects out of the service-role cleanup
+  -- receipt instead of trusting a user-controlled legacy file_url.
+
+  delete from public.board_comment_likes
+   where regexp_replace(coalesce(resident_id, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.board_post_reactions
+   where regexp_replace(coalesce(resident_id, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.board_post_views
+   where regexp_replace(coalesce(resident_id, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.board_comments
+   where regexp_replace(coalesce(author_resident_id, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.board_attachments
+   where regexp_replace(coalesce(created_by_resident_id, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.board_posts where id = any(v_post_ids);
+
+  if to_regclass('public.messages') is not null then
+    execute $dynamic$
+      delete from public.messages
+       where regexp_replace(coalesce(sender_id, ''), '[^0-9]', '', 'g') = $1
+          or regexp_replace(coalesce(receiver_id, ''), '[^0-9]', '', 'g') = $1
+    $dynamic$
+    using v_phone_digits;
+  end if;
+
+  delete from public.notifications
+   where (cardinality(v_fc_ids) > 0 and fc_id = any(v_fc_ids))
+      or regexp_replace(coalesce(resident_id, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.device_tokens
+   where regexp_replace(coalesce(resident_id, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.web_push_subscriptions
+   where regexp_replace(coalesce(resident_id, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.user_presence
+   where regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.notices
+   where regexp_replace(coalesce(created_by, ''), '[^0-9]', '', 'g') = v_phone_digits;
+
+  delete from public.referral_events
+   where regexp_replace(coalesce(inviter_phone, ''), '[^0-9]', '', 'g') = v_phone_digits
+      or regexp_replace(coalesce(invitee_phone, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  delete from public.referral_attributions
+   where regexp_replace(coalesce(inviter_phone, ''), '[^0-9]', '', 'g') = v_phone_digits
+      or regexp_replace(coalesce(invitee_phone, ''), '[^0-9]', '', 'g') = v_phone_digits;
+
+  if p_target_role = 'manager' then
+    delete from public.affiliation_manager_mappings
+     where regexp_replace(coalesce(manager_phone, ''), '[^0-9]', '', 'g') = v_phone_digits;
+  end if;
+
+  if cardinality(v_fc_ids) > 0 then
+    delete from public.profiles where fc_id = any(v_fc_ids);
+    if p_target_role = 'fc'
+      and current_setting('moduon.fc_closure_id',true) = p_target_id::text then
+      -- Financial snapshots still reference this UUID. Erase account data,
+      -- never cascade settled business history or fabricate another identity.
+      -- This upload namespace proves ownership; legacy arbitrary URLs do not.
+      select v_document_paths || coalesce(array_agg(hanwha_commission_pdf_path),array[]::text[])
+        into v_document_paths from public.fc_profiles
+        where id=p_target_id and hanwha_commission_pdf_path like 'hanwha-url-pdf/'||id::text||'/%'
+          and position('/../' in hanwha_commission_pdf_path)=0;
+      delete from public.fc_documents where fc_id=p_target_id;
+      delete from public.fc_identity_secure where fc_id=p_target_id;
+      delete from public.fc_credentials where fc_id=p_target_id;
+      delete from public.fc_signup_completion_challenges where fc_id=p_target_id;
+      delete from public.admin_assisted_signup_consents where fc_id=p_target_id;
+      delete from public.referral_codes where fc_id=p_target_id;
+      update public.fc_profiles set
+        phone='deleted-fc:'||id::text,name='탈퇴 회원',affiliation='삭제',
+        temp_id=null,resident_id_masked=null,resident_id_hash=null,
+        email=null,address=null,address_detail=null,carrier=null,career_type=null,license_statuses=null,
+        recommender=null,recommender_code=null,recommender_code_id=null,
+        admin_memo=null,appointment_url=null,hanwha_commission_pdf_path=null,hanwha_commission_pdf_name=null,
+        allowance_reject_reason=null,hanwha_commission_reject_reason=null,
+        appointment_reject_reason_life=null,appointment_reject_reason_nonlife=null,
+        dawichok_url_sent_by=null,phone_verified=false,phone_verified_at=null,
+        phone_verification_hash=null,phone_verification_expires_at=null,
+        phone_verification_sent_at=null,phone_verification_attempts=0,phone_verification_locked_until=null,
+        signup_completed=false,identity_completed=false,signup_verification_method=null,
+        signup_verified_at=null,signup_verified_by_admin_id=null,updated_at=clock_timestamp()
+        where id=p_target_id;
+      update public.fc_profiles set recommender=null,recommender_code=null,recommender_code_id=null
+        where recommender_fc_id=p_target_id and account_closed_at is null;
+    else
+      delete from public.fc_profiles where id = any(v_fc_ids);
+    end if;
+  end if;
+
+  if p_target_role = 'admin' then
+    delete from public.admin_accounts where id = p_target_id;
+  elsif p_target_role = 'manager' then
+    delete from public.manager_accounts where id = p_target_id;
+  end if;
+  get diagnostics v_deleted_count = row_count;
+
+  if p_target_role = 'fc' then
+    v_deleted_count := case
+      when current_setting('moduon.fc_closure_id',true)=p_target_id::text
+        and exists(select from public.fc_profiles where id=p_target_id
+          and phone='deleted-fc:'||id::text and not signup_completed and account_closed_at is not null)
+        and not exists(select from public.fc_credentials where fc_id=p_target_id) then 1
+      when exists (select 1 from public.fc_profiles where id = p_target_id) then 0
+      else 1
+    end;
+  end if;
+
+  if v_deleted_count <> 1 then
+    raise exception using errcode = 'P0002', message = 'account_delete_target_not_deleted';
+  end if;
+
+  insert into public.account_deletion_cleanup_outbox (
+    cleanup_payload
+  ) values (
+    jsonb_build_object(
+      'proof_paths', to_jsonb(v_proof_paths),
+      'document_paths', to_jsonb(v_document_paths),
+      'board_attachment_paths', to_jsonb(v_board_paths),
+      'chat_file_urls', '[]'::jsonb,
+      'auth_user_ids', to_jsonb(v_auth_user_ids)
+    )
+  )
+  returning id into v_cleanup_outbox_id;
+
+  return jsonb_build_object(
+    'deleted', true,
+    'cleanup_outbox_id', v_cleanup_outbox_id,
+    'proof_paths', to_jsonb(v_proof_paths),
+    'document_paths', to_jsonb(v_document_paths),
+    'board_attachment_paths', to_jsonb(v_board_paths),
+    'chat_file_urls', '[]'::jsonb,
+    'auth_user_ids', to_jsonb(v_auth_user_ids)
+  );
+end;
+$$;
+
+-- The old function remains available only to trusted deletion paths; its
+-- staff authorization and normal hard-delete semantics are unchanged.
+
+create function public.get_platform_withdrawal_v1(p_operation_id uuid,p_session_digest text)
+returns jsonb language sql security invoker set search_path=public,pg_temp as $$
+  select to_jsonb(w) from platform_account_withdrawals w
+    where (p_operation_id is null or operation_id=p_operation_id) and session_digest=p_session_digest
+    order by created_at desc,operation_id limit 1;
+$$;
+
+create function public.begin_platform_withdrawal_v1(
+  p_member_id uuid,p_operation_id uuid,p_session_digest text)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare m platform_members; f fc_profiles; w platform_account_withdrawals; source_phone text; source_fc uuid;
+  source_staff_id uuid; source_staff_kind text;
+begin
+  if p_operation_id is null or p_member_id is null or p_session_digest is null
+    or p_session_digest !~ '^[0-9a-f]{64}$' then raise exception 'invalid_input'; end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_operation_id::text,741014));
+  select * into w from platform_account_withdrawals where operation_id=p_operation_id;
+  if found then
+    if w.member_id<>p_member_id or w.session_digest<>p_session_digest then raise exception 'forbidden'; end if;
+    return to_jsonb(w);
+  end if;
+  select * into m from platform_members where id=p_member_id;
+  if not found or not m.active or m.phone is null then raise exception 'member_unavailable'; end if;
+  source_phone:=m.phone;
+  source_fc:=m.fc_id; source_staff_id:=m.staff_account_id; source_staff_kind:=m.staff_account_kind;
+  -- Same phone-advisory domain as signup/enrollment, then source profile,
+  -- common member, credentials. Never reverse the existing profile/member order.
+  perform pg_advisory_xact_lock(hashtextextended(source_phone,741012));
+  if m.fc_id is not null then
+    select * into f from fc_profiles where id=m.fc_id for update;
+    if not found or f.phone<>source_phone or f.signup_completed is distinct from true
+      or f.is_manager_referral_shadow or f.account_closed_at is not null
+      then raise exception 'forbidden'; end if;
+  end if;
+  select * into m from platform_members where id=p_member_id for update;
+  if not m.active or m.phone is distinct from source_phone
+    or m.fc_id is distinct from source_fc or m.staff_account_id is distinct from source_staff_id
+    or m.staff_account_kind is distinct from source_staff_kind then raise exception 'forbidden'; end if;
+  insert into platform_account_withdrawals(operation_id,member_id,session_digest,source_fc_id,preserved_company_role)
+    values(p_operation_id,m.id,p_session_digest,m.fc_id,m.staff_account_kind) returning * into w;
+  if f.id is not null then
+    perform set_config('moduon.withdrawal_operation_id',w.operation_id::text,true);
+    update fc_profiles set account_closed_at=clock_timestamp(),signup_completed=false where id=f.id;
+    perform set_config('moduon.withdrawal_operation_id','',true);
+    delete from fc_credentials where fc_id=f.id;
+    delete from fc_signup_completion_challenges where fc_id=f.id;
+  end if;
+  delete from platform_member_credentials where member_id=m.id;
+  delete from platform_signup_challenges where phone=m.phone or consumed_member_id=m.id;
+  update platform_members set active=false where id=m.id;
+  return to_jsonb(w);
+end $$;
+
+create function public.erase_platform_withdrawal_v1(
+  p_operation_id uuid,p_session_digest text,p_affiliate_state text,p_preserved_company_role text default null)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare w platform_account_withdrawals; receipt jsonb;
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_operation_id::text,741014));
+  select * into w from platform_account_withdrawals
+    where operation_id=p_operation_id and session_digest=p_session_digest;
+  if not found then raise exception 'forbidden'; end if;
+  if w.local_erased then return to_jsonb(w); end if;
+  if w.source_fc_id is not null then
+    if p_affiliate_state not in ('erased','company_account_preserved') or p_affiliate_state is null
+      or (p_affiliate_state='company_account_preserved' and
+        coalesce(p_preserved_company_role,'') not in ('admin','manager','designer','developer')) then raise exception 'affiliate_receipt_required'; end if;
+    perform from fc_profiles where id=w.source_fc_id for update;
+  elsif p_affiliate_state is distinct from 'not_applicable' then raise exception 'forbidden'; end if;
+  perform from platform_members where id=w.member_id for update;
+  if w.source_fc_id is not null then
+    perform set_config('moduon.fc_closure_id',w.source_fc_id::text,true);
+    receipt:=delete_account_core_transaction_v1('fc',w.source_fc_id);
+    perform set_config('moduon.fc_closure_id','',true);
+  end if;
+  -- Reuse the existing erase-only function. It does not call the core delete
+  -- transaction, so BEFORE DELETE projection triggers cannot recurse.
+  perform delete_platform_member(w.member_id);
+  update platform_account_withdrawals set local_erased=true,cleanup_receipt=receipt,
+    cleanup_outbox_id=(receipt->>'cleanup_outbox_id')::uuid,
+    preserved_company_role=coalesce(p_preserved_company_role,preserved_company_role)
+    where operation_id=w.operation_id returning * into w;
+  return to_jsonb(w);
+end $$;
+
+create function public.complete_platform_withdrawal_v1(p_operation_id uuid,p_session_digest text)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare w platform_account_withdrawals;
+begin
+  select * into w from platform_account_withdrawals
+    where operation_id=p_operation_id and session_digest=p_session_digest for update;
+  if not found or not w.local_erased then raise exception 'forbidden'; end if;
+  if w.cleanup_outbox_id is not null and not exists(select from account_deletion_cleanup_outbox
+    where id=w.cleanup_outbox_id and status='completed') then raise exception 'cleanup_pending'; end if;
+  if exists(select from platform_withdrawal_messenger_cleanup link
+    join messenger_attachment_cleanup_outbox q on q.id=link.cleanup_id
+    where link.operation_id=w.operation_id and q.status<>'completed') then raise exception 'cleanup_pending'; end if;
+  update platform_account_withdrawals set completed=true,cleanup_receipt=null,pending_reason=null,completed_at=coalesce(completed_at,clock_timestamp())
+    where operation_id=w.operation_id returning * into w;
+  return to_jsonb(w);
+end $$;
+
+revoke all on function public.get_platform_withdrawal_v1(uuid,text) from public,anon,authenticated;
+revoke all on function public.begin_platform_withdrawal_v1(uuid,uuid,text) from public,anon,authenticated;
+revoke all on function public.erase_platform_withdrawal_v1(uuid,text,text,text) from public,anon,authenticated;
+revoke all on function public.complete_platform_withdrawal_v1(uuid,text) from public,anon,authenticated;
+grant execute on function public.get_platform_withdrawal_v1(uuid,text) to service_role;
+grant execute on function public.begin_platform_withdrawal_v1(uuid,uuid,text) to service_role;
+grant execute on function public.erase_platform_withdrawal_v1(uuid,text,text,text) to service_role;
+grant execute on function public.complete_platform_withdrawal_v1(uuid,text) to service_role;
+
+create function public.get_platform_withdrawal_cleanup_v1(p_operation_id uuid,p_session_digest text)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+begin
+  if not exists(select from platform_account_withdrawals where operation_id=p_operation_id
+    and session_digest=p_session_digest) then raise exception 'forbidden'; end if;
+  return jsonb_build_object('batch_ids',coalesce((select jsonb_agg(batch_id) from(
+    select distinct q.batch_id from platform_withdrawal_messenger_cleanup link
+      join messenger_attachment_cleanup_outbox q on q.id=link.cleanup_id
+      where link.operation_id=p_operation_id and q.status<>'completed' and q.batch_id is not null
+      order by q.batch_id limit 25) batches),'[]'::jsonb),
+    'pending',exists(select from platform_withdrawal_messenger_cleanup link
+      join messenger_attachment_cleanup_outbox q on q.id=link.cleanup_id
+      where link.operation_id=p_operation_id and q.status<>'completed'));
+end $$;
+revoke all on function public.get_platform_withdrawal_cleanup_v1(uuid,text) from public,anon,authenticated;
+grant execute on function public.get_platform_withdrawal_cleanup_v1(uuid,text) to service_role;
+
+create function public.record_platform_withdrawal_retry_v1(p_operation_id uuid,p_session_digest text,p_reason text)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+begin
+  if coalesce(p_reason,'') not in ('affiliate_identity_unbound','affiliate_unavailable','cleanup_pending')
+    then raise exception 'invalid_input'; end if;
+  update platform_account_withdrawals set pending_reason=p_reason,attempt_count=least(attempt_count+1,1000000),
+    next_attempt_at=clock_timestamp()+make_interval(secs=>case when p_reason='affiliate_identity_unbound' then 300
+      else least(3600,(30*power(2,least(attempt_count,7)))::integer) end)
+    where operation_id=p_operation_id and session_digest=p_session_digest and not completed;
+  if not found then
+    if exists(select from platform_account_withdrawals where operation_id=p_operation_id
+      and session_digest=p_session_digest and completed) then
+      return jsonb_build_object('recorded',false,'completed',true);
+    end if;
+    raise exception 'forbidden';
+  end if;
+  return jsonb_build_object('recorded',true,'completed',false);
+end $$;
+create function public.list_due_platform_withdrawals_v1() returns jsonb
+language sql security invoker set search_path=public,pg_temp as $$
+  select coalesce(jsonb_agg(to_jsonb(w)),'[]'::jsonb) from(
+    select * from platform_account_withdrawals where not completed and next_attempt_at<=clock_timestamp()
+      order by next_attempt_at,created_at,operation_id limit 3) w;
+$$;
+revoke all on function public.record_platform_withdrawal_retry_v1(uuid,text,text) from public,anon,authenticated;
+revoke all on function public.list_due_platform_withdrawals_v1() from public,anon,authenticated;
+grant execute on function public.record_platform_withdrawal_retry_v1(uuid,text,text) to service_role;
+grant execute on function public.list_due_platform_withdrawals_v1() to service_role;
+
+-- 20261014084133_detach_retired_fc_allowance_identity
+-- Preserve reviewed allowance history when its live FC account is removed.
+alter table public.referral_allowance_imports
+  add column if not exists beneficiary_fc_id_snapshot uuid;
+alter table public.referral_allowance_imports
+  alter column beneficiary_fc_id drop not null;
+alter table public.referral_allowance_imports
+  drop constraint if exists referral_allowance_imports_beneficiary_fc_id_fkey;
+alter table public.referral_allowance_imports
+  add constraint referral_allowance_imports_beneficiary_fc_id_fkey
+  foreign key (beneficiary_fc_id) references public.fc_profiles(id) on delete set null;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.referral_allowance_imports'::regclass
+      and conname = 'referral_allowance_imports_beneficiary_identity'
+  ) then
+    alter table public.referral_allowance_imports
+      add constraint referral_allowance_imports_beneficiary_identity check (
+        (beneficiary_fc_id is not null and beneficiary_fc_id_snapshot is null)
+        or (beneficiary_fc_id is null and beneficiary_fc_id_snapshot is not null)
+      );
+  end if;
+end $$;
+
+-- Keep the existing live-account constraints/RPC conflict targets unchanged.
+-- The same source, revision and single-published-month rules also cover archives.
+create unique index if not exists referral_allowance_archive_source_unique
+  on public.referral_allowance_imports
+    (beneficiary_fc_id_snapshot, performance_month, source_sha256, policy_version, pilot_revision)
+  where beneficiary_fc_id is null;
+create unique index if not exists referral_allowance_archive_revision_unique
+  on public.referral_allowance_imports
+    (beneficiary_fc_id_snapshot, performance_month, revision)
+  where beneficiary_fc_id is null;
+create unique index if not exists referral_allowance_archive_published_month_unique
+  on public.referral_allowance_imports
+    (beneficiary_fc_id_snapshot, performance_month)
+  where beneficiary_fc_id is null and status = 'published';
+
+create or replace function public.guard_referral_allowance_import_immutability()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  -- Only the nested FK action after deletion of the referenced FC may detach
+  -- identity. Direct updates and forged nested updates with a live FC fail.
+  if pg_trigger_depth() > 1
+    and old.beneficiary_fc_id is not null
+    and new.beneficiary_fc_id is null
+    and old.beneficiary_fc_id_snapshot is null
+    and new.beneficiary_fc_id_snapshot is null
+    and not exists (
+      select 1 from public.fc_profiles where id = old.beneficiary_fc_id
+    ) then
+    if (to_jsonb(new) - array['beneficiary_fc_id','beneficiary_fc_id_snapshot'])
+      is distinct from
+      (to_jsonb(old) - array['beneficiary_fc_id','beneficiary_fc_id_snapshot']) then
+      raise exception using errcode = '23514', message = 'allowance_import_immutable';
+    end if;
+    new.beneficiary_fc_id_snapshot := old.beneficiary_fc_id;
+    return new;
+  end if;
+
+  if old.beneficiary_fc_id_snapshot is not null then
+    raise exception using errcode = '23514', message = 'archived_allowance_import_immutable';
+  end if;
+  if (to_jsonb(new) - array['status','published_by','published_at','superseded_at'])
+    is distinct from
+    (to_jsonb(old) - array['status','published_by','published_at','superseded_at']) then
+    raise exception using errcode = '23514', message = 'allowance_import_immutable';
+  end if;
+  if old.status = 'draft' and new.status = 'published' and new.superseded_at is null then return new; end if;
+  if old.status = 'published' and new.status = 'superseded'
+    and new.published_by is not distinct from old.published_by
+    and new.published_at is not distinct from old.published_at then return new; end if;
+  raise exception using errcode = '23514', message = 'invalid_allowance_transition';
+end;
+$$;
+
+-- 20261014120000_platform_staff_grant
+-- Partner-service staff rights attach to an existing common member. The
+-- operator grants them manually; the member keeps exactly one password, which
+-- moves to the staff account as the single credential authority (the same
+-- hand-off enroll_platform_insurance_v1 uses for FC registration).
+set local lock_timeout='3s';
+set local statement_timeout='30s';
+
+-- A staff row must never shadow a common member's phone. Otherwise the common
+-- password keeps winning at login and the staff session is unreachable.
+create or replace function public.guard_platform_staff_phone() returns trigger
+language plpgsql security definer set search_path=public,pg_temp as $$
+declare kind text:=case tg_table_name when 'admin_accounts' then 'admin' else 'manager' end;
+begin
+  if exists(select from platform_members m where m.active
+    and m.phone=regexp_replace(coalesce(new.phone,''),'[^0-9]','','g')
+    and (m.staff_account_kind is distinct from kind or m.staff_account_id is distinct from new.id)) then
+    raise exception 'platform_member_phone_requires_grant';
+  end if;
+  return new;
+end $$;
+revoke all on function public.guard_platform_staff_phone() from public,anon,authenticated;
+drop trigger if exists platform_admin_phone_guard on public.admin_accounts;
+create trigger platform_admin_phone_guard before insert on public.admin_accounts
+for each row execute function public.guard_platform_staff_phone();
+drop trigger if exists platform_admin_phone_change_guard on public.admin_accounts;
+create trigger platform_admin_phone_change_guard before update of phone on public.admin_accounts
+for each row when (old.phone is distinct from new.phone) execute function public.guard_platform_staff_phone();
+drop trigger if exists platform_manager_phone_guard on public.manager_accounts;
+create trigger platform_manager_phone_guard before insert on public.manager_accounts
+for each row execute function public.guard_platform_staff_phone();
+drop trigger if exists platform_manager_phone_change_guard on public.manager_accounts;
+create trigger platform_manager_phone_change_guard before update of phone on public.manager_accounts
+for each row when (old.phone is distinct from new.phone) execute function public.guard_platform_staff_phone();
+
+-- p_existing_account_id binds a pre-existing unbound staff row on the same
+-- phone instead of creating one; its old password is replaced by the common one.
+create or replace function public.grant_platform_staff_account_v1(
+  p_member_id uuid,p_account_kind text,p_staff_type text default 'admin',p_existing_account_id uuid default null
+) returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare m platform_members; c platform_member_credentials; account_id uuid; created boolean:=false; found_account boolean;
+begin
+  if p_member_id is null or p_account_kind is null or p_account_kind not in ('admin','manager')
+    or (p_account_kind='admin' and coalesce(p_staff_type,'') not in ('admin','developer')) then raise exception 'invalid_input'; end if;
+  select * into m from platform_members where id=p_member_id;
+  if not found or not m.active or m.phone is null then return jsonb_build_object('ok',false,'code','member_unavailable'); end if;
+  perform pg_advisory_xact_lock(hashtextextended(m.phone,741012));
+  select * into m from platform_members where id=p_member_id and active for update;
+  if not found then return jsonb_build_object('ok',false,'code','member_unavailable'); end if;
+  if m.staff_account_id is not null then
+    if m.staff_account_kind=p_account_kind and (p_existing_account_id is null or p_existing_account_id=m.staff_account_id) then
+      return jsonb_build_object('ok',true,'accountKind',m.staff_account_kind,'accountId',m.staff_account_id,'alreadyGranted',true); end if;
+    return jsonb_build_object('ok',false,'code','staff_already_bound');
+  end if;
+  -- An FC becoming staff is a separate, undecided policy.
+  if m.fc_id is not null or exists(select from fc_profiles where phone=m.phone and signup_completed)
+    then return jsonb_build_object('ok',false,'code','fc_member_not_supported'); end if;
+  if m.terms_accepted_at is null and m.terms_basis is distinct from 'company_attested_import'
+    then return jsonb_build_object('ok',false,'code','consent_required'); end if;
+  select * into c from platform_member_credentials where member_id=m.id for update;
+  if not found then return jsonb_build_object('ok',false,'code','credential_unavailable'); end if;
+  if exists(select from admin_accounts where regexp_replace(phone,'[^0-9]','','g')=m.phone
+      and (p_account_kind<>'admin' or id is distinct from p_existing_account_id))
+    or exists(select from manager_accounts where regexp_replace(phone,'[^0-9]','','g')=m.phone
+      and (p_account_kind<>'manager' or id is distinct from p_existing_account_id))
+  then return jsonb_build_object('ok',false,'code','staff_phone_conflict'); end if;
+  account_id:=coalesce(p_existing_account_id,gen_random_uuid());
+  -- Bind first so the phone guard admits exactly this staff row.
+  update platform_members set staff_account_kind=p_account_kind,staff_account_id=account_id where id=m.id;
+  if p_existing_account_id is not null then
+    if p_account_kind='admin' then
+      update admin_accounts set password_hash=c.password_hash,password_salt=c.password_salt,password_set_at=c.password_set_at,
+        failed_count=0,locked_until=null,reset_token_hash=null,reset_token_expires_at=null,reset_failed_count=0,updated_at=clock_timestamp()
+        where id=account_id and active and regexp_replace(phone,'[^0-9]','','g')=m.phone;
+    else
+      update manager_accounts set password_hash=c.password_hash,password_salt=c.password_salt,password_set_at=c.password_set_at,
+        failed_count=0,locked_until=null,reset_token_hash=null,reset_token_expires_at=null,reset_failed_count=0,updated_at=clock_timestamp()
+        where id=account_id and active and regexp_replace(phone,'[^0-9]','','g')=m.phone;
+    end if;
+    found_account:=found;
+    if not found_account then raise exception 'staff_account_unavailable'; end if;
+  elsif p_account_kind='admin' then
+    insert into admin_accounts(id,name,phone,staff_type,password_hash,password_salt,password_set_at,active)
+      values(account_id,m.name,m.phone,p_staff_type,c.password_hash,c.password_salt,c.password_set_at,true);
+    created:=true;
+  else
+    insert into manager_accounts(id,name,phone,password_hash,password_salt,password_set_at,active)
+      values(account_id,m.name,m.phone,c.password_hash,c.password_salt,c.password_set_at,true);
+    created:=true;
+  end if;
+  -- Earlier member-only tokens stop verifying; the next login yields the staff session.
+  delete from platform_member_credentials where member_id=m.id;
+  return jsonb_build_object('ok',true,'accountKind',p_account_kind,'accountId',account_id,'created',created,'alreadyGranted',false);
+end $$;
+revoke all on function public.grant_platform_staff_account_v1(uuid,text,text,uuid) from public,anon,authenticated;
+grant execute on function public.grant_platform_staff_account_v1(uuid,text,text,uuid) to service_role;
+
+-- 20261014130000_platform_service_referrals
+-- Referrers belong to each affiliate service, not to the common membership.
+-- A member keeps one Moduon account but holds at most one referrer and one
+-- shareable code per service. platform_members.referrer_id stays as history
+-- only; new applications snapshot the referrer of their own service.
+create table public.platform_service_referral_codes (
+  member_id uuid not null references public.platform_members(id) on delete restrict,
+  service_key text not null check (service_key in ('care','telecom','rental','car')),
+  -- The S prefix never occurs in hexadecimal common codes, so a service code
+  -- cannot be mistaken for a legacy common code.
+  code text not null unique check (code ~ '^S[0-9A-F]{11}$'),
+  created_at timestamptz not null default now(),
+  primary key(member_id,service_key)
+);
+create table public.platform_service_referrals (
+  member_id uuid not null references public.platform_members(id) on delete restrict,
+  service_key text not null check (service_key in ('care','telecom','rental','car')),
+  referrer_id uuid not null references public.platform_members(id) on delete restrict,
+  referral_code text not null check (length(referral_code) between 8 and 12),
+  source text not null check (source in ('invite_signup','invite_confirmed','manual')),
+  created_at timestamptz not null default now(),
+  primary key(member_id,service_key),
+  check (referrer_id<>member_id)
+);
+create index platform_service_referrals_referrer on public.platform_service_referrals(service_key,referrer_id);
+
+-- Care links shared before service codes existed carried the inviter's common
+-- code. Only the care service honors that legacy form.
+create or replace function public.resolve_platform_service_referrer_v1(p_service_key text,p_code text)
+returns uuid language plpgsql stable security invoker set search_path=public,pg_temp as $$
+declare normalized text:=upper(trim(coalesce(p_code,''))); inviter uuid;
+begin
+  if p_service_key is null or p_service_key not in ('care','telecom','rental','car')
+    or normalized !~ '^[A-Z0-9]{8,12}$' then return null; end if;
+  select m.id into inviter from platform_service_referral_codes c join platform_members m on m.id=c.member_id
+    where c.code=normalized and c.service_key=p_service_key and m.active
+      and (m.terms_accepted_at is not null or m.terms_basis='company_attested_import');
+  if inviter is null and p_service_key='care' then
+    select id into inviter from platform_members where referral_code=normalized and active
+      and (terms_accepted_at is not null or terms_basis='company_attested_import');
+  end if;
+  return inviter;
+end $$;
+
+create or replace function public.ensure_platform_service_referral_code_v1(p_member_id uuid,p_service_key text)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare m platform_members; issued text;
+begin
+  if p_service_key is null or p_service_key not in ('care','telecom','rental','car') then raise exception 'invalid_input'; end if;
+  select * into m from platform_members where id=p_member_id and active for update;
+  if not found then raise exception 'invalid_input'; end if;
+  if m.terms_accepted_at is null and m.terms_basis is distinct from 'company_attested_import' then raise exception 'consent_required'; end if;
+  select code into issued from platform_service_referral_codes where member_id=m.id and service_key=p_service_key;
+  -- The member row lock serializes issuance, so a conflict can only be a code collision.
+  while issued is null loop
+    begin
+      insert into platform_service_referral_codes(member_id,service_key,code)
+        values(m.id,p_service_key,'S'||upper(substr(replace(gen_random_uuid()::text,'-',''),1,11)))
+        returning code into issued;
+    exception when unique_violation then issued:=null;
+    end;
+  end loop;
+  return jsonb_build_object('ok',true,'serviceKey',p_service_key,'code',issued);
+end $$;
+
+create or replace function public.get_platform_service_referral_v1(p_member_id uuid,p_service_key text)
+returns jsonb language plpgsql stable security invoker set search_path=public,pg_temp as $$
+declare issued text; bound record;
+begin
+  if p_service_key is null or p_service_key not in ('care','telecom','rental','car') then raise exception 'invalid_input'; end if;
+  select code into issued from platform_service_referral_codes where member_id=p_member_id and service_key=p_service_key;
+  select r.source,r.created_at,m.name into bound
+    from platform_service_referrals r join platform_members m on m.id=r.referrer_id
+    where r.member_id=p_member_id and r.service_key=p_service_key;
+  return jsonb_build_object('ok',true,'serviceKey',p_service_key,'code',issued,
+    'referrer',case when bound.source is null then null
+      else jsonb_build_object('name',bound.name,'source',bound.source,'createdAt',bound.created_at) end);
+end $$;
+
+create or replace function public.preview_platform_service_referral_v1(p_member_id uuid,p_service_key text,p_code text)
+returns jsonb language plpgsql stable security invoker set search_path=public,pg_temp as $$
+declare inviter uuid;
+begin
+  inviter:=resolve_platform_service_referrer_v1(p_service_key,p_code);
+  if inviter is null or inviter=p_member_id then return jsonb_build_object('ok',false,'code','invalid_referral'); end if;
+  return jsonb_build_object('ok',true,'serviceKey',p_service_key,
+    'referrerName',(select name from platform_members where id=inviter));
+end $$;
+
+-- First binding wins. Members cannot replace a service referrer themselves;
+-- repeating the same referrer is an idempotent success.
+create or replace function public.bind_platform_service_referral_v1(p_member_id uuid,p_service_key text,p_code text,p_source text)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare m platform_members; inviter uuid; existing platform_service_referrals;
+begin
+  if p_service_key is null or p_service_key not in ('care','telecom','rental','car')
+    or p_source is null or p_source not in ('invite_signup','invite_confirmed','manual') then raise exception 'invalid_input'; end if;
+  select * into m from platform_members where id=p_member_id and active for update;
+  if not found then raise exception 'invalid_input'; end if;
+  if m.terms_accepted_at is null and m.terms_basis is distinct from 'company_attested_import' then raise exception 'consent_required'; end if;
+  inviter:=resolve_platform_service_referrer_v1(p_service_key,p_code);
+  if inviter is null or inviter=m.id then return jsonb_build_object('ok',false,'code','invalid_referral'); end if;
+  perform pg_advisory_xact_lock(hashtextextended('platform_service_referral:'||p_service_key,741014));
+  select * into existing from platform_service_referrals where member_id=m.id and service_key=p_service_key;
+  if found then
+    if existing.referrer_id=inviter then return jsonb_build_object('ok',true,'serviceKey',p_service_key,'alreadyBound',true); end if;
+    return jsonb_build_object('ok',false,'code','referral_already_bound');
+  end if;
+  if exists(with recursive chain(id,path) as (
+      select inviter,array[inviter]
+      union all select r.referrer_id,c.path||r.referrer_id from platform_service_referrals r join chain c
+        on r.member_id=c.id and r.service_key=p_service_key where not r.referrer_id=any(c.path)
+    ) select from chain where id=m.id) then return jsonb_build_object('ok',false,'code','invalid_referral'); end if;
+  insert into platform_service_referrals(member_id,service_key,referrer_id,referral_code,source)
+    values(m.id,p_service_key,inviter,upper(trim(p_code)),p_source);
+  return jsonb_build_object('ok',true,'serviceKey',p_service_key,'alreadyBound',false);
+end $$;
+
+-- Signup through a service invitation creates the account and its service
+-- referrer atomically. An unusable code rolls back the whole signup, after the
+-- OTP was verified, so codes cannot be probed without a valid challenge.
+create or replace function public.register_platform_member_v2(p_phone text,p_code_hash text,p_name text,
+  p_password_hash text,p_password_salt text,p_service_key text,p_service_referral_code text)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare registered jsonb; bound jsonb;
+begin
+  registered:=register_platform_member(p_phone,p_code_hash,p_name,p_password_hash,p_password_salt,null);
+  if registered->>'ok' is distinct from 'true' then return registered; end if;
+  bound:=bind_platform_service_referral_v1((registered->>'memberId')::uuid,p_service_key,p_service_referral_code,'invite_signup');
+  if bound->>'ok' is distinct from 'true' then raise exception 'invalid_referral'; end if;
+  return registered;
+end $$;
+
+create or replace function public.create_platform_application(p_member_id uuid,p_service_key text,p_details jsonb,p_idempotency_key uuid)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare a platform_service_applications; m platform_members;
+begin
+  select * into m from platform_members where id=p_member_id and active for update;
+  if not found then raise exception 'member_unavailable'; end if;
+  if p_service_key is null or p_service_key not in ('insurance','care','telecom','rental','car') or jsonb_typeof(p_details) is distinct from 'object'
+    or (p_details-'region'-'requestType')<>'{}'::jsonb
+    or jsonb_typeof(p_details->'region') is distinct from 'string' or jsonb_typeof(p_details->'requestType') is distinct from 'string'
+    or length(p_details->>'region') not between 1 and 50 or length(p_details->>'requestType') not between 1 and 100
+  then raise exception 'invalid_details'; end if;
+  insert into platform_service_applications(member_id,service_key,details,referrer_id_snapshot,idempotency_key)
+  values(m.id,p_service_key,p_details,(select referrer_id from platform_service_referrals
+    where member_id=m.id and service_key=p_service_key),p_idempotency_key) on conflict(member_id,idempotency_key) do nothing;
+  select * into a from platform_service_applications where member_id=m.id and idempotency_key=p_idempotency_key;
+  if a.service_key<>p_service_key or a.details<>p_details then raise exception 'idempotency_conflict'; end if;
+  return jsonb_build_object('ok',true,'applicationId',a.id,'status',a.status);
+end $$;
+
+do $$ declare t text; f record; begin
+  foreach t in array array['platform_service_referral_codes','platform_service_referrals'] loop
+    execute format('alter table public.%I enable row level security',t);
+    execute format('revoke all on public.%I from public,anon,authenticated',t);
+    execute format('grant select,insert,update,delete on public.%I to service_role',t);
+  end loop;
+  for f in select oid::regprocedure as signature from pg_proc where pronamespace='public'::regnamespace
+    and proname in ('resolve_platform_service_referrer_v1','ensure_platform_service_referral_code_v1',
+      'get_platform_service_referral_v1','preview_platform_service_referral_v1','bind_platform_service_referral_v1',
+      'register_platform_member_v2','create_platform_application') loop
+    execute format('revoke all on function %s from public,anon,authenticated',f.signature);
+    execute format('grant execute on function %s to service_role',f.signature);
+  end loop;
+end $$;
+
+-- 20261014140000_platform_withdrawal_drain_schedule
+-- Finish admitted common withdrawals without waiting for the member to reopen
+-- the app. The service-role key never enters source control: the operator
+-- stores it once in Vault as 'platform_withdrawal_drain_service_key'. Until
+-- then the job is a no-op. platform-service accepts the drain only with that
+-- exact key in both apikey and Authorization headers and processes at most
+-- three due jobs per call, each serialized by its own operation lock.
+set local lock_timeout='3s';
+set local statement_timeout='30s';
+create extension if not exists pg_net with schema extensions;
+create extension if not exists pg_cron with schema pg_catalog;
+
+create or replace function public.request_platform_withdrawal_drain_v1()
+returns bigint language plpgsql security definer set search_path=pg_catalog,public as $$
+declare service_key text;
+begin
+  select decrypted_secret into service_key from vault.decrypted_secrets
+    where name='platform_withdrawal_drain_service_key' limit 1;
+  if coalesce(service_key,'')='' then return null; end if;
+  -- Skip the call when nothing is due; the Edge drain re-checks under locks.
+  if not exists(select from platform_account_withdrawals where not completed and next_attempt_at<=clock_timestamp()) then
+    return null;
+  end if;
+  return net.http_post(
+    url:='https://ubeginyxaotcamuqpmud.supabase.co/functions/v1/platform-service',
+    headers:=jsonb_build_object('Content-Type','application/json','apikey',service_key,'Authorization','Bearer '||service_key),
+    body:=jsonb_build_object('action','withdrawal_cleanup_drain'),
+    timeout_milliseconds:=60000);
+end $$;
+revoke all on function public.request_platform_withdrawal_drain_v1() from public,anon,authenticated,service_role;
+
+select cron.unschedule(jobid) from cron.job where jobname='platform-withdrawal-cleanup-drain';
+select cron.schedule('platform-withdrawal-cleanup-drain','*/5 * * * *',
+  'select public.request_platform_withdrawal_drain_v1()');
+
+-- 20261015030000_link_restored_fc_common_members
+-- One-time repair after the 2026-10-14 FC roster restore. Restored completed
+-- FC profiles kept their backup credentials while the owner had meanwhile
+-- signed up to the common account on the same phone; the restore protected
+-- common rows, so the two stayed unlinked and insurance enrollment refuses
+-- the phone. Link each pair and keep the member's common password (user
+-- decision 2026-10-15) as the single credential, matching enrollment.
+set local lock_timeout='3s';
+set local statement_timeout='60s';
+
+do $$
+declare
+  pair record;
+  c platform_member_credentials;
+begin
+  for pair in
+    select m.id as member_id, m.phone, f.id as fc_id
+    from platform_members m
+    join fc_profiles f on f.phone=m.phone and f.signup_completed
+      and not coalesce(f.is_manager_referral_shadow,false) and f.account_closed_at is null
+    where m.active and m.fc_id is null and m.staff_account_id is null
+      and not exists(select from platform_members linked where linked.fc_id=f.id)
+    order by m.id
+  loop
+    -- Same per-phone lock order as signup, enrollment and withdrawal.
+    perform pg_advisory_xact_lock(hashtextextended(pair.phone,741012));
+    perform pg_advisory_xact_lock(hashtextextended(pair.phone,8102026));
+    perform from fc_profiles where id=pair.fc_id for update;
+    select * into c from platform_member_credentials where member_id=pair.member_id for update;
+    if found then
+      insert into fc_credentials(fc_id,password_hash,password_salt,password_set_at)
+        values(pair.fc_id,c.password_hash,c.password_salt,c.password_set_at)
+      on conflict(fc_id) do update set password_hash=excluded.password_hash,password_salt=excluded.password_salt,
+        password_set_at=excluded.password_set_at,failed_count=0,locked_until=null,must_change_password=false,
+        temporary_password_issued_at=null,reset_token_hash=null,reset_token_expires_at=null,reset_failed_count=0,
+        updated_at=clock_timestamp();
+    end if;
+    update platform_members m set fc_id=pair.fc_id,
+      insurance_consent_version=coalesce(m.insurance_consent_version,'insurance-additional-info-v1'),
+      insurance_consent_source=coalesce(m.insurance_consent_source,'company_attested_import'),
+      insurance_consent_recorded_at=coalesce(m.insurance_consent_recorded_at,cohort.recorded_at)
+    from platform_legacy_membership_cohort cohort
+    where m.id=pair.member_id and cohort.account_kind='fc' and cohort.account_id=pair.fc_id;
+    -- Restored FCs outside the frozen company cohort link without inventing consent.
+    update platform_members set fc_id=pair.fc_id where id=pair.member_id and fc_id is null;
+    delete from platform_member_credentials where member_id=pair.member_id;
+  end loop;
+end $$;
+
 -- 모두온 signup: confirm the SMS code on its own step before the password questions.
 -- Same locks, expiry, lock-out and attempt counting as register_platform_member; the
 -- challenge is not consumed, so the final signup still verifies the same code.
@@ -18311,3 +20636,160 @@ begin
 end $$;
 revoke all on function public.check_platform_signup_otp(text,text) from public,anon,authenticated;
 grant execute on function public.check_platform_signup_otp(text,text) to service_role;
+
+-- A member may leave one service. Leaving 가람in (insurance) erases only what
+-- 가람in collected plus the FC/가람링크 account; the 모두온 account, its login,
+-- other service applications and service referrers stay. Leaving 모두온 still
+-- removes every service. Settled business history keeps its anonymized UUIDs.
+set local lock_timeout='3s';
+set local statement_timeout='30s';
+
+alter table public.platform_account_withdrawals
+  add column scope text not null default 'all_affiliates' check (scope in ('all_affiliates','insurance'));
+-- One 모두온 withdrawal per member; a member may leave 가람in again after re-registering.
+alter table public.platform_account_withdrawals drop constraint platform_account_withdrawals_member_id_key;
+create unique index platform_withdrawals_member_all on public.platform_account_withdrawals(member_id)
+  where scope='all_affiliates';
+create unique index platform_withdrawals_member_insurance_open on public.platform_account_withdrawals(member_id)
+  where scope='insurance' and not completed;
+
+-- Unlink 가람in from the common member. Enrollment moved the common password into
+-- fc_credentials, so move a usable one back before the FC credential is removed.
+create function public.detach_platform_member_insurance_v1(p_member_id uuid,p_fc_id uuid)
+returns void language plpgsql security invoker set search_path=public,pg_temp as $$
+begin
+  insert into platform_member_credentials(member_id,password_hash,password_salt,session_version,failed_count,
+    locked_until,password_set_at,updated_at)
+    select p_member_id,c.password_hash,c.password_salt,coalesce(c.session_version,0)+1,0,null,c.password_set_at,clock_timestamp()
+      from fc_credentials c where c.fc_id=p_fc_id and c.password_set_at is not null
+        and c.password_hash is not null and c.password_salt is not null and not coalesce(c.must_change_password,false)
+    on conflict(member_id) do nothing;
+  update platform_members set fc_id=null,insurance_consent_version=null,insurance_consent_source=null,
+    insurance_consent_recorded_at=null,insurance_enrollment_key=null,insurance_enrollment_fingerprint=null,
+    insurance_enrollment_member_version=null,insurance_enrollment_fc_version=null
+    where id=p_member_id and fc_id=p_fc_id;
+end $$;
+revoke all on function public.detach_platform_member_insurance_v1(uuid,uuid) from public,anon,authenticated;
+grant execute on function public.detach_platform_member_insurance_v1(uuid,uuid) to service_role;
+
+create function public.begin_platform_insurance_withdrawal_v1(
+  p_member_id uuid,p_operation_id uuid,p_session_digest text)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare m platform_members; f fc_profiles; w platform_account_withdrawals; source_phone text; source_fc uuid;
+begin
+  if p_operation_id is null or p_member_id is null or p_session_digest is null
+    or p_session_digest !~ '^[0-9a-f]{64}$' then raise exception 'invalid_input'; end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_operation_id::text,741014));
+  select * into w from platform_account_withdrawals where operation_id=p_operation_id;
+  if found then
+    if w.member_id<>p_member_id or w.session_digest<>p_session_digest or w.scope<>'insurance' then raise exception 'forbidden'; end if;
+    return to_jsonb(w);
+  end if;
+  select * into m from platform_members where id=p_member_id;
+  if not found or not m.active or m.phone is null then raise exception 'member_unavailable'; end if;
+  if m.fc_id is null or m.staff_account_id is not null then raise exception 'forbidden'; end if;
+  source_phone:=m.phone; source_fc:=m.fc_id;
+  -- Same lock order as insurance enrollment: phone domains, FC profile, member.
+  perform pg_advisory_xact_lock(hashtextextended(source_phone,741012));
+  perform pg_advisory_xact_lock(hashtextextended(source_phone,8102026));
+  select * into f from fc_profiles where id=source_fc for update;
+  if not found or f.phone<>source_phone or f.signup_completed is distinct from true
+    or f.is_manager_referral_shadow or f.account_closed_at is not null then raise exception 'forbidden'; end if;
+  select * into m from platform_members where id=p_member_id for update;
+  if not m.active or m.phone is distinct from source_phone or m.fc_id is distinct from source_fc
+    or m.staff_account_id is not null then raise exception 'forbidden'; end if;
+  insert into platform_account_withdrawals(operation_id,member_id,session_digest,source_fc_id,scope)
+    values(p_operation_id,m.id,p_session_digest,f.id,'insurance') returning * into w;
+  perform set_config('moduon.withdrawal_operation_id',w.operation_id::text,true);
+  update fc_profiles set account_closed_at=clock_timestamp(),signup_completed=false where id=f.id;
+  perform set_config('moduon.withdrawal_operation_id','',true);
+  perform detach_platform_member_insurance_v1(m.id,f.id);
+  delete from fc_credentials where fc_id=f.id;
+  delete from fc_signup_completion_challenges where fc_id=f.id;
+  return to_jsonb(w);
+end $$;
+revoke all on function public.begin_platform_insurance_withdrawal_v1(uuid,uuid,text) from public,anon,authenticated;
+grant execute on function public.begin_platform_insurance_withdrawal_v1(uuid,uuid,text) to service_role;
+
+-- The erase step closes the FC account for both scopes; only a 모두온 withdrawal
+-- erases the common member.
+create or replace function public.erase_platform_withdrawal_v1(
+  p_operation_id uuid,p_session_digest text,p_affiliate_state text,p_preserved_company_role text default null)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare w platform_account_withdrawals; receipt jsonb;
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_operation_id::text,741014));
+  select * into w from platform_account_withdrawals
+    where operation_id=p_operation_id and session_digest=p_session_digest;
+  if not found then raise exception 'forbidden'; end if;
+  if w.local_erased then return to_jsonb(w); end if;
+  if w.source_fc_id is not null then
+    if p_affiliate_state not in ('erased','company_account_preserved') or p_affiliate_state is null
+      or (p_affiliate_state='company_account_preserved' and
+        coalesce(p_preserved_company_role,'') not in ('admin','manager','designer','developer')) then raise exception 'affiliate_receipt_required'; end if;
+    perform from fc_profiles where id=w.source_fc_id for update;
+  elsif p_affiliate_state is distinct from 'not_applicable' then raise exception 'forbidden'; end if;
+  perform from platform_members where id=w.member_id for update;
+  if w.source_fc_id is not null then
+    perform set_config('moduon.fc_closure_id',w.source_fc_id::text,true);
+    receipt:=delete_account_core_transaction_v1('fc',w.source_fc_id);
+    perform set_config('moduon.fc_closure_id','',true);
+  end if;
+  -- Reuse the existing erase-only function. It does not call the core delete
+  -- transaction, so BEFORE DELETE projection triggers cannot recurse.
+  if w.scope='all_affiliates' then perform delete_platform_member(w.member_id); end if;
+  update platform_account_withdrawals set local_erased=true,cleanup_receipt=receipt,
+    cleanup_outbox_id=(receipt->>'cleanup_outbox_id')::uuid,
+    preserved_company_role=coalesce(p_preserved_company_role,preserved_company_role)
+    where operation_id=w.operation_id returning * into w;
+  return to_jsonb(w);
+end $$;
+
+-- 모두온 withdrawal removes every service: applications without a settlement are
+-- deleted; settled ones keep only their anonymized UUID for settlement checks.
+create or replace function public.delete_platform_member(p_member_id uuid)
+returns jsonb language plpgsql security invoker set search_path=public,pg_temp as $$
+declare m platform_members;
+begin
+  select * into m from platform_members where id=p_member_id for update;
+  if not found then raise exception 'member_unavailable'; end if;
+  delete from platform_member_credentials where member_id=m.id;
+  delete from platform_signup_challenges where phone=m.phone or consumed_member_id=m.id;
+  delete from platform_service_applications a where a.member_id=m.id
+    and not exists(select from platform_partner_settlements s where s.application_id=a.id);
+  update platform_service_applications set details='{"region":"삭제","requestType":"삭제"}'::jsonb,
+    status=case when status='interest' then 'cancelled' else status end where member_id=m.id;
+  -- Erase live source bindings and direct identifying fields. Restricted source
+  -- tombstones/cohort associations remain solely as no-auto-import/audit evidence.
+  update platform_members set phone=null,name='탈퇴 회원',active=false,fc_id=null,
+    staff_account_kind=null,staff_account_id=null,terms_accepted_at=null,terms_version=null,
+    terms_basis=null,terms_recorded_at=null,insurance_consent_version=null,
+    insurance_consent_source=null,insurance_consent_recorded_at=null,
+    insurance_enrollment_key=null,insurance_enrollment_fingerprint=null,
+    insurance_enrollment_member_version=null,insurance_enrollment_fc_version=null,
+    withdrawal_source_kind=coalesce(withdrawal_source_kind,case when m.fc_id is not null then 'fc'
+      when m.staff_account_id is not null then m.staff_account_kind else 'member' end),
+    withdrawal_source_id=coalesce(withdrawal_source_id,m.fc_id,m.staff_account_id,m.id)
+    where id=m.id;
+  return jsonb_build_object('ok',true,'deleted',true);
+end $$;
+
+-- Deleting only the insurance account (FC hard delete) detaches it from the
+-- common member instead of withdrawing the whole 모두온 account. Company staff
+-- account deletion keeps its existing full erase.
+create or replace function public.erase_platform_fc_identity() returns trigger
+language plpgsql security definer set search_path=public,pg_temp as $$
+declare mapped uuid;
+begin
+  if tg_table_name='fc_profiles' then
+    select id into mapped from platform_members where fc_id=old.id for update;
+    if mapped is not null then perform detach_platform_member_insurance_v1(mapped,old.id); end if;
+  else
+    select id into mapped from platform_members where
+      staff_account_kind=case tg_table_name when 'admin_accounts' then 'admin' when 'manager_accounts' then 'manager' end
+      and staff_account_id=old.id for update;
+    if mapped is not null then perform delete_platform_member(mapped); end if;
+    delete from platform_signup_challenges where phone=old.phone;
+  end if;
+  return old;
+end $$;

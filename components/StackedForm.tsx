@@ -12,6 +12,7 @@ import Animated, {
   SlideOutDown,
 } from 'react-native-reanimated';
 
+import { Button } from '@/components/Button';
 import { KeyboardSafeBottomBar } from '@/components/KeyboardSafeBottomBar';
 import { SIGNUP_MOTION } from '@/lib/signup-steps';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
@@ -99,7 +100,8 @@ export function StackDockedNext({ label = '다음', disabled = false, onPress }:
   return (
     <KeyboardSafeBottomBar>
       <Animated.View entering={FadeIn.duration(SIGNUP_MOTION.nextBar)} style={styles.docked}>
-        <StackButton label={label} disabled={disabled} onPress={onPress} />
+        {/* Pressed while the keyboard is open: fire on press-in so the first tap is not spent closing it. */}
+        <StackButton label={label} disabled={disabled} onPress={onPress} submitOnPressIn />
       </Animated.View>
     </KeyboardSafeBottomBar>
   );
@@ -116,17 +118,16 @@ export function StackSubmit({ label, disabled = false, onPress }: { label: strin
   );
 }
 
-export function StackButton({ label, disabled = false, onPress }: { label: string; disabled?: boolean; onPress: () => void }) {
+export function StackButton({ label, disabled = false, onPress, submitOnPressIn = false }: {
+  label: string;
+  disabled?: boolean;
+  onPress: () => void;
+  submitOnPressIn?: boolean;
+}) {
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [styles.button, disabled && styles.buttonDisabled, pressed && styles.pressed]}
-    >
-      <Text style={styles.buttonText}>{label}</Text>
-    </Pressable>
+    <Button onPress={onPress} disabled={disabled} submitOnPressIn={submitOnPressIn} size="lg" fullWidth style={styles.button}>
+      {label}
+    </Button>
   );
 }
 
@@ -141,6 +142,8 @@ export function StackSheet({ contentKey, title, onClose, children, footer }: {
   children: ReactNode;
   footer?: ReactNode;
 }) {
+  // The sheet sits on the screen edge, so it adds the navigation bar height itself.
+  const insets = useSafeAreaInsets();
   if (!contentKey) return null;
   return (
     <>
@@ -151,7 +154,7 @@ export function StackSheet({ contentKey, title, onClose, children, footer }: {
         entering={SlideInDown.duration(SIGNUP_MOTION.sheet).easing(MOTION_EASING)}
         exiting={SlideOutDown.duration(SIGNUP_MOTION.sheet)}
         layout={SHEET_LAYOUT}
-        style={styles.sheet}
+        style={[styles.sheet, { paddingBottom: SPACING.xl + insets.bottom }]}
       >
         <Animated.View key={contentKey} entering={FadeIn.duration(SIGNUP_MOTION.sheetSwap)} exiting={FadeOut.duration(SIGNUP_MOTION.sheetSwap / 2)}>
           <View style={styles.sheetHeader}>
@@ -203,16 +206,7 @@ const styles = StyleSheet.create({
   selectValue: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, minHeight: 44, paddingVertical: 8 },
   docked: { paddingHorizontal: SPACING.lg, paddingTop: SPACING.sm, paddingBottom: SPACING.sm, backgroundColor: COLORS.white },
   submitWrap: { paddingHorizontal: SPACING.lg, paddingTop: SPACING.sm },
-  button: {
-    height: 54,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.primaryDark,
-  },
-  buttonDisabled: { backgroundColor: COLORS.primaryLight, opacity: 0.45 },
-  buttonText: { color: COLORS.white, fontWeight: TYPOGRAPHY.fontWeight.bold, fontSize: TYPOGRAPHY.fontSize.lg },
-  pressed: { opacity: 0.85 },
+  button: { minHeight: 54, borderRadius: 14 },
   dim: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(0, 0, 0, 0.4)' },
   sheet: {
     position: 'absolute',
@@ -222,7 +216,6 @@ const styles = StyleSheet.create({
     maxHeight: '78%',
     paddingHorizontal: SPACING.lg,
     paddingTop: SPACING.lg,
-    paddingBottom: SPACING.xl,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     backgroundColor: COLORS.white,

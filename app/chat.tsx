@@ -1,6 +1,5 @@
 import { Feather } from '@expo/vector-icons';
 import { randomUUID } from 'expo-crypto';
-import * as DocumentPicker from 'expo-document-picker';
 import { Image } from 'expo-image';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -22,21 +21,26 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import MessengerImageAttachment from '@/components/MessengerImageAttachment';
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { KeyboardSafeBottomBar } from '@/components/KeyboardSafeBottomBar';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { MessageUnreadReceiptBadge } from '@/components/MessageUnreadReceiptBadge';
 import {
   MessageSelectCopySheet,
+  MESSENGER_MESSAGE_LONG_PRESS_MS,
   MessengerMessageActionSheet,
 } from '@/components/MessengerMessageActionSheet';
 import { useKeyboardVisible } from '@/hooks/use-keyboard-padding';
+import { useLatestMessageJump } from '@/hooks/use-latest-message-jump';
 import { getChatComposerBottomPadding } from '@/lib/chat-keyboard-layout';
 import { useSession } from '@/hooks/use-session';
 import { createReadScope } from '@/lib/request-board-read-state';
 import { useReadAttempt } from '@/lib/use-read-attempt';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { ConversationSettingsSheet } from '@/components/messenger/ConversationSettingsSheet';
+import { JumpToLatestButton } from '@/components/messenger/JumpToLatestButton';
+import { MessengerDayDivider } from '@/components/messenger/MessengerDayDivider';
 import { goBackOrReplace } from '@/lib/back-navigation';
 import {
   deleteGaraminDirectMessage,
@@ -68,6 +72,7 @@ import {
 import {
   buildMessengerRoomRef,
   getNotificationPreferences,
+  resolveMessengerRoomMuted,
   setRoomMuted,
 } from '@/lib/notification-preferences-api';
 import { getDirectMessageUnreadCount } from '@/lib/message-read-receipts';
@@ -76,12 +81,12 @@ import {
   openMessengerAttachment,
 } from '@/lib/messenger-attachment-actions';
 import {
-  appendMessengerAttachmentCandidates,
+  classifyMessengerSendFailure,
   formatMessengerAttachmentSize,
   isPreparedMessengerAttachmentBatchForDraft,
-  MESSENGER_ATTACHMENT_MIME_BY_EXTENSION,
   prepareMessengerAttachmentBatch,
   removeSelectedMessengerAttachment,
+  toMessengerFunctionError,
   uploadMessengerAttachmentBatch,
   type MessengerAttachmentMetadata,
   type PreparedMessengerAttachmentBatch,
@@ -92,6 +97,8 @@ import {
   sortConversationsByLastMessageTime,
 } from '@/lib/messenger-room-ordering';
 import { formatOperationsMessengerName } from '@/lib/messenger-hub-model';
+import { formatMessengerTime, startsMessengerDay } from '@/lib/messenger-time';
+import { pickMessengerFiles, pickMessengerPhotos } from '@/lib/messenger-attachment-picker';
 import {
   aggregatePresence,
   formatPresenceLabel,
@@ -127,7 +134,7 @@ const ANCHOR_SCROLL_RETRY_LIMIT = 3;
 const ANCHOR_CONTEXT_UNAVAILABLE_MESSAGE =
   '요청한 메시지를 열 수 없습니다. 현재 대화에서 다시 확인해 주세요.';
 const FILE_CARD_WIDTH = Math.min(SCREEN_WIDTH * 0.64, 260);
-const LEGACY_SESSION_ERROR = '세션이 오래되었습니다. 로그아웃 후 다시 로그인해주세요.';
+const LEGACY_SESSION_ERROR = '로그인이 만료되었습니다. 로그아웃 후 다시 로그인해 주세요.';
 const HEADER_AVATAR_COLORS = [
   '#3B82F6',
   '#10B981',
@@ -277,6 +284,8 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
   }
   return true;
 };
+
+const DIRECT_MESSAGE_REFRESH_MS = 5000;
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -762,10 +771,13 @@ export default function ChatScreen() {
     hasAmbiguousConversationParams,
   ]);
 
-  const fetchMessages = useCallback(async () => {
+  const fetchMessages = useCallback(async (options?: { silent?: boolean }) => {
     if (!myId || !otherId || !resolvedConversation?.id) return;
-    setMessageLoadState('loading');
-    setMessageLoadError('');
+    const silent = options?.silent === true;
+    if (!silent) {
+      setMessageLoadState('loading');
+      setMessageLoadError('');
+    }
     try {
       const prefetched = directMessagePrefetchRef.current;
       let result: Awaited<ReturnType<typeof fetchGaraminDirectMessages>>;
@@ -782,9 +794,14 @@ export default function ChatScreen() {
       if (result.conversation.counterpartyId !== otherId) {
         throw new Error('대화 상대가 일치하지 않습니다.');
       }
-      const filtered = result.messages.filter(
-        (message) => !deletedIdsRef.current.has(message.id),
-      );
+      // Keep messages still being sent; a background refresh must not drop them.
+      const pendingLocal = silent
+        ? messagesRef.current.filter((message) => message.id.startsWith('local-'))
+        : [];
+      const filtered = [
+        ...pendingLocal,
+        ...result.messages.filter((message) => !deletedIdsRef.current.has(message.id)),
+      ];
       applyMessages([...filtered, ...contextMessagesRef.current]);
 
       const hasUnreadIncoming = filtered.some(
@@ -801,7 +818,10 @@ export default function ChatScreen() {
       logger.debug('[messages] fetch error', {
         error: error instanceof Error ? error.message : String(error),
         conversationId: resolvedConversation.id,
+        silent,
       });
+      // A failed background refresh keeps the conversation already on screen.
+      if (silent) return;
       setMessageLoadState('error');
       setMessageLoadError('대화 내용을 불러오지 못했습니다.');
     }
@@ -1093,7 +1113,21 @@ export default function ChatScreen() {
   useFocusEffect(useCallback(() => {
     if (!myId || !otherId || !resolvedConversation?.id) return undefined;
 
+    let active = true;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    // Direct messages have no realtime feed. Refresh quietly while the room is open, scheduling the
+    // next request only after the previous one settles so slow responses never overlap.
+    const scheduleRefresh = () => {
+      refreshTimer = setTimeout(() => {
+        void (async () => {
+          if (AppState.currentState === 'active') await fetchMessages({ silent: true });
+          if (active) scheduleRefresh();
+        })();
+      }, DIRECT_MESSAGE_REFRESH_MS);
+    };
+
     void fetchMessages();
+    scheduleRefresh();
     const appStateSub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
         void fetchMessages();
@@ -1101,6 +1135,8 @@ export default function ChatScreen() {
     });
 
     return () => {
+      active = false;
+      if (refreshTimer) clearTimeout(refreshTimer);
       appStateSub.remove();
     };
   }, [
@@ -1319,13 +1355,26 @@ export default function ChatScreen() {
     > => {
       try {
         return await commitMessage();
-      } catch (error) {
+      } catch (rawError) {
         if (!isCurrentSend()) return null;
+        // fc-notify errors carry the HTTP response in `context`; read its code and status.
+        const error = rawError && typeof rawError === 'object' && 'context' in rawError
+          ? await toMessengerFunctionError(rawError, null, '메시지를 보내지 못했습니다. 다시 시도해 주세요.')
+          : rawError;
+        if (!isCurrentSend()) return null;
+        const failure = classifyMessengerSendFailure(error);
         logger.warn('sendMessage error', {
-          error: error instanceof Error ? error.message : String(error),
+          code: failure.code,
+          status: failure.status,
+          uncertain: failure.uncertain,
           conversationId: resolvedConversation.id,
           clientMessageId,
         });
+        if (!failure.uncertain) {
+          // A definite refusal: re-sending the same request would be refused again.
+          Alert.alert(attachmentBatch ? '파일 전송 실패' : '전송 실패', failure.message);
+          return null;
+        }
         return new Promise((resolve) => {
           Alert.alert(
             '전송 확인 필요',
@@ -1496,39 +1545,20 @@ export default function ChatScreen() {
       });
   };
 
-  const handleAttachment = async () => {
+  const pickAttachments = async (
+    pick: typeof pickMessengerFiles,
+  ) => {
     if (pickingRef.current || sendingAttachments) return;
     pickingRef.current = true;
     try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: Array.from(
-          new Set(Object.values(MESSENGER_ATTACHMENT_MIME_BY_EXTENSION)),
-        ),
-        copyToCacheDirectory: true,
-        multiple: true,
-        base64: false,
-      });
-      if (result.canceled) return;
-      const next = await appendMessengerAttachmentCandidates(
-        selectedAttachments,
-        result.assets.map((asset) => ({
-          uri: asset.uri,
-          name: asset.name,
-          size: asset.size,
-          mimeType: asset.mimeType,
-          webFile: asset.file,
-        })),
-      );
-      setSelectedAttachments(next);
-    } catch (error) {
-      Alert.alert(
-        '파일 선택 실패',
-        error instanceof Error ? error.message : '파일을 선택하지 못했습니다.',
-      );
+      const next = await pick(selectedAttachments);
+      if (next) setSelectedAttachments(next);
     } finally {
       pickingRef.current = false;
     }
   };
+  const handleAttachment = () => void pickAttachments(pickMessengerFiles);
+  const handleImageAttachment = () => void pickAttachments(pickMessengerPhotos);
 
   const handleDeleteMessage = (message: Message) => {
     if (
@@ -1597,11 +1627,6 @@ export default function ChatScreen() {
     if (message) handleDeleteMessage(message);
   };
 
-  const formatTime = (iso: string) => {
-    const d = new Date(iso);
-    return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-  };
-
   const openFcChatTarget = (target: FcChatTarget) => {
     router.push({
       pathname: '/chat',
@@ -1630,24 +1655,27 @@ export default function ChatScreen() {
               style={[
                 styles.msgText,
                 isMe ? styles.msgTextMe : styles.msgTextOther,
-                { textAlign: 'left', width: '100%' },
+                { textAlign: 'left' },
               ]}
               linkStyle={styles.msgLinkText}
               linkPressBehavior="open"
             />
           ) : null}
-          {item.attachments.map((attachment) => (
+          {item.attachments.map((attachment) => {
+            const open = () => {
+              void openAuthorizedMessengerAttachment(attachment.id, { logScope: 'chat' });
+            };
+            const card = (
             <TouchableOpacity
               key={attachment.id}
+              accessibilityRole="button"
               style={[
                 styles.fileCard,
                 isMe ? styles.fileCardMe : styles.fileCardOther,
               ]}
-              onPress={() => {
-                void openAuthorizedMessengerAttachment(attachment.id, {
-                  logScope: 'chat',
-                });
-              }}
+              onPress={open}
+              onLongPress={() => openMessageActions(item)}
+              delayLongPress={MESSENGER_MESSAGE_LONG_PRESS_MS}
               activeOpacity={0.82}
             >
               <View style={[
@@ -1689,7 +1717,11 @@ export default function ChatScreen() {
                 color={isMe ? 'rgba(255,255,255,0.82)' : '#9CA3AF'}
               />
             </TouchableOpacity>
-          ))}
+            );
+            return attachment.mimeType.startsWith('image/')
+              ? <MessengerImageAttachment key={attachment.id} attachment={attachment} fallback={card} onLongPress={() => openMessageActions(item)} delayLongPress={MESSENGER_MESSAGE_LONG_PRESS_MS} />
+              : card;
+          })}
         </View>
       );
     }
@@ -1697,6 +1729,8 @@ export default function ChatScreen() {
     if (item.message_type === 'image' && item.file_url) {
       return (
         <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="사진 크게 보기"
           onPress={() => {
             void openMessengerAttachment(item.file_url, { logScope: 'chat' });
           }}
@@ -1711,6 +1745,7 @@ export default function ChatScreen() {
       const fileName = safeDecodeFileName(item.file_name) || '파일';
       return (
         <TouchableOpacity
+          accessibilityRole="button"
           style={[styles.fileCard, isMe ? styles.fileCardMe : styles.fileCardOther]}
           onPress={() => {
             void openMessengerAttachment(item.file_url, { logScope: 'chat' });
@@ -1747,7 +1782,7 @@ export default function ChatScreen() {
         style={[
           styles.msgText,
           isMe ? styles.msgTextMe : styles.msgTextOther,
-          { textAlign: 'left', width: '100%' },
+          { textAlign: 'left' },
         ]}
         linkStyle={styles.msgLinkText}
         linkPressBehavior="open"
@@ -1755,7 +1790,7 @@ export default function ChatScreen() {
     );
   };
 
-  const renderItem = ({ item }: { item: Message }) => {
+  const renderItem = ({ item, index }: { item: Message; index: number }) => {
     const isMe = item.sender_id === myId;
     const isHighlighted = highlightedMessageId === item.id;
     const unreadReceiptCount = getDirectMessageUnreadCount({
@@ -1765,11 +1800,15 @@ export default function ChatScreen() {
     const messageMeta = (
       <View style={[styles.messageSideMeta, isMe ? styles.messageSideMetaMe : styles.messageSideMetaOther]}>
         <MessageUnreadReceiptBadge count={unreadReceiptCount} />
-        <Text style={styles.timeText}>{formatTime(item.created_at)}</Text>
+        <Text style={styles.timeText}>{formatMessengerTime(item.created_at)}</Text>
       </View>
     );
 
     return (
+      <>
+      {startsMessengerDay(messages, index, (message) => message.created_at) ? (
+        <MessengerDayDivider createdAt={item.created_at} />
+      ) : null}
       <View
         style={[
           styles.msgRow,
@@ -1794,7 +1833,7 @@ export default function ChatScreen() {
             {isMe && messageMeta}
             <Pressable
               onLongPress={() => openMessageActions(item)}
-              delayLongPress={500}
+              delayLongPress={MESSENGER_MESSAGE_LONG_PRESS_MS}
               style={({ pressed }) => [
                 styles.bubbleWrapper,
                 isMe ? styles.bubbleWrapperMe : styles.bubbleWrapperOther,
@@ -1821,6 +1860,7 @@ export default function ChatScreen() {
           </View>
         </View>
       </View>
+      </>
     );
   };
 
@@ -1830,6 +1870,7 @@ export default function ChatScreen() {
 
     return (
       <Pressable
+        accessibilityRole="button"
         style={({ pressed }) => [
           styles.targetItem,
           pressed && { opacity: 0.85 },
@@ -1911,7 +1952,7 @@ export default function ChatScreen() {
     try {
       const preferences = await getNotificationPreferences();
       if (sequence !== roomPreferenceSequenceRef.current) return;
-      setRoomMutedState(preferences.rooms.some((row) => row.roomKey === roomRef.key));
+      setRoomMutedState(resolveMessengerRoomMuted(preferences.rooms, roomRef.key, false));
       setRoomPreferenceLoadedKey(roomRef.key);
       setRoomPreferenceFailure(null);
     } catch (error) {
@@ -1954,7 +1995,7 @@ export default function ChatScreen() {
     try {
       const preferences = await setRoomMuted(roomRef, nextMuted);
       if (sequence !== roomPreferenceSequenceRef.current) return;
-      setRoomMutedState(preferences.rooms.some((row) => row.roomKey === roomRef.key));
+      setRoomMutedState(resolveMessengerRoomMuted(preferences.rooms, roomRef.key, false));
       setRoomPreferenceLoadedKey(roomRef.key);
     } catch (error) {
       if (sequence !== roomPreferenceSequenceRef.current) return;
@@ -1998,6 +2039,9 @@ export default function ChatScreen() {
     }
     flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, []);
+
+  const isOwnDirectMessage = useCallback((message: Message) => message.sender_id === myId, [myId]);
+  const latestJump = useLatestMessageJump(messages, isOwnDirectMessage, flatListRef);
 
   const showAnchorReturnToLatest = Boolean(
     anchorMessageIdValue
@@ -2056,6 +2100,7 @@ export default function ChatScreen() {
           <View style={styles.center}>
             <Text style={styles.targetHelperText}>{targetsError}</Text>
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [styles.retryButton, pressed && { opacity: 0.9 }]}
               onPress={() => {
                 if (targetsError === LEGACY_SESSION_ERROR) {
@@ -2072,7 +2117,7 @@ export default function ChatScreen() {
             </Pressable>
           </View>
         ) : (
-          <FlatList
+          <FlatList keyboardShouldPersistTaps="handled"
             data={fcTargets}
             keyExtractor={(item) => item.id}
             renderItem={renderFcTargetItem}
@@ -2172,6 +2217,7 @@ export default function ChatScreen() {
           </Text>
           {canRetryVisibleLoadError ? (
             <Pressable
+              accessibilityRole="button"
               style={({ pressed }) => [
                 styles.retryButton,
                 pressed && { opacity: 0.9 },
@@ -2213,23 +2259,30 @@ export default function ChatScreen() {
       ) : null}
 
       <View style={{ flex: 1 }}>
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          extraData={highlightedMessageId}
-          inverted
-          onScrollToIndexFailed={handleAnchorScrollFailure}
-          onScrollBeginDrag={scrollFrameMonitor.onScrollBeginDrag}
-          onScrollEndDrag={scrollFrameMonitor.onScrollEndDrag}
-          onMomentumScrollBegin={scrollFrameMonitor.onMomentumScrollBegin}
-          onMomentumScrollEnd={scrollFrameMonitor.onMomentumScrollEnd}
-          contentContainerStyle={styles.listContent}
-          style={styles.list}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="none"
-        />
+        <View style={styles.list}>
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            keyExtractor={(item) => item.id}
+            renderItem={renderItem}
+            extraData={highlightedMessageId}
+            inverted
+            onScroll={latestJump.onScroll}
+            scrollEventThrottle={64}
+            onScrollToIndexFailed={handleAnchorScrollFailure}
+            onScrollBeginDrag={scrollFrameMonitor.onScrollBeginDrag}
+            onScrollEndDrag={scrollFrameMonitor.onScrollEndDrag}
+            onMomentumScrollBegin={scrollFrameMonitor.onMomentumScrollBegin}
+            onMomentumScrollEnd={scrollFrameMonitor.onMomentumScrollEnd}
+            contentContainerStyle={styles.listContent}
+            style={styles.list}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="none"
+          />
+          {latestJump.awayFromLatest && !showAnchorReturnToLatest ? (
+            <JumpToLatestButton hasNewMessage={latestJump.hasNewMessage} onPress={latestJump.jumpToLatest} />
+          ) : null}
+        </View>
 
         <KeyboardSafeBottomBar>
           <View
@@ -2284,6 +2337,17 @@ export default function ChatScreen() {
             </ScrollView>
           ) : null}
           <View style={styles.inputContainer}>
+            <TouchableOpacity accessibilityLabel="사진 첨부" accessibilityRole="button" accessibilityState={{ disabled: sendingAttachments }}
+              onPress={handleImageAttachment}
+              style={[
+                styles.attachBtn,
+                sendingAttachments && styles.attachBtnDisabled,
+              ]}
+              activeOpacity={0.7}
+              disabled={sendingAttachments}
+            >
+              <Feather name="image" size={22} color={MUTED} />
+            </TouchableOpacity>
             <TouchableOpacity accessibilityLabel="파일 첨부" accessibilityRole="button" accessibilityState={{ disabled: sendingAttachments }}
               onPress={handleAttachment}
               style={[
@@ -2560,7 +2624,8 @@ const styles = StyleSheet.create({
   },
   bubbleMe: { backgroundColor: HANWHA_ORANGE, borderTopRightRadius: 2 },
   bubbleOther: { backgroundColor: '#ffffff', borderTopLeftRadius: 2, borderWidth: 1, borderColor: '#F3F4F6' },
-  msgText: { fontSize: 15, lineHeight: 22, flexWrap: 'wrap', flexShrink: 1, width: '100%' },
+  // No width: '100%' here: inside the shrink-to-fit bubble Android measured short text as two lines.
+  msgText: { fontSize: 15, lineHeight: 22 },
   msgTextMe: { color: '#ffffff', fontWeight: '500' },
   msgTextOther: { color: CHARCOAL },
   msgLinkText: { color: '#2563EB', textDecorationLine: 'underline', fontWeight: '700' },

@@ -26,7 +26,7 @@ import { validatePhone, validatePassword, normalizePhone } from '@/lib/validatio
 const AUTH_SCREEN_BACKGROUND = COLORS.primaryPale;
 
 export default function ResetPasswordScreen() {
-  const { audience, service } = useLocalSearchParams<{ audience?: string; service?: string }>();
+  const { audience, service, skipAuto } = useLocalSearchParams<{ audience?: string; service?: string; skipAuto?: string }>();
   const isPlatform = audience === 'platform';
   const { logout } = useSession();
   const [phone, setPhone] = useState('');
@@ -72,7 +72,7 @@ export default function ResetPasswordScreen() {
               { text: '취소', style: 'cancel' },
               {
                 text: '회원가입',
-                onPress: () => router.replace('/signup'),
+                onPress: () => router.replace(resolvePlatformAuthRoute(service ?? 'insurance', 'signup')),
               },
             ]
           );
@@ -140,7 +140,9 @@ export default function ResetPasswordScreen() {
       if (!isCurrent() || !ownsSession()) return;
       logout();
       Alert.alert('완료', '비밀번호가 변경되었습니다.');
-      router.replace(isPlatform ? resolvePlatformAuthRoute(service, 'login') : '/login');
+      const loginRoute = resolvePlatformAuthRoute(service, 'login');
+      router.dismissTo(skipAuto === '1' ? { pathname: '/services/login',
+        params: { ...(typeof loginRoute === 'object' ? loginRoute.params : {}), skipAuto } } : loginRoute);
     } catch (error) {
       if (isCurrent() && ownsSession()) Alert.alert('오류', isPlatform && error instanceof Error ? error.message : '비밀번호 변경에 실패했습니다.');
     } finally {
@@ -166,7 +168,7 @@ export default function ResetPasswordScreen() {
             >
               <View style={styles.headerSection}>
                 <Text style={styles.title}>비밀번호 변경</Text>
-                <Text style={styles.subtitle}>{isPlatform ? '모두온 일반 회원의 비밀번호를 변경합니다.' : '문자로 받은 6자리 코드를 입력해주세요.'}</Text>
+                <Text style={styles.subtitle}>문자로 받은 6자리 코드로 비밀번호를 설정하거나 변경합니다.</Text>
               </View>
 
               <FormInput
@@ -226,9 +228,6 @@ export default function ResetPasswordScreen() {
                   >
                 비밀번호 변경
               </Button>
-              {isPlatform && <Button variant="outline" disabled={loading} fullWidth style={{ marginTop: SPACING.base }} onPress={() => {
-                setToken(''); setNewPassword(''); setRequested(false); router.replace('/reset-password');
-              }}>보험·FC 계정 비밀번호 찾기</Button>}
             </MotiView>
           </View>
         </KeyboardAwareWrapper>

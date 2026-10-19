@@ -122,6 +122,7 @@ export function Button({
             variantStyles.text,
             sizeStyles.text,
             textStyle,
+            variant === 'primary' && !isDisabled && variantStyles.text,
           ]}
           numberOfLines={1}
         >
@@ -138,7 +139,7 @@ function getVariantStyles(variant: ButtonVariant, disabled: boolean) {
     case 'primary':
       return {
         container: {
-          backgroundColor: disabled ? COLORS.gray[300] : COLORS.primary,
+          backgroundColor: disabled ? COLORS.gray[300] : COLORS.primaryButton,
           ...SHADOWS.sm,
         },
         text: {

@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
 import type { ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomNavigation } from '@/components/BottomNavigation';
@@ -11,8 +11,8 @@ import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-
 import { COLORS } from '@/lib/theme';
 import { goBackOrReplace } from '@/lib/back-navigation';
 
-export function ServiceAction({ label, onPress }: { label: string; onPress: () => void }) {
-  return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.action, pressed && styles.pressed]}>
+export function ServiceAction({ label, onPress, style }: { label: string; onPress: () => void; style?: StyleProp<ViewStyle> }) {
+  return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.action, pressed && styles.pressed, style]}>
     <Text style={styles.actionText}>{label}</Text>
   </Pressable>;
 }
@@ -64,7 +64,7 @@ const styles = StyleSheet.create({
   headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: COLORS.text.primary },
   content: { padding: 24 },
   art: { marginBottom: 20 },
-  action: { minHeight: 48, padding: 14, backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center', borderRadius: 12, marginTop: 8 },
-  actionText: { fontSize: 15, fontWeight: '700', color: COLORS.text.primary, textAlign: 'center' },
+  action: { minHeight: 48, padding: 14, backgroundColor: COLORS.primaryButton, alignItems: 'center', justifyContent: 'center', borderRadius: 12, marginTop: 8 },
+  actionText: { fontSize: 15, fontWeight: '700', color: COLORS.white, textAlign: 'center' },
   pressed: { opacity: 0.75 },
 });

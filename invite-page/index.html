@@ -22,49 +22,80 @@
     .btn svg{width:20px;height:20px;flex-shrink:0}
     .btn:focus-visible{outline:3px solid #d65a16;outline-offset:4px}
     .btn-primary{background:#f36f21;color:#fff}
+    .btn-outline{background:#fff;color:#a9430d;border:1px solid #f36f21}
     .btn-dark{background:#111;color:#fff}
+    .guidance{max-width:320px;color:#6b7280;font-size:.85rem;line-height:1.6;margin:0 auto 1.25rem}
+    .copy-status{min-height:1.4rem;color:#6b7280;font-size:.8rem;margin-top:10px}
     footer{color:#d1d5db;font-size:.72rem;margin-top:2rem}
   </style>
 </head>
 <body>
   <div class="icon" aria-hidden="true"><img src="/moduon-symbol.png" alt="" width="72" height="72" /></div>
-  <h1>모두온 추천 초대</h1>
+  <h1 id="title">모두온 추천 초대</h1>
   <p class="sub" id="msg">아래 버튼을 눌러 앱을 열어주세요</p>
+  <p class="guidance" id="careDescription" style="display:none">가족간병을 시작하기 전, 보험 조건과 등록 절차를 확인하세요. 가족간병 신청 서비스는 준비 중입니다.</p>
 
   <div class="card" id="codeBox" style="display:none">
     <p class="card-label">추천 코드</p>
     <p class="code" id="codeVal"></p>
-    <p class="card-hint">앱 가입 시 자동 입력됩니다</p>
+    <p class="card-hint" id="codeHint">앱 가입 시 자동 입력됩니다</p>
   </div>
 
   <div class="btns">
     <a class="btn btn-primary" id="openApp" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M15 3h6v6M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" /></svg>모두온 앱 열기</a>
+    <a class="btn btn-outline" id="careInfo" href="https://garam-public-web.vercel.app/family-care/" rel="external" style="display:none">가족간병 자세히 알아보기</a>
+    <button class="btn btn-outline" id="copyCode" type="button" style="display:none">추천 코드 복사</button>
     <a class="btn btn-dark" href="https://play.google.com/store/apps/details?id=com.jj8127.Garam_in" rel="external"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 17v4h14v-4" /></svg>Android · Google Play</a>
     <a class="btn btn-dark" href="https://apps.apple.com/kr/app/%EA%B0%80%EB%9E%8C-in/id6756690846" rel="external"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 17v4h14v-4" /></svg>iPhone · App Store</a>
   </div>
+  <p class="copy-status" id="copyStatus" role="status" aria-live="polite"></p>
+  <p class="guidance" id="installHint" style="display:none">앱이 없다면 먼저 설치한 뒤 이 초대 링크를 다시 열어주세요. 이미 회원이라면 앱에서 추천인 등록을 확인할 수 있어요. 자동으로 연결되지 않으면 내 정보의 가족간병 추천인 등록에 위 코드를 입력해 주세요. 이미 가족간병 추천인이 있으면 바뀌지 않아요.</p>
 
   <footer>가람PA지사 · 모두온</footer>
 
   <script>
     (function () {
-      function getParam(name) {
-        var q = location.search.slice(1).split('&');
-        for (var i = 0; i < q.length; i++) {
-          var p = q[i].split('=');
-          if (decodeURIComponent(p[0]) === name) return decodeURIComponent(p[1] || '');
-        }
-        return '';
+      var params = new URLSearchParams(location.search);
+      var codes = params.getAll('code');
+      var services = params.getAll('service');
+      var code = codes.length === 1 ? codes[0].trim().toUpperCase() : '';
+      var isCare = services.length === 1 && services[0] === 'care';
+      if (!/^(?:[A-Z0-9]{8}|[A-Z0-9]{12})$/.test(code) || (services.length > 0 && !isCare)) {
+        document.getElementById('msg').textContent = '유효하지 않은 링크입니다.';
+        return;
       }
-
-      var code = getParam('code').toUpperCase().replace(/[^A-Z0-9]/g, '');
-      if (!code) { document.getElementById('msg').textContent = '유효하지 않은 링크입니다.'; return; }
 
       document.getElementById('codeBox').style.display = 'block';
       document.getElementById('codeVal').textContent = code;
 
       var openAppButton = document.getElementById('openApp');
-      openAppButton.href = 'hanwhafcpass://signup?code=' + encodeURIComponent(code);
+      openAppButton.href = isCare
+        ? 'hanwhafcpass://services/signup?service=care&code=' + encodeURIComponent(code)
+        : 'hanwhafcpass://signup?code=' + encodeURIComponent(code);
       openAppButton.style.display = 'flex';
+      if (isCare) {
+        document.title = '모두온 가족간병 추천 초대';
+        document.getElementById('title').textContent = '가족간병, 함께 알아보세요';
+        document.getElementById('msg').textContent = '이 링크로 모두온에 가입하면 가족간병 추천인이 함께 등록돼요.';
+        document.getElementById('codeHint').textContent = '가족간병 추천 코드';
+        document.getElementById('careDescription').style.display = 'block';
+        document.getElementById('careInfo').style.display = 'flex';
+        document.getElementById('installHint').style.display = 'block';
+      }
+      var copyButton = document.getElementById('copyCode');
+      copyButton.style.display = 'flex';
+      copyButton.addEventListener('click', async function () {
+        if (copyButton.disabled) return;
+        copyButton.disabled = true;
+        try {
+          await navigator.clipboard.writeText(code);
+          document.getElementById('copyStatus').textContent = '추천 코드를 복사했어요.';
+        } catch (_) {
+          document.getElementById('copyStatus').textContent = '복사하지 못했어요. 위 추천 코드를 직접 입력해주세요.';
+        } finally {
+          copyButton.disabled = false;
+        }
+      });
     })();
   </script>
 </body>

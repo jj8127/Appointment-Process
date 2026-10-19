@@ -63,7 +63,9 @@ before(async () => {
       if not exists (select from pg_roles where rolname='authenticated') then create role authenticated; end if;
       if not exists (select from pg_roles where rolname='service_role') then create role service_role; end if;
     end $$;
-    create table fc_profiles (id uuid primary key, phone text, signup_completed boolean);
+    create table fc_profiles (id uuid primary key, phone text, signup_completed boolean,
+      is_manager_referral_shadow boolean not null default false, affiliation text, status text default 'draft');
+    create table platform_members (id uuid primary key, phone text, active boolean, fc_id uuid);
     create table admin_accounts (
       id uuid primary key, phone text, active boolean not null default true,
       password_hash text not null default 'old', password_salt text not null default 'old',
@@ -77,9 +79,9 @@ before(async () => {
     alter table fc_credentials add column must_change_password boolean default true;
     alter table fc_credentials add column temporary_password_issued_at timestamptz default now();
     grant usage on schema public to anon, authenticated, service_role;
-    grant select, update on all tables in schema public to service_role;
+    grant select, insert, update on all tables in schema public to service_role;
   `);
-  await db.query('insert into fc_profiles values ($1,$2,true)', [id, phone]);
+  await db.query('insert into fc_profiles(id,phone,signup_completed) values ($1,$2,true)', [id, phone]);
   for (const kind of ['admin', 'manager', 'fc']) {
     await db.query(`insert into ${tableFor(kind)} (${kind === 'fc' ? 'fc_id' : 'id'},phone) values ($1,$2)`, [id, phone]);
   }
@@ -162,3 +164,45 @@ for (const kind of ['admin', 'manager', 'fc']) {
     assert.equal((await rpc(second, kind, 'consume', hash(2))).ok, true);
   });
 }
+
+test('completed FC credential initialization serializes SMS issue and consumes once with the committed generation', async () => {
+  const unified = await readFile(new URL('../migrations/20261014043557_unified_common_insurance_enrollment.sql', import.meta.url), 'utf8');
+  const definition = unified.match(/create or replace function public\.process_password_reset_challenge\([\s\S]*?\n\$\$;/);
+  assert.ok(definition, 'current migration must extend the existing reset RPC');
+  await db.query(definition[0]);
+  await db.query('alter table fc_credentials add column session_version bigint not null default 0');
+  const generations = await readFile(new URL('../migrations/20261004133155_credential_session_generations.sql', import.meta.url), 'utf8');
+  await db.query(generations.slice(generations.indexOf('create or replace function public.advance_credential_session_version()'),
+    generations.indexOf('-- The service verifies')));
+  await db.query('create trigger credential_session_version before update on fc_credentials for each row execute function advance_credential_session_version()');
+  const wrappers = await readFile(new URL('../migrations/20261013094543_fc_password_sync_generation_results.sql', import.meta.url), 'utf8');
+  await db.query(wrappers.slice(wrappers.indexOf('create or replace function public.process_password_reset_challenge_v2(')));
+  await db.query('delete from admin_accounts');
+  await db.query('delete from manager_accounts');
+  await db.query('delete from fc_credentials');
+  await db.query("update fc_profiles set status='appointment-completed'");
+  const profileBefore = (await db.query('select * from fc_profiles')).rows[0];
+  assert.equal((await rpc(db, 'fc', 'consume')).ok, false);
+  assert.equal(Number((await db.query('select count(*) n from fc_credentials')).rows[0].n), 0);
+  const first = await connect(); const second = await connect();
+  await first.query('set role service_role'); await second.query('set role service_role');
+  await first.query('begin');
+  assert.equal((await rpc(first, 'fc', 'issue')).ok, true);
+  const pendingIssue = rpc(second, 'fc', 'issue', hash(2));
+  await waitForLock(second); await first.query('commit');
+  assert.equal((await pendingIssue).code, 'cooldown');
+  assert.equal((await db.query('select password_set_at from fc_credentials')).rows[0].password_set_at, null);
+  const consume = async client => (await client.query('select process_password_reset_challenge_v2($1,$2,$3,$4,$5,$6,$7) result',
+    ['consume', 'fc', id, phone, hash(1), hash(4), salt])).rows[0].result;
+  await first.query('begin');
+  const winner = await consume(first);
+  assert.equal(winner.ok, true);
+  assert.equal(winner.sessionVersion, 1);
+  const pendingConsume = consume(second);
+  await waitForLock(second); await first.query('commit');
+  assert.equal((await pendingConsume).code, 'invalid_token');
+  const credential = (await db.query('select password_hash,password_set_at,session_version from fc_credentials')).rows[0];
+  assert.equal(credential.password_hash, hash(4)); assert.ok(credential.password_set_at);
+  assert.equal(Number(credential.session_version), winner.sessionVersion);
+  assert.deepEqual((await db.query('select * from fc_profiles')).rows[0], profileBefore);
+});

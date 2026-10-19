@@ -264,7 +264,7 @@ function AllowanceConsentScreenContent() {
       >
         <ScrollView
           contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 40 }]}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always" disableScrollViewPanResponder
           keyboardDismissMode="none"
           refreshControl={
             < RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -289,7 +289,7 @@ function AllowanceConsentScreenContent() {
           </View>
 
           <View style={styles.sliderContainer}>
-            <FlatList
+            <FlatList keyboardShouldPersistTaps="always"
               ref={sliderRef}
               data={AGREEMENT_GUIDE_IMAGES}
               style={[styles.guideList, { height: cardHeight }]}

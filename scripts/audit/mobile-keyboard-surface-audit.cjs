@@ -58,6 +58,17 @@ function runAudit() {
     if (/keyboardDismissMode\s*=\s*["'](?:on-drag|interactive)["']/.test(source)) {
       errors.push(`keyboard must remain visible during drag: ${relativeFile(file)}`);
     }
+    // A JS scroll responder that claims a held tap while an input is focused swallows the press.
+    const tapKeepingScrollTags = source.match(/<(?:Animated\.)?(?:ScrollView|FlatList|SectionList)\b(?:=>|[^>])*>/g) ?? [];
+    for (const tag of tapKeepingScrollTags) {
+      if (/keyboardShouldPersistTaps=["{]?["']?always/.test(tag) && !/\bhorizontal\b/.test(tag) && !tag.includes('disableScrollViewPanResponder')) {
+        errors.push(`tap-keeping scroll container must disable the JS scroll pan responder: ${relativeFile(file)}`);
+      }
+    }
+  }
+  const wrapperSource = fs.readFileSync(path.join(ROOT, 'components', 'KeyboardAwareWrapper.tsx'), 'utf8');
+  if (!wrapperSource.includes('disableScrollViewPanResponder')) {
+    errors.push('components/KeyboardAwareWrapper.tsx must disable the JS scroll pan responder');
   }
 
   for (const file of discovered) {

@@ -1,6 +1,6 @@
 import { serveWithConfiguredCors as serve } from '../_shared/serve-with-cors.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
-import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
+import { drainAccountDeletionCleanup } from '../_shared/account-deletion-cleanup.ts';
 import {
   authorizeDeleteAccountRequest,
   normalizeDeleteAccountPhone,
@@ -51,43 +51,6 @@ function err(message: string, status = 400) {
     status,
     headers: { 'Content-Type': 'application/json', ...corsHeaders },
   });
-}
-
-function readStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return Array.from(
-    new Set(
-      value
-        .map((item) => String(item ?? '').trim())
-        .filter(Boolean),
-    ),
-  );
-}
-
-async function removeStorageObjects(
-  bucket: string,
-  paths: string[],
-  diagnostic:
-    | {
-        event: 'exam_payment_proof.storage';
-        reason: 'storage_remove_failed';
-      }
-    | {
-        event: 'delete_account.storage_cleanup';
-        reason:
-          | 'fc_documents_remove_failed'
-          | 'board_attachments_remove_failed';
-      },
-) {
-  if (paths.length === 0) return false;
-  const { error } = await supabase.storage.from(bucket).remove(paths);
-  if (error) {
-    reportEdgeDiagnostic({
-      ...diagnostic,
-      errorClass: 'upstream',
-    });
-  }
-  return Boolean(error);
 }
 
 serve(async (req: Request) => {
@@ -169,67 +132,12 @@ serve(async (req: Request) => {
   } catch {
     return err('Account deletion result could not be verified', 500);
   }
-  const proofPaths = readStringArray(result.proof_paths);
-  const documentPaths = readStringArray(result.document_paths);
-  const boardPaths = readStringArray(result.board_attachment_paths);
-  const authUserIds = readStringArray(result.auth_user_ids);
-  const cleanupOutboxId = String(result.cleanup_outbox_id ?? '').trim();
-
-  const cleanupWarnings = await Promise.all([
-    removeStorageObjects(
-      'exam-payment-proofs',
-      proofPaths,
-      { event: 'exam_payment_proof.storage', reason: 'storage_remove_failed' },
-    ),
-    removeStorageObjects(
-      'fc-documents',
-      documentPaths,
-      {
-        event: 'delete_account.storage_cleanup',
-        reason: 'fc_documents_remove_failed',
-      },
-    ),
-    removeStorageObjects(
-      'board-attachments',
-      boardPaths,
-      {
-        event: 'delete_account.storage_cleanup',
-        reason: 'board_attachments_remove_failed',
-      },
-    ),
-  ]);
-
-  let authCleanupWarning = false;
-  for (const authUserId of authUserIds) {
-    const { error: authError } = await supabase.auth.admin.deleteUser(authUserId);
-    if (authError) {
-      authCleanupWarning = true;
-      reportEdgeDiagnostic({
-        event: 'delete_account.auth_cleanup',
-        reason: authorization.targetRole === 'manager'
-          ? 'manager_shadow_auth_user_delete_failed'
-          : 'auth_user_delete_failed',
-        errorClass: 'authentication',
-      });
-    }
-  }
-
-  const postCommitCleanupFailed =
-    cleanupWarnings.some(Boolean) || authCleanupWarning;
-  const { error: outboxError } = cleanupOutboxId
-    ? await supabase.rpc('record_account_deletion_cleanup_attempt_v1', {
-      p_outbox_id: cleanupOutboxId,
-      p_succeeded: !postCommitCleanupFailed,
-      p_error_code: postCommitCleanupFailed
-        ? 'post_commit_cleanup_partial_failure'
-        : null,
-    })
-    : { error: new Error('cleanup_outbox_id_missing') };
+  const cleanupWarning = await drainAccountDeletionCleanup(supabase, result, authorization.targetRole);
 
   return ok({
     ok: true,
     role: authorization.targetRole,
     deleted: result.deleted === true,
-    cleanupWarning: postCommitCleanupFailed || Boolean(outboxError),
+    cleanupWarning,
   });
 });

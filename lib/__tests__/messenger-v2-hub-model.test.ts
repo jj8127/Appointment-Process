@@ -12,6 +12,7 @@ import {
   dedupePeople,
   formatMessengerPersonDetail,
   formatOperationsMessengerName,
+  getMessengerPersonRowLabels,
   groupMessengerPeopleByRole,
   getMessengerTotalUnread,
   isMessengerConversationVisible,
@@ -87,6 +88,15 @@ describe('Messenger V2 hub model', () => {
     timestampMs: 0,
     unreadCount: 0,
     ...overrides,
+  });
+
+  test('does not repeat a role the person name already carries', () => {
+    expect(getMessengerPersonRowLabels({ name: '권슬기총무', detail: '총무', role: 'operations' }))
+      .toEqual({ roleBadge: '', detail: '' });
+    expect(getMessengerPersonRowLabels({ name: '개발자', detail: '개발자', role: 'developer' }))
+      .toEqual({ roleBadge: '', detail: '' });
+    expect(getMessengerPersonRowLabels({ name: '홍길동', detail: '서울 본부', role: 'manager' }))
+      .toEqual({ roleBadge: '본부장', detail: '서울 본부' });
   });
 
   test('sorts by server timestamp and stable source/key fallback without current time', () => {
@@ -333,6 +343,26 @@ describe('Messenger V2 hub model', () => {
     expect(group.detail).toBe('12명 참여');
     expect(dm.key).toBe('request-dm:42');
     expect(dm.timestampMs).toBe(new Date('2026-08-02T00:00:00.000Z').getTime());
+  });
+
+  test('previews a photo message in the group row as 사진, not as a generic file', () => {
+    const group = buildGroupConversation({
+      room: { id: 'room-v2', slug: 'main', title: '가람PA 단톡방' },
+      member_count: 700,
+      unread_count: 0,
+      last_message: {
+        sender_name: '송효원 팀장',
+        message_type: 'file',
+        file_name: null,
+        content: '',
+        created_at: '2026-10-15T07:47:00.000Z',
+        attachments: [
+          { id: 'a', name: 'IMG_3402.png', size: 1, mimeType: 'image/png', sha256: 'a'.repeat(64) },
+          { id: 'b', name: 'IMG_3403.jpg', size: 1, mimeType: 'image/jpeg', sha256: 'b'.repeat(64) },
+        ],
+      },
+    } as unknown as GroupChatBootstrapResponse);
+    expect(group.preview).toBe('송효원 팀장: 사진 2장');
   });
 
   test('uses the designer company-title format for GaramLink directory people', () => {

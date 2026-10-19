@@ -13,6 +13,7 @@ import { DaumPostcode } from '@/components/DaumPostcode';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { useReadAttempt } from '@/lib/use-read-attempt';
 import { logger } from '@/lib/logger';
 import { normalizeApplyGateNext } from '@/lib/home-entry-flow';
 import {
@@ -38,7 +39,15 @@ type FormValues = z.infer<typeof schema>;
 
 export default function IdentityScreen() {
   const { next } = useLocalSearchParams<{ next?: string }>();
-  const { role, residentId, hydrated } = useSession();
+  const { role, residentId, hydrated, isPlatformSignedIn, appSessionToken } = useSession();
+  const beginSubmit = useReadAttempt();
+  const sessionRef = useRef({ residentId, appSessionToken });
+  sessionRef.current = { residentId, appSessionToken };
+  const pending = useRef(false);
+  const identityOwner = useRef(residentId);
+  const addressSearchOwner = useRef<string | null>(null);
+  const addressSearchSequence = useRef(0);
+  const [addressSearchRequest, setAddressSearchRequest] = useState(0);
   const queryClient = useQueryClient();
   const [submitting, setSubmitting] = useState(false);
   const [showAddressSearch, setShowAddressSearch] = useState(false);
@@ -51,7 +60,7 @@ export default function IdentityScreen() {
   const residentBackRef = useRef<TextInput>(null);
   const addressDetailRef = useRef<TextInput>(null);
 
-  const { control, handleSubmit, formState, setError, setValue } = useForm<FormValues>({
+  const { control, handleSubmit, formState, setError, setValue, reset } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
       residentFront: '',
@@ -65,13 +74,38 @@ export default function IdentityScreen() {
   useEffect(() => {
     if (!hydrated) return;
     if (!role) {
-      router.replace('/login');
+      router.replace(isPlatformSignedIn ? '/apply-gate?next=/?mode=insurance' : '/services/login?service=insurance');
       return;
     }
     if (role === 'admin') {
       router.replace('/');
     }
-  }, [hydrated, role]);
+  }, [hydrated, role, isPlatformSignedIn]);
+
+  useEffect(() => { beginSubmit(); pending.current = false; setSubmitting(false); }, [residentId, appSessionToken, beginSubmit]);
+
+  useEffect(() => {
+    if (identityOwner.current === residentId) return;
+    identityOwner.current = residentId;
+    reset(); addressSearchOwner.current = null; addressSearchSequence.current += 1;
+    setShowAddressSearch(false); setPendingAddressDetailFocus(false); setShowResidentBack(false); setAddressHeight(90);
+  }, [residentId, reset]);
+
+  const openAddressSearch = () => {
+    addressSearchOwner.current = residentId;
+    setAddressSearchRequest(++addressSearchSequence.current);
+    setShowAddressSearch(true);
+  };
+
+  const selectAddress = (data: { address?: string; buildingName?: string; zonecode?: string | number }) => {
+    if (!addressSearchOwner.current || addressSearchOwner.current !== sessionRef.current.residentId || addressSearchSequence.current !== addressSearchRequest) return;
+    const base = data.address || '';
+    const extra = data.buildingName ? ` (${data.buildingName})` : '';
+    const full = `${data.zonecode ? `[${data.zonecode}] ` : ''}${base}${extra}`;
+    setValue('address', full, { shouldValidate: true, shouldDirty: true });
+    addressSearchOwner.current = null;
+    setPendingAddressDetailFocus(true); setShowAddressSearch(false);
+  };
 
   useEffect(() => {
     if (showAddressSearch || !pendingAddressDetailFocus) {
@@ -98,10 +132,14 @@ export default function IdentityScreen() {
   }, [pendingAddressDetailFocus, showAddressSearch]);
 
   const onSubmit = async (values: FormValues) => {
-    if (!residentId) {
+    if (pending.current) return;
+    if (role !== 'fc' || !residentId || !appSessionToken) {
       Alert.alert('오류', '로그인 정보를 확인할 수 없습니다.');
       return;
     }
+    pending.current = true;
+    const owns = beginSubmit();
+    const isCurrent = () => owns() && sessionRef.current.residentId === residentId && sessionRef.current.appSessionToken === appSessionToken;
     setSubmitting(true);
     try {
       const front = values.residentFront.trim();
@@ -143,31 +181,38 @@ export default function IdentityScreen() {
         addressDetail,
       };
       const { data, error } = await invokeStoreIdentity(payload);
+      if (!isCurrent()) return;
       if (error) {
         const rawMessage = await extractFunctionErrorMessage(error, '신원 정보 저장 중 문제가 발생했습니다.');
-        logger.warn('[identity] store-identity failed', { rawMessage });
+        logger.warn('[identity] store-identity failed');
         throw new Error(mapStoreIdentityErrorMessage(rawMessage));
       }
       requireStoreIdentityReceipt(data, residentId);
 
       // Invalidate identity status cache to trigger real-time update
       await queryClient.invalidateQueries({ queryKey: ['identity-status', residentId] });
+      if (!isCurrent()) return;
       // my-fc-status 캐시도 무효화: 홈 화면의 calcStep이 최신 데이터로 단계를 재계산하도록
       await queryClient.invalidateQueries({ queryKey: ['my-fc-status', residentId] });
+      if (!isCurrent()) return;
 
       // 캐시 업데이트 후 라우팅 (즉시 라우팅하면 index.tsx가 다시 home-lite로 리디렉션함)
       await queryClient.refetchQueries({ queryKey: ['identity-status', residentId] });
+      if (!isCurrent()) return;
       await queryClient.refetchQueries({ queryKey: ['my-fc-status', residentId] });
+      if (!isCurrent()) return;
 
       const safeNext = normalizeApplyGateNext(next);
       const notificationHandoff = parseNotificationOpenRoute(safeNext);
       if (notificationHandoff) {
         const authorization = await authorizeNotificationOpen(notificationHandoff);
+        if (!isCurrent()) return;
         if (!authorization.ok) {
           await clearPendingNotificationNavigation({
             notificationId: notificationHandoff.notificationId,
             target: notificationHandoff.target,
           });
+          if (!isCurrent()) return;
           markNotificationNavigationIdle();
           Alert.alert(
             '등록 완료 · 알림 대상 확인 실패',
@@ -180,9 +225,9 @@ export default function IdentityScreen() {
       Alert.alert('등록 완료', '신원 정보가 저장되었습니다.');
       router.replace(safeNext as any);
     } catch (err: any) {
-      Alert.alert('저장 실패', toUserFacingAlertMessage(err, '신원 정보 저장 중 문제가 발생했습니다.'));
+      if (isCurrent()) Alert.alert('저장 실패', toUserFacingAlertMessage(err, '신원 정보 저장 중 문제가 발생했습니다.'));
     } finally {
-      setSubmitting(false);
+      if (owns()) { pending.current = false; setSubmitting(false); }
     }
   };
 
@@ -201,7 +246,7 @@ export default function IdentityScreen() {
 
     if (errors.address?.message) {
       Alert.alert('입력 확인', errors.address.message);
-      setShowAddressSearch(true);
+      openAddressSearch();
       return;
     }
 
@@ -315,7 +360,7 @@ export default function IdentityScreen() {
             </View>
             <Text style={styles.helperText}>기본 주소는 주소 검색으로 입력해주세요.</Text>
             <Button
-              onPress={() => setShowAddressSearch(true)}
+              onPress={openAddressSearch}
               variant="outline"
               size="md"
               fullWidth
@@ -324,7 +369,7 @@ export default function IdentityScreen() {
               주소 검색
             </Button>
             <Pressable
-              onPress={() => setShowAddressSearch(true)}
+              onPress={openAddressSearch}
               accessibilityRole="button"
               accessibilityLabel="주소 다시 검색"
             >
@@ -409,14 +454,7 @@ export default function IdentityScreen() {
             onClose={() => setShowAddressSearch(false)}
             style={{ flex: 1 }}
             jsOptions={{ animation: true }}
-            onSelected={(data: any) => {
-              const base = data.address || '';
-              const extra = data.buildingName ? ` (${data.buildingName})` : '';
-              const full = `${data.zonecode ? `[${data.zonecode}] ` : ''}${base}${extra}`;
-              setValue('address', full, { shouldValidate: true, shouldDirty: true });
-              setPendingAddressDetailFocus(true);
-              setShowAddressSearch(false);
-            }}
+            onSelected={selectAddress}
             onError={() => {
               Alert.alert('주소 검색 실패', '주소 검색 중 오류가 발생했습니다. 다시 시도해주세요.');
             }}

@@ -1,11 +1,7 @@
 /**
- * FC signup asks one question at a time and stacks answered questions below the new one,
+ * Signup-style forms ask one question at a time and stack answered questions below the new one,
  * following the 2026-10-16 Shinhan SOL Life recording the user chose as the reference.
  */
-
-export const SIGNUP_STEPS = ['name', 'phone', 'carrier', 'affiliation', 'license', 'email', 'referral'] as const;
-
-export type SignupStep = (typeof SIGNUP_STEPS)[number];
 
 /** Durations measured frame by frame from the reference recording (30fps); the user chose the original speed. */
 export const SIGNUP_MOTION = {
@@ -22,13 +18,17 @@ export const SIGNUP_MOTION = {
   sheetSwap: 330,
   /** The picked option stays highlighted for a moment before the sheet moves on. */
   pickHold: 60,
-  /** The 다음 bar docks above the keyboard once the answer is not empty. */
+  /** The 다음 button docks above the keyboard once the answer is not empty. */
   nextBar: 66,
 } as const;
 
-export const PLATFORM_SIGNUP_STEPS = ['name', 'phone', 'code', 'password', 'confirmation', 'referral'] as const;
-
+/** 모두온 common signup; consent (and a family-care invitation) follow in the final sheet. */
+export const PLATFORM_SIGNUP_STEPS = ['name', 'phone', 'code', 'password', 'confirmation'] as const;
 export type PlatformSignupStep = (typeof PLATFORM_SIGNUP_STEPS)[number];
+
+/** 가람in additional information for a common member; pickers chain in one sheet before the typed answers. */
+export const INSURANCE_ENROLLMENT_STEPS = ['affiliation', 'carrier', 'license', 'email', 'referral'] as const;
+export type InsuranceEnrollmentStep = (typeof INSURANCE_ENROLLMENT_STEPS)[number];
 
 /** Questions shown so far, newest first. */
 export function getStackOrder<T>(steps: readonly T[], revealed: number) {
