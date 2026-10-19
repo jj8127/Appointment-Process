@@ -10,7 +10,6 @@ import {
     Box,
     Button,
     Checkbox,
-    Container,
     Group,
     LoadingOverlay,
     Modal,
@@ -42,7 +41,7 @@ import {
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { z } from 'zod';
 
@@ -50,6 +49,7 @@ import { useSession } from '@/hooks/use-session';
 import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
 import { sortExamRoundsNewestFirst } from '@/lib/exam-round-sort';
 import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
+import surface from '../../surface.module.css';
 
 // --- Constants ---
 
@@ -313,7 +313,7 @@ export default function ExamSchedulePage() {
                 {round.exam_date ? (
                     <Text fw={600} size="sm">{dayjs(round.exam_date).format('YYYY-MM-DD')}</Text>
                 ) : (
-                    <Badge color="gray" variant="light">미정</Badge>
+                    <span className={surface.pill}>미정</span>
                 )}
             </Table.Td>
             <Table.Td>
@@ -331,9 +331,9 @@ export default function ExamSchedulePage() {
             <Table.Td>
                 <Group gap={4}>
                     {round.locations.map((loc) => (
-                        <Badge key={loc.id} variant="light" color="gray" size="sm">
+                        <span key={loc.id} className={surface.pill}>
                             {loc.location_name}
-                        </Badge>
+                        </span>
                     ))}
                 </Group>
             </Table.Td>
@@ -351,30 +351,50 @@ export default function ExamSchedulePage() {
         );
     });
 
+    const openRounds = sortedRounds.filter((round) => !dayjs().isAfter(deadlineCutoff(round.registration_deadline)));
+    const statTiles = [
+        { key: 'all', label: '전체 회차', value: sortedRounds.length },
+        { key: 'open', label: '접수 중', value: openRounds.length, hot: true },
+        { key: 'closed', label: '접수 마감', value: sortedRounds.length - openRounds.length },
+        { key: 'tbd', label: '시험일 미정', value: sortedRounds.filter((round) => !round.exam_date).length },
+    ];
+
     return (
-        <Container size="xl" py="xl">
+        <div className={surface.page}>
             {notificationRoundId && sortedRounds.some((round) => round.id === notificationRoundId)
                 ? <NotificationDestinationReady />
                 : null}
-            <Group justify="space-between" mb="lg">
+            <div className={surface.head} style={{ '--i': 0 } as CSSProperties}>
                 <div>
-                    <Title order={2} c={CHARCOAL}>시험 일정 관리</Title>
-                    <Text c={MUTED} size="sm">자격 시험 일정과 접수 가능한 장소를 관리합니다.</Text>
+                    <Title order={1} className={surface.title}>시험 일정 관리</Title>
+                    <Text className={surface.subtitle}>자격 시험 일정과 접수 가능한 장소를 관리합니다.</Text>
                 </div>
-                <Group>
+                <div className={surface.actions}>
                     <SegmentedControl
                         value={viewMode}
                         onChange={(v) => setViewMode(v as 'list' | 'calendar')}
+                        radius="xl"
+                        size="md"
+                        bg="white"
                         data={[
                             { label: '리스트', value: 'list' },
                             { label: '캘린더', value: 'calendar' }
                         ]}
                     />
-                    <Button leftSection={<IconPlus size={16} />} color={isReadOnly ? "gray" : "orange"} disabled={isReadOnly} onClick={handleOpenCreate}>
+                    <Button leftSection={<IconPlus size={16} />} color={isReadOnly ? "gray" : "dark"} radius="xl" h={44} disabled={isReadOnly} onClick={handleOpenCreate}>
                         일정 등록
                     </Button>
-                </Group>
-            </Group>
+                </div>
+            </div>
+
+            <div className={surface.statGroup} style={{ '--i': 1 } as CSSProperties}>
+                {statTiles.map((tile) => (
+                    <div key={tile.key} className={surface.statTile} data-hot={tile.hot || undefined}>
+                        <span className={surface.statLabel}>{tile.label}</span>
+                        <span className={surface.statValue}>{rounds ? tile.value : '-'}</span>
+                    </div>
+                ))}
+            </div>
 
             {isReadOnly && (
                 <Alert
@@ -382,7 +402,7 @@ export default function ExamSchedulePage() {
                     title="읽기 전용 모드"
                     color="yellow"
                     variant="light"
-                    mb="lg"
+                    radius="lg"
                 >
                     본부장 계정은 조회만 가능합니다. 수정 권한이 필요한 경우 관리자에게 문의하세요.
                 </Alert>
@@ -391,10 +411,10 @@ export default function ExamSchedulePage() {
             {isError && <QueryErrorAlert error={error} onRetry={refetch} isFetching={isFetching} hasData={!!rounds} subject="시험 일정" />}
 
             {viewMode === 'list' ? (
-                <Paper shadow="sm" radius="lg" withBorder style={{ overflow: 'hidden' }}>
+                <div className={surface.tableCard} style={{ '--i': 2 } as CSSProperties}>
                     <ScrollArea>
-                        <Table verticalSpacing="md" highlightOnHover>
-                            <Table.Thead bg="#F9FAFB">
+                        <Table verticalSpacing="md" className={surface.table}>
+                            <Table.Thead>
                                 <Table.Tr>
                                     <Table.Th>시험일</Table.Th>
                                     <Table.Th>회차명</Table.Th>
@@ -414,19 +434,11 @@ export default function ExamSchedulePage() {
                             </Table.Tbody>
                         </Table>
                     </ScrollArea>
-                </Paper>
+                </div>
             ) : (
-                <Paper shadow="sm" radius="lg" withBorder p="xl" bg="white">
+                <div className={surface.card} style={{ '--i': 2 } as CSSProperties}>
                     <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
-                        <Paper
-                            withBorder
-                            radius="lg"
-                            p="lg"
-                            style={{
-                                background: 'linear-gradient(180deg, #ffffff 0%, #fff7ed 100%)',
-                                borderColor: '#f3f4f6',
-                            }}
-                        >
+                        <div className={surface.well}>
                             <Group justify="space-between" mb="md">
                                 <Group gap="sm">
                                     <ThemeIcon radius="md" variant="light" color="orange">
@@ -437,7 +449,7 @@ export default function ExamSchedulePage() {
                                         <Text size="xs" c="dimmed">월별 전체 일정을 빠르게 확인하세요.</Text>
                                     </div>
                                 </Group>
-                                <Badge variant="light" color="orange" radius="xl">Calendar View</Badge>
+                                <span className={surface.pill} data-color="orange">Calendar View</span>
                             </Group>
 
                             <Calendar
@@ -486,10 +498,10 @@ export default function ExamSchedulePage() {
                                     );
                                 }}
                             />
-                        </Paper>
+                        </div>
 
                         <Stack gap="lg">
-                            <Paper withBorder radius="lg" p="md" bg="#f8f9fa">
+                            <div className={surface.well}>
                                 <Text fw={700} size="sm" mb="sm">일정 범례</Text>
                                 <Group gap="xs" mb="xs">
                                     <Box w={10} h={10} bg="orange.5" style={{ borderRadius: 999 }} />
@@ -499,18 +511,18 @@ export default function ExamSchedulePage() {
                                     <Box w={10} h={10} bg="blue.5" style={{ borderRadius: 999 }} />
                                     <Text size="xs">손해보험 시험</Text>
                                 </Group>
-                            </Paper>
+                            </div>
 
-                            <Paper withBorder radius="lg" p="md">
+                            <div className={surface.well}>
                                 <Group justify="space-between" mb="sm">
                                     <Text fw={700} size="sm">다가오는 시험</Text>
-                                    <Badge variant="outline" color="gray" radius="xl">
+                                    <span className={surface.pill} style={{ background: '#fff' }}>
                                         {rounds ? `${rounds.length}건` : isError ? '확인 불가' : '조회 중'}
-                                    </Badge>
+                                    </span>
                                 </Group>
                                 <Stack gap="xs">
                                     {sortedRounds.filter(r => r.exam_date ? dayjs(r.exam_date).isAfter(dayjs()) : true).slice(0, 4).map(r => (
-                                        <Paper key={r.id} withBorder p="sm" radius="md" bg="white">
+                                        <Paper key={r.id} p="sm" radius={14} bg="white">
                                             <Text size="sm" fw={700}>{r.round_label}</Text>
                                             <Group gap={6} mt={4}>
                                                 <Badge size="xs" color={r.exam_type === 'life' ? 'orange' : 'blue'} variant="light">
@@ -528,14 +540,14 @@ export default function ExamSchedulePage() {
                                         <Text size="xs" c="dimmed">{isLoading ? '시험 일정을 불러오는 중입니다.' : isError ? '시험 일정을 확인할 수 없습니다.' : '예정된 일정이 없습니다.'}</Text>
                                     )}
                                 </Stack>
-                            </Paper>
+                            </div>
 
-                            <Button variant="light" size="sm" fullWidth onClick={() => setViewMode('list')}>
+                            <button type="button" className={surface.softButton} style={{ background: 'var(--dashboard-panel)' }} onClick={() => setViewMode('list')}>
                                 전체 일정 관리
-                            </Button>
+                            </button>
                         </Stack>
                     </SimpleGrid>
-                </Paper>
+                </div>
             )}
 
             {/* Modal */}
@@ -772,7 +784,7 @@ export default function ExamSchedulePage() {
 
                         <Group justify="space-between" mt="xs">
                             <Button variant="default" onClick={() => handleClose()}>취소</Button>
-                            <Button type="submit" color="orange" loading={saveMutation.isPending}>
+                            <Button type="submit" color="dark" radius="xl" loading={saveMutation.isPending}>
                                 {editingId ? '수정 저장' : '등록 하기'}
                             </Button>
                         </Group>
@@ -794,6 +806,6 @@ export default function ExamSchedulePage() {
                     </Group>
                 </Stack>
             </Modal>
-        </Container>
+        </div>
     );
 }

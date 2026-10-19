@@ -56,6 +56,7 @@ function loadTsx(path, mocks, globals = {}) {
   vm.runInNewContext(code, {
     exports, require: (id) => {
       if (id in mocks) return mocks[id];
+      if (id.endsWith('.module.css')) return { default: {} };
       if (id === '@/lib/board-comment-request') return commentRequest;
       if (id === '@/lib/board-list-pages') return boardListPages;
       if (id === '@/lib/creation-request') return creationRequest;

@@ -22,7 +22,6 @@ import { QueryReadError } from '@/lib/query-read-error';
 import {
   Alert,
   ActionIcon,
-  Avatar,
   Badge,
   Box,
   Button,
@@ -62,10 +61,11 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 
 import styles from './page.module.css';
-import { HANWHA_ORANGE, CHARCOAL, MUTED } from '@/lib/brand-colors';
+import surface from '../../../surface.module.css';
+import { CHARCOAL, MUTED } from '@/lib/brand-colors';
 
 
 type ApplicantDetailData = {
@@ -87,9 +87,9 @@ function DetailItem({
   icon: React.ReactNode;
 }) {
   return (
-    <Paper withBorder radius="md" p="md" bg="gray.0">
+    <Paper radius={16} p="md" bg="var(--dashboard-panel)">
       <Group gap="sm" align="flex-start" wrap="nowrap">
-        <ThemeIcon variant="light" color="orange" radius="xl" size="lg">
+        <ThemeIcon variant="white" color="dark" radius="xl" size="lg">
           {icon}
         </ThemeIcon>
         <Stack gap={3} style={{ minWidth: 0 }}>
@@ -331,7 +331,7 @@ export default function ExamApplicantDetailPage() {
     : applicant.round_label || '시험일 미정';
 
   return (
-    <Box bg="gray.0" mih="100vh">
+    <Box>
       <NotificationDestinationReady />
       {error ? (
         <Container size="lg" pt="md">
@@ -378,12 +378,13 @@ export default function ExamApplicantDetailPage() {
           <IconChevronRight size={30} stroke={2.2} />
         </ActionIcon>
       </Tooltip>
-      <Container size="xl" py="xl">
-        <Stack gap="lg">
+      <div className={surface.page}>
+        <Stack gap={14}>
           <Group justify="space-between" align="center">
             <Button
               variant="subtle"
               color="gray"
+              radius="xl"
               leftSection={<IconArrowLeft size={16} />}
               onClick={() => router.push('/dashboard/exam/applicants')}
             >
@@ -394,21 +395,21 @@ export default function ExamApplicantDetailPage() {
                 size="lg"
                 radius="xl"
                 color={applicant.is_confirmed ? 'orange' : 'gray'}
-                variant={applicant.is_confirmed ? 'filled' : 'light'}
+                variant={applicant.is_confirmed ? 'filled' : 'white'}
               >
                 {receptionLabel}
               </Badge>
             </Group>
           </Group>
 
-          <Paper withBorder radius="lg" p={{ base: 'lg', md: 'xl' }} shadow="sm" bg="white" style={{ borderLeft: `5px solid ${HANWHA_ORANGE}` }}>
+          <section className={surface.card} style={{ '--i': 0 } as CSSProperties}>
             <Group align="center" gap="lg" wrap="wrap">
-              <Avatar size={72} radius="xl" color="orange" variant="light">
+              <span className={styles.heroAvatar}>
                 {(applicant.name || '?').slice(0, 1)}
-              </Avatar>
+              </span>
               <Stack gap={5} style={{ flex: 1, minWidth: 220 }}>
                 <Text size="xs" c="orange" fw={800}>시험 신청자 상세</Text>
-                <Title order={2} c={CHARCOAL}>{applicant.name || '이름 미정'}</Title>
+                <Title order={2} className={surface.title}>{applicant.name || '이름 미정'}</Title>
                 <Group gap="md" wrap="wrap">
                   <Group gap={6}>
                     <IconBuilding size={16} color={MUTED} />
@@ -428,12 +429,12 @@ export default function ExamApplicantDetailPage() {
                 </Badge>
               </Stack>
             </Group>
-          </Paper>
+          </section>
 
-          <Grid gutter="lg" align="stretch">
+          <Grid gutter={14} align="stretch">
             <Grid.Col span={{ base: 12, lg: 8 }}>
-              <Stack gap="lg">
-                <Card withBorder radius="lg" padding="xl" shadow="xs">
+              <Stack gap={14}>
+                <Card radius={24} padding="xl" className={surface.card} style={{ '--i': 1 } as CSSProperties}>
                   <Group justify="space-between" mb="lg">
                     <div>
                       <Title order={4} c={CHARCOAL}>신청자 정보</Title>
@@ -451,7 +452,7 @@ export default function ExamApplicantDetailPage() {
                   </SimpleGrid>
                 </Card>
 
-                <Card withBorder radius="lg" padding="xl" shadow="xs">
+                <Card radius={24} padding="xl" className={surface.card} style={{ '--i': 2 } as CSSProperties}>
                   <Group justify="space-between" mb="lg">
                     <div>
                       <Title order={4} c={CHARCOAL}>시험 신청 정보</Title>
@@ -475,7 +476,7 @@ export default function ExamApplicantDetailPage() {
             </Grid.Col>
 
             <Grid.Col span={{ base: 12, lg: 4 }}>
-              <Card withBorder radius="lg" padding="xl" shadow="sm" h="100%">
+              <Card radius={24} padding="xl" h="100%" className={surface.card} style={{ '--i': 3 } as CSSProperties}>
                 <Stack gap="lg" h="100%">
                   <div>
                     <Text size="sm" fw={700}>신청 상태: {formatExamApplicantApplicationStatus(applicant)}</Text>
@@ -530,8 +531,8 @@ export default function ExamApplicantDetailPage() {
                       <Button
                         fullWidth
                         size="lg"
-                        radius="md"
-                        color="orange"
+                        radius="xl"
+                        color="dark"
                         leftSection={<IconCheck size={19} />}
                         loading={receptionMutation.isPending}
                         disabled={
@@ -545,6 +546,7 @@ export default function ExamApplicantDetailPage() {
                       </Button>
                       <Button
                         fullWidth
+                        radius="xl"
                         variant="light"
                         color="red"
                         leftSection={<IconBan size={18} />}
@@ -585,7 +587,7 @@ export default function ExamApplicantDetailPage() {
             onSubmit={() => rejectMutation.mutate()}
           />
         </Stack>
-      </Container>
+      </div>
     </Box>
   );
 }
