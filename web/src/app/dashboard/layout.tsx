@@ -28,7 +28,7 @@ import {
 } from '@tabler/icons-react';
 import { usePathname, useRouter } from 'next/navigation';
 import type React from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import styles from './layout.module.css';
 
 type NavItem = {
@@ -195,18 +195,48 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {showGroupTabs ? (
             <nav aria-label="메뉴 묶음" className={styles.groupTabs} ref={tabsRef}>
               <span className={styles.groupIndicator} style={indicator ?? { opacity: 0 }} aria-hidden="true" />
-              {navGroups.map((group) => (
-                <button
-                  key={group.label}
-                  type="button"
-                  data-group={group.label}
-                  className={styles.groupTab}
-                  aria-current={group === activeGroup ? 'true' : undefined}
-                  onClick={() => router.push(group.items[0].href)}
-                >
-                  {group.label}
-                </button>
-              ))}
+              {navGroups.map((group) => {
+                const tab = (
+                  <button
+                    type="button"
+                    data-group={group.label}
+                    className={styles.groupTab}
+                    aria-current={group === activeGroup ? 'true' : undefined}
+                    onClick={() => router.push(group.items[0].href)}
+                  >
+                    {group.label}
+                  </button>
+                );
+                if (group.items.length < 2) return <Fragment key={group.label}>{tab}</Fragment>;
+                // Hovering a group tab previews its pages so one click reaches any of them.
+                return (
+                  <Menu
+                    key={group.label}
+                    trigger="hover"
+                    openDelay={80}
+                    closeDelay={180}
+                    position="bottom"
+                    offset={12}
+                    width={240}
+                    transitionProps={{ transition: 'pop', duration: 260 }}
+                    classNames={{ dropdown: styles.groupMenu, item: styles.groupMenuItem }}
+                  >
+                    <Menu.Target>{tab}</Menu.Target>
+                    <Menu.Dropdown>
+                      {group.items.map((item) => (
+                        <Menu.Item
+                          key={item.href}
+                          leftSection={<item.icon size={18} stroke={1.7} />}
+                          data-active={item.href === activeHref || undefined}
+                          onClick={() => router.push(item.href)}
+                        >
+                          {item.label}
+                        </Menu.Item>
+                      ))}
+                    </Menu.Dropdown>
+                  </Menu>
+                );
+              })}
             </nav>
           ) : null}
 

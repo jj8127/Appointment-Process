@@ -1,0 +1,20 @@
+/* 정보 게시판: borderless post cards that lift slightly on hover. */
+.postCard {
+  border: 0;
+  transition: transform 320ms ease, box-shadow 320ms ease;
+}
+
+.postCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px rgba(30, 29, 24, 0.07);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .postCard {
+    transition: none;
+  }
+
+  .postCard:hover {
+    transform: none;
+  }
+}

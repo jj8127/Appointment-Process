@@ -231,3 +231,29 @@
     animation: none;
   }
 }
+
+/* Hover menu under each group tab. */
+.groupMenu {
+  border: 0;
+  border-radius: 20px;
+  padding: 6px;
+  background: #fff;
+  box-shadow: 0 18px 40px rgba(30, 29, 24, 0.12);
+}
+
+.groupMenuItem {
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: var(--dashboard-ink);
+  transition: background-color 240ms ease;
+}
+
+.groupMenuItem[data-hovered] {
+  background: var(--dashboard-panel);
+}
+
+.groupMenuItem[data-active] {
+  background: var(--dashboard-ink);
+  color: #fff;
+}

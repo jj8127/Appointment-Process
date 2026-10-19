@@ -148,6 +148,12 @@
   background: #fafaf9;
 }
 
+/* Closed rows read as disabled; the last (action) column stays usable. */
+.table tbody tr[data-closed] td:not(:last-child) {
+  opacity: 0.42;
+  filter: grayscale(1);
+}
+
 /* Status tiles: one card holding several tiles; data-hot marks the single orange tile. */
 .statGroup {
   display: grid;

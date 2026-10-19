@@ -310,7 +310,7 @@ export default function ExamSchedulePage() {
         const isClosed = now.isAfter(cutoff);
 
         return (
-        <Table.Tr key={round.id}>
+        <Table.Tr key={round.id} data-closed={isClosed || undefined}>
             <Table.Td>
                 {round.exam_date ? (
                     <Text fw={600} size="sm">{dayjs(round.exam_date).format('YYYY-MM-DD')}</Text>
@@ -322,13 +322,12 @@ export default function ExamSchedulePage() {
                 <Text fw={600} size="sm">{round.round_label}</Text>
             </Table.Td>
             <Table.Td>
-                <Text
-                    size="sm"
-                    c={isClosed ? 'red' : CHARCOAL}
-                >
-                    {dayjs(round.registration_deadline).format('YYYY-MM-DD')}{' '}
-                    {isClosed && '(마감)'}
-                </Text>
+                <Group gap={6} wrap="nowrap">
+                    <Text size="sm" c={CHARCOAL}>
+                        {dayjs(round.registration_deadline).format('YYYY-MM-DD')}
+                    </Text>
+                    {isClosed && <span className={surface.pill}>마감</span>}
+                </Group>
             </Table.Td>
             <Table.Td>
                 <Group gap={4}>

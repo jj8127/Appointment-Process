@@ -85,6 +85,7 @@ function harness(route = 'dashboard/chat', role = 'admin') {
   vm.runInNewContext(code, {
     exports, require: (id) => {
       if (id in mocks) return mocks[id];
+      if (id.endsWith('.module.css')) return { default: {} };
       if (id === 'dayjs') return webRequire(id);
       if (id === 'react' || id === 'react/jsx-runtime') return require(id);
       if (id === '@mantine/core' || id === '@tabler/icons-react') return ui;
