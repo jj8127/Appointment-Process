@@ -189,3 +189,8 @@ Quick acceptance displays saved success even if follow-up notification feedback 
 
 - 가람Link 주소 복사는 토스트로 결과를 알린다.
 - 이미지 미리보기는 Modal이 토스트를 가리므로 `feedback: 'none'`으로 복사하고 버튼이 `복사됨`/`복사 실패`로 바뀐다. 다른 이미지를 열면 원래 상태로 돌아간다. 규칙은 `docs/handbook/shared-ui-action-contracts.md`의 피드백 등급을 따른다.
+
+## 2026-10-20 설계요청 화면 처리 중 표시
+
+- 설계요청 메신저의 메시지 삭제는 확인 직후 해당 말풍선을 흐리게 하고 다시 삭제되지 않게 막는다(`confirmMessengerDelete` `onStart`/`onSettled`). 첨부 다운로드는 받는 동안 아이콘이 스피너로 바뀐다. 대화 시작 실패는 알림으로 보인다.
+- 요청 작성·코드 등록은 ref로 중복 제출을 막고, 제출·저장 중에는 뒤로 가기와 모달 닫기가 무시된다. 거절 시트와 검토 모달도 처리 중에는 닫히지 않는다.
