@@ -740,6 +740,27 @@ function buildRecommenderCandidateSearchIndex(candidate: RecommenderCandidate) {
     .toLowerCase();
 }
 
+/**
+ * Keeps the query's matches with name matches first: exact name, then name prefix, then name
+ * substring, then candidates that only matched on affiliation, code or phone. Ties keep their order.
+ */
+export function rankRecommenderCandidatesByQuery(candidates: RecommenderCandidate[], query: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return candidates;
+  const nameRank = (candidate: RecommenderCandidate) => {
+    const name = normalizeName(candidate.name).toLowerCase();
+    if (name === normalizedQuery) return 0;
+    if (name.startsWith(normalizedQuery)) return 1;
+    if (name.includes(normalizedQuery)) return 2;
+    return 3;
+  };
+  return candidates
+    .filter((candidate) => buildRecommenderCandidateSearchIndex(candidate).includes(normalizedQuery))
+    .map((candidate, index) => ({ candidate, index, rank: nameRank(candidate) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map(({ candidate }) => candidate);
+}
+
 export async function searchRecommenderCandidates(params: {
   query?: string | null;
   excludeFcId?: string | null;
@@ -752,10 +773,10 @@ export async function searchRecommenderCandidates(params: {
   const safeLimit = clampPositiveInteger(params.limit ?? 20, 20, 50);
   const allCandidates = await fetchActiveRecommenderCandidates();
 
-  const filtered = allCandidates
-    .filter((candidate) => candidate.fcId !== excludeFcId)
-    .filter((candidate) => (query ? buildRecommenderCandidateSearchIndex(candidate).includes(query) : true))
-    .slice(0, safeLimit);
+  const filtered = rankRecommenderCandidatesByQuery(
+    allCandidates.filter((candidate) => candidate.fcId !== excludeFcId),
+    query,
+  ).slice(0, safeLimit);
 
   const selectedCandidate = selectedFcId
     ? (allCandidates.find((candidate) => candidate.fcId === selectedFcId)

@@ -16,6 +16,8 @@ import { useSession } from '@/hooks/use-session';
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 import { resolveAdminTempIdUpdate } from '@/lib/admin-temp-id-update';
 import { RecommenderSelect } from '@/components/RecommenderSelect';
+import { ConfirmModal } from '@/components/ConfirmModal';
+import { FC_DELETE_CLEANUP_WARNING, requestFcDelete } from '@/lib/fc-delete-client';
 import { NotificationDestinationReady } from '@/components/NotificationDestinationReady';
 import { ADMIN_DOCUMENT_STATUS_LABELS, isAdminFcProfileDetail } from '@/lib/admin-document-client';
 import { isRecommenderSelectionResult } from '@/types/referrals';
@@ -53,7 +55,8 @@ import {
     IconInfoCircle,
     IconMail,
     IconMapPin,
-    IconPhone
+    IconPhone,
+    IconTrash
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
@@ -119,6 +122,7 @@ function FcProfileContent({ fcId }: { fcId: string }) {
     const [memoDraft, setMemoDraft] = useState('');
     const memoSource = useRef<{ owner: string; value: string } | null>(null);
     const [isEditing, setIsEditing] = useState(false);
+    const [deleteConfirmOpened, setDeleteConfirmOpened] = useState(false);
     const profileSubmitting = useRef(false);
     const memoSubmitting = useRef(false);
     const [isEditingRecommender, setIsEditingRecommender] = useState(false);
@@ -381,6 +385,19 @@ function FcProfileContent({ fcId }: { fcId: string }) {
         onSettled: () => { memoSubmitting.current = false; },
     });
 
+    const deleteFcMutation = useMutation({
+        mutationFn: () => requestFcDelete(fcId),
+        onSuccess: (data) => {
+            if (data.cleanupWarning) notifications.show({ title: '파일 정리 확인 필요', message: FC_DELETE_CLEANUP_WARNING, color: 'yellow' });
+            notifications.show({ title: '삭제 완료', message: 'FC 정보가 삭제되었습니다.', color: 'gray' });
+            setDeleteConfirmOpened(false);
+            queryClient.removeQueries({ queryKey: ['fc-profile', fcId] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+            router.replace('/dashboard');
+        },
+        onError: (err: Error) => notifications.show({ title: '삭제 실패', message: err.message, color: 'red' }),
+    });
+
     // --- Helpers ---
     const canEdit = hydrated && role === 'admin' && !isReadOnly;
 
@@ -512,7 +529,29 @@ function FcProfileContent({ fcId }: { fcId: string }) {
                 <Button variant="subtle" color="gray" size="xs" radius="xl" leftSection={<IconArrowLeft size={14} />} onClick={handleLeave}>
                     목록으로 돌아가기
                 </Button>
+                <Button
+                    variant="light"
+                    color={canEdit ? 'red' : 'gray'}
+                    size="xs"
+                    radius="xl"
+                    leftSection={<IconTrash size={14} />}
+                    onClick={() => setDeleteConfirmOpened(true)}
+                    loading={deleteFcMutation.isPending}
+                    disabled={!canEdit}
+                >
+                    FC 삭제
+                </Button>
             </Group>
+            <ConfirmModal
+                opened={deleteConfirmOpened}
+                onClose={() => setDeleteConfirmOpened(false)}
+                onConfirm={() => { if (!deleteFcMutation.isPending) deleteFcMutation.mutate(); }}
+                title="FC 삭제"
+                message={`${profile.name} · 정말로 FC를 삭제하시겠습니까? 관련 서류도 모두 삭제됩니다.`}
+                confirmLabel="삭제"
+                color="red"
+                submitting={deleteFcMutation.isPending}
+            />
 
             {/* Header card: identity, current step and the 0-5 step bar */}
             <section className={styles.card} style={{ '--i': 0 } as CSSProperties}>

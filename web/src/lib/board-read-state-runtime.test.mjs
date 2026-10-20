@@ -702,6 +702,7 @@ test('dashboard failed FC reads do not display empty-list text or invented zero 
     '@/lib/dashboard-work-queue': dashboardWorkQueue,
     '@/components/CountUp': ui,
     '../../lib/logger': { logger: {} },
+    '@/lib/fc-delete-client': { requestFcDelete: async () => ({ ok: true, deleted: true }), FC_DELETE_CLEANUP_WARNING: '' },
   }, { fetch: async () => response, window: { location: { search: '', pathname: '/dashboard' }, history: { state: null, replaceState() {} } } });
   await page.render();
   assert.deepEqual(await page.fetch('dashboard-list'), []);

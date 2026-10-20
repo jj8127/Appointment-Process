@@ -230,3 +230,18 @@ test('recommender selection service rejects empty and mismatched RPC receipts', 
     );
   }
 });
+
+test('recommender search lists name matches before affiliation-only matches', () => {
+  const service = loadService(null);
+  const candidate = (fcId, name, affiliation) => ({ fcId, name, affiliation, phoneLast4: null, activeCode: `C${fcId}`, label: `${name} · ${affiliation}` });
+  const ranked = service.rankRecommenderCandidatesByQuery([
+    candidate('1', '박상현', '1본부 서선미'),
+    candidate('2', '정준', '1본부 서선미'),
+    candidate('3', '서선미아', '2본부 김태희'),
+    candidate('4', '서선미', '1본부 서선미'),
+    candidate('5', '김서선미', '3본부 김태희'),
+    candidate('6', '이지원', '2본부 김태희'),
+  ], '서선미');
+  assert.deepEqual(ranked.map((item) => item.fcId), ['4', '3', '5', '1', '2']);
+  assert.equal(service.rankRecommenderCandidatesByQuery(ranked, '  ').length, ranked.length);
+});

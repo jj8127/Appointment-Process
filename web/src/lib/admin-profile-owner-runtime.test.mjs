@@ -43,10 +43,12 @@ function harness() {
     '@/hooks/use-session': { useSession: () => session },
     '@/lib/show-admin-notification-warning': { showAdminNotificationWarning() {} },
     '@/components/RecommenderSelect': { RecommenderSelect: component('RecommenderSelect') },
+    '@/components/ConfirmModal': { ConfirmModal: component('ConfirmModal') },
+    '@/lib/fc-delete-client': { requestFcDelete: async () => ({ ok: true, deleted: true }), FC_DELETE_CLEANUP_WARNING: '' },
     '@/components/NotificationDestinationReady': { NotificationDestinationReady: () => null },
     '@mantine/notifications': { notifications: { show: (notice) => notices.push(notice) } },
     'next/link': { __esModule: true, default: () => null },
-    'next/navigation': { useRouter: () => ({ back() {} }) },
+    'next/navigation': { useRouter: () => ({ back() {}, replace() {} }) },
     '@tanstack/react-query': { useMutation: query.useMutation, useQueryClient: () => client,
       useQuery: ({ queryKey, queryFn }) => {
         if (queryKey[0] === 'fc-profile') return { data: profiles.get(queryKey[1]), error, isLoading: false, refetch: queryFn };

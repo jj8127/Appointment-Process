@@ -135,6 +135,7 @@ import {
 import { showAdminNotificationWarning } from '@/lib/show-admin-notification-warning';
 
 import { logger } from '../../lib/logger';
+import { FC_DELETE_CLEANUP_WARNING, requestFcDelete } from '@/lib/fc-delete-client';
 
 const DOCS_STAGE_LOCK_STATUSES: FcStatus[] = [
   'hanwha-commission-review',
@@ -1151,56 +1152,10 @@ export default function DashboardPage() {
   const deleteFcMutation = useMutation({
     mutationFn: async () => {
       if (!selectedFc) return;
-      logger.debug('[Web][deleteFc] start', { requestCount: 1 });
-      const resp = await fetch('/api/fc-delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fcId: selectedFc.id }),
-      });
-
-      const data = await resp.json().catch(() => null);
-      logger.debug('[Web][deleteFc] response', {
-        status: resp.status,
-        ok: resp.ok,
-      });
-
-      if (!resp.ok) {
-        const message =
-          data && typeof data === 'object' && 'error' in data
-            ? String((data as { error?: string }).error || '')
-            : '';
-        throw new Error(message || '삭제 실패');
-      }
-
-      // API 응답 검증
-      if (!data || typeof data !== 'object') {
-        logger.error('[Web][deleteFc] invalid response', {
-          status: resp.status,
-          errorCode: 'invalid_response',
-        });
-        throw new Error('서버 응답이 올바르지 않습니다.');
-      }
-
-      // deleted 플래그 확인
-      if (data.ok !== true || data.deleted !== true) {
-        logger.warn('[Web][deleteFc] delete returned false', {
-          status: resp.status,
-          errorCode: 'delete_not_confirmed',
-        });
-        throw new Error(
-          typeof data.message === 'string' ? data.message : 'FC 정보를 삭제할 수 없습니다.'
-        );
-      }
-
-      logger.info('[Web][deleteFc] success', {
-        status: resp.status,
-        deletedCount: 1,
-      });
-      requireMutationSuccess(data);
-      return data;
+      return requestFcDelete(selectedFc.id);
     },
     onSuccess: (data) => {
-      if (data?.cleanupWarning) notifications.show({ title: '파일 정리 확인 필요', message: 'FC 삭제는 완료됐습니다. 일부 파일 정리가 남아 있습니다. 삭제 요청을 반복하지 마세요.', color: 'yellow' });
+      if (data?.cleanupWarning) notifications.show({ title: '파일 정리 확인 필요', message: FC_DELETE_CLEANUP_WARNING, color: 'yellow' });
       logger.debug('[Web][deleteFc] onSuccess', { deletedCount: 1 });
       notifications.show({ title: '삭제 완료', message: 'FC 정보가 삭제되었습니다.', color: 'gray' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
@@ -2949,7 +2904,8 @@ export default function DashboardPage() {
                               size={34}
                               variant="light"
                               color={isReadOnly ? 'gray' : 'red'}
-                              disabled={isReadOnly}
+                              disabled={isReadOnly || deleteFcMutation.isPending}
+                              loading={deleteFcMutation.isPending}
                               onClick={() => {
                                 logger.debug('[Web][deleteFc] click', { requestCount: 1 });
                                 showConfirm({
@@ -2957,10 +2913,9 @@ export default function DashboardPage() {
                                   message: '정말로 FC를 삭제하시겠습니까? 관련 서류도 모두 삭제됩니다.',
                                   confirmLabel: '삭제',
                                   color: 'red',
-                                  onConfirm: () => {
-                                    logger.debug('[Web][deleteFc] mutate');
-                                    deleteFcMutation.mutate();
-                                  },
+                                  // Returning the request keeps the confirm button spinning until the delete settles;
+                                  // failures are already shown by the mutation's onError.
+                                  onConfirm: () => deleteFcMutation.mutateAsync().catch(() => undefined),
                                 });
                               }}
                             >
