@@ -66,7 +66,8 @@ function AdminNoticeComposer() {
   useDraftExitGuard(!!(title.trim() || body.trim() || images.length || files.length), loading);
 
   const pickImage = async () => {
-    if (loading || createIntent.current) return;
+    if (pickingRef.current || loading || createIntent.current) return;
+    pickingRef.current = true;
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
@@ -86,6 +87,8 @@ function AdminNoticeComposer() {
       }
     } catch {
       Alert.alert('오류', '이미지를 불러오는데 실패했습니다.');
+    } finally {
+      pickingRef.current = false;
     }
   };
 
@@ -253,6 +256,8 @@ function AdminNoticeComposer() {
         successTitle: '등록 완료',
         successMessage: '공지사항이 성공적으로 등록되었습니다.',
         notificationLabel: 'FC 공지',
+        onRetryStart: () => { submitRef.current = true; setLoading(true); },
+        onRetryEnd: () => { if (isCurrentSubmit()) { submitRef.current = false; setLoading(false); } },
       });
     } catch {
       if (!isCurrentSubmit()) return;
@@ -329,7 +334,7 @@ function AdminNoticeComposer() {
             <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
               <Button
                 onPress={pickImage}
-                disabled={readOnly}
+                disabled={readOnly || loading}
                 variant="outline"
                 size="md"
                 leftIcon={<Feather name="image" size={20} color={CHARCOAL} />}
@@ -339,7 +344,7 @@ function AdminNoticeComposer() {
               </Button>
               <Button
                 onPress={pickFile}
-                disabled={readOnly}
+                disabled={readOnly || loading}
                 variant="outline"
                 size="md"
                 leftIcon={<Feather name="paperclip" size={20} color={CHARCOAL} />}

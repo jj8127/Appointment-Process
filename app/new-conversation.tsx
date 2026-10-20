@@ -116,6 +116,7 @@ export default function NewConversationScreen() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const startActionRef = useRef(false);
@@ -344,8 +345,12 @@ export default function NewConversationScreen() {
   }, [capabilities.canCreateRequestBoardDm, openExistingRoute, readOnly, router, selectedPerson]);
 
   const handleRefresh = useCallback(() => {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
     setRefreshing(true);
-    void loadAll();
+    void loadAll().finally(() => {
+      refreshingRef.current = false;
+    });
   }, [loadAll]);
 
   const hasLoadError = failedSources.length > 0 && people.length === 0;
@@ -397,7 +402,8 @@ export default function NewConversationScreen() {
       {failedSources.length > 0 && !hasLoadError ? (
         <MessengerHubNotice
           message={`${failedSources.join(', ')} 정보를 불러오지 못했습니다. 표시된 목록은 불러온 결과입니다.`}
-          onRetry={() => void loadAll()}
+          onRetry={handleRefresh}
+          retrying={refreshing}
         />
       ) : null}
 

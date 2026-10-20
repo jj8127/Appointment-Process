@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import {
+    ActivityIndicator,
     Animated,
     Pressable,
     StyleSheet,
@@ -19,6 +20,8 @@ interface MobileStatusToggleProps {
     showNeutralForPending?: boolean;
     allowPendingPress?: boolean;
     neutralPending?: boolean;
+    /** True while the change is being saved: both halves stop taking taps and a spinner shows. */
+    pending?: boolean;
 }
 
 export function MobileStatusToggle({
@@ -30,7 +33,9 @@ export function MobileStatusToggle({
     showNeutralForPending = false,
     allowPendingPress = false,
     neutralPending,
+    pending = false,
 }: MobileStatusToggleProps) {
+    const locked = readOnly || pending;
     const anim = useRef(new Animated.Value(value === 'approved' ? 1 : 0)).current;
 
     useEffect(() => {
@@ -42,7 +47,7 @@ export function MobileStatusToggle({
     }, [value, anim]);
 
     const handlePress = (target: 'pending' | 'approved') => {
-        if (readOnly) return;
+        if (locked) return;
         if (value !== target || (allowPendingPress && target === 'pending')) {
             onChange(target);
         }
@@ -70,7 +75,10 @@ export function MobileStatusToggle({
     });
 
     return (
-        <View style={[styles.container, readOnly && styles.readOnly]}>
+        <View
+            style={[styles.container, locked && styles.readOnly]}
+            accessibilityState={{ busy: pending, disabled: locked }}
+        >
             <Animated.View
                 style={[
                     styles.activePill,
@@ -83,7 +91,7 @@ export function MobileStatusToggle({
             <Pressable
                 style={styles.segment}
                 onPress={() => handlePress('pending')}
-                disabled={readOnly}
+                disabled={locked}
             >
             <Animated.Text style={[styles.text, { color: isNeutral ? GRAY_TEXT : textColorPending }]}>
                 {labelPending}
@@ -92,12 +100,17 @@ export function MobileStatusToggle({
             <Pressable
                 style={styles.segment}
                 onPress={() => handlePress('approved')}
-                disabled={readOnly}
+                disabled={locked}
             >
                 <Animated.Text style={[styles.text, { color: isNeutral ? GRAY_TEXT : textColorApproved }]}>
                     {labelApproved}
                 </Animated.Text>
             </Pressable>
+            {pending ? (
+                <View pointerEvents="none" style={styles.pendingOverlay}>
+                    <ActivityIndicator size="small" color={CHARCOAL} />
+                </View>
+            ) : null}
         </View>
     );
 }
@@ -114,6 +127,11 @@ const styles = StyleSheet.create({
     },
     readOnly: {
         opacity: 0.6,
+    },
+    pendingOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     activePill: {
         position: 'absolute',

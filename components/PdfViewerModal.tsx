@@ -65,9 +65,12 @@ type Props = {
   onShare?: () => void;
   onOpenExternal: () => void;
   saving?: boolean;
+  sharing?: boolean;
+  opening?: boolean;
 };
 
-export function PdfViewerModal({ visible, url, title, onClose, onSave, onShare, onOpenExternal, saving }: Props) {
+export function PdfViewerModal({ visible, url, title, onClose, onSave, onShare, onOpenExternal, saving, sharing, opening }: Props) {
+  const busy = !!saving || !!sharing;
   const [state, setState] = useState<'loading' | 'loaded' | 'error'>('loading');
   const [pages, setPages] = useState(0);
   const source = useMemo(() => (url ? { html: buildPdfViewerHtml(url), baseUrl: 'https://localhost/' } : null), [url]);
@@ -98,14 +101,15 @@ export function PdfViewerModal({ visible, url, title, onClose, onSave, onShare, 
             {pages > 0 ? <Text style={styles.subtitle}>{`${pages}쪽`}</Text> : null}
           </View>
           {onShare ? (
-            <Pressable accessibilityRole="button" accessibilityLabel="PDF 공유" hitSlop={8} onPress={onShare}
-              style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}>
-              <Feather name="share-2" size={21} color="#111827" />
+            <Pressable accessibilityRole="button" accessibilityLabel="PDF 공유" accessibilityState={{ busy: !!sharing, disabled: busy }}
+              disabled={busy} hitSlop={8} onPress={onShare}
+              style={({ pressed }) => [styles.headerButton, (pressed || busy) && styles.pressed]}>
+              {sharing ? <ActivityIndicator size="small" color="#111827" /> : <Feather name="share-2" size={21} color="#111827" />}
             </Pressable>
           ) : null}
-          <Pressable accessibilityRole="button" accessibilityLabel="PDF 저장" accessibilityState={{ busy: !!saving, disabled: !!saving }}
-            disabled={saving} hitSlop={8} onPress={onSave}
-            style={({ pressed }) => [styles.headerButton, (pressed || saving) && styles.pressed]}>
+          <Pressable accessibilityRole="button" accessibilityLabel="PDF 저장" accessibilityState={{ busy: !!saving, disabled: busy }}
+            disabled={busy} hitSlop={8} onPress={onSave}
+            style={({ pressed }) => [styles.headerButton, (pressed || busy) && styles.pressed]}>
             {saving ? <ActivityIndicator size="small" color="#111827" /> : <Feather name="download" size={21} color="#111827" />}
           </Pressable>
         </View>
@@ -129,9 +133,10 @@ export function PdfViewerModal({ visible, url, title, onClose, onSave, onShare, 
         {state === 'error' ? (
           <View style={styles.overlay}>
             <Text style={styles.errorText}>PDF를 앱에서 열지 못했습니다.</Text>
-            <Pressable accessibilityRole="button" onPress={onOpenExternal}
-              style={({ pressed }) => [styles.errorButton, pressed && styles.pressed]}>
-              <Text style={styles.errorButtonText}>다른 앱으로 열기</Text>
+            <Pressable accessibilityRole="button" accessibilityState={{ busy: !!opening, disabled: !!opening }}
+              disabled={opening} onPress={onOpenExternal}
+              style={({ pressed }) => [styles.errorButton, (pressed || opening) && styles.pressed]}>
+              {opening ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.errorButtonText}>다른 앱으로 열기</Text>}
             </Pressable>
           </View>
         ) : null}

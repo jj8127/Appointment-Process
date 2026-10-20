@@ -310,17 +310,25 @@ export const MessengerHubConversationRow = memo(function MessengerHubConversatio
 export function MessengerHubNotice({
   message,
   onRetry,
+  retrying = false,
 }: {
   message: string;
   onRetry?: () => void;
+  retrying?: boolean;
 }) {
   return (
     <View style={styles.notice} accessibilityRole="alert">
       <Feather aria-hidden accessible={false} name="alert-circle" size={16} color="#9A4C16" />
       <Text style={styles.noticeText}>{message}</Text>
       {onRetry ? (
-        <Pressable accessibilityRole="button" onPress={onRetry} style={styles.retryButton}>
-          <Text style={styles.retryText}>다시 시도</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ busy: retrying, disabled: retrying }}
+          disabled={retrying}
+          onPress={onRetry}
+          style={styles.retryButton}
+        >
+          <Text style={styles.retryText}>{retrying ? '다시 불러오는 중...' : '다시 시도'}</Text>
         </Pressable>
       ) : null}
     </View>

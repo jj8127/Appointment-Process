@@ -287,6 +287,8 @@ function AppointmentScreenContent() {
         successMessage:
           `${insuranceLabel} 위촉 완료일이 제출되었습니다. 관리자 승인 후 최종 반영됩니다.`,
         notificationLabel: '관리자',
+        onRetryStart: () => setSaving(true),
+        onRetryEnd: () => setSaving(false),
       });
     } catch (err: any) {
       Alert.alert('저장 실패', err?.message ?? '정보를 저장하지 못했습니다.');

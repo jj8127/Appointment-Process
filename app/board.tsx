@@ -442,6 +442,10 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
   const [previewImage, setPreviewImage] = useState<PreviewModalState | null>(null);
   const [pdfViewer, setPdfViewer] = useState<PdfViewerState | null>(null);
   const [savingAttachmentId, setSavingAttachmentId] = useState<string | null>(null);
+  const [sharingAttachmentId, setSharingAttachmentId] = useState<string | null>(null);
+  const [openingAttachmentId, setOpeningAttachmentId] = useState<string | null>(null);
+  const savingAttachmentRef = useRef(false);
+  const openingAttachmentRef = useRef(false);
   const [commentText, setCommentText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -684,8 +688,20 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
     }
     await openExternalAttachment(attachmentId);
   }, [loadFreshAttachments, openExternalAttachment]);
+  const runAttachmentOpen = useCallback(async (attachmentId: string, open: (id: string) => Promise<void>) => {
+    if (openingAttachmentRef.current) return;
+    openingAttachmentRef.current = true;
+    setOpeningAttachmentId(attachmentId);
+    try {
+      await open(attachmentId);
+    } finally {
+      openingAttachmentRef.current = false;
+      setOpeningAttachmentId(null);
+    }
+  }, []);
   const saveAttachment = useCallback(async (attachmentId: string) => {
-    if (savingAttachmentId) return;
+    if (savingAttachmentRef.current) return;
+    savingAttachmentRef.current = true;
     setSavingAttachmentId(attachmentId);
     try {
       const attachment = (await loadFreshAttachments())?.find((item) => item.id === attachmentId);
@@ -702,13 +718,16 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
       logBoardError('attachment-save', error);
       Alert.alert('저장 실패', error instanceof Error && error.message ? error.message : '첨부파일을 저장하지 못했어요. 다시 시도해 주세요.');
     } finally {
+      savingAttachmentRef.current = false;
       setSavingAttachmentId(null);
     }
-  }, [loadFreshAttachments, savingAttachmentId]);
+  }, [loadFreshAttachments]);
   // Saving and sharing both download the file, so they share the busy state.
   const shareAttachment = useCallback(async (attachmentId: string) => {
-    if (savingAttachmentId) return;
+    if (savingAttachmentRef.current) return;
+    savingAttachmentRef.current = true;
     setSavingAttachmentId(attachmentId);
+    setSharingAttachmentId(attachmentId);
     try {
       const attachment = (await loadFreshAttachments())?.find((item) => item.id === attachmentId);
       if (!attachment?.signedUrl) throw new Error('첨부파일 주소를 불러오지 못했습니다.');
@@ -722,9 +741,11 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
       logBoardError('attachment-share', error);
       Alert.alert('공유 실패', error instanceof Error && error.message ? error.message : '첨부파일을 공유하지 못했어요. 다시 시도해 주세요.');
     } finally {
+      savingAttachmentRef.current = false;
       setSavingAttachmentId(null);
+      setSharingAttachmentId(null);
     }
-  }, [loadFreshAttachments, savingAttachmentId]);
+  }, [loadFreshAttachments]);
   const modalReactionCounts = {
     like: modalReactions.like,
     heart: modalReactions.heart,
@@ -750,8 +771,11 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refetch();
-    setRefreshing(false);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
   }, [refetch]);
 
   useEffect(() => {
@@ -1025,7 +1049,9 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
         setEditingCommentId(comment.id);
         setEditingCommentText(safeText(comment.content));
       },
-      onDelete: () => deleteCommentMutation.mutate(comment.id),
+      onDelete: () => {
+        if (!deleteCommentMutation.isPending) deleteCommentMutation.mutate(comment.id);
+      },
     });
   };
 
@@ -1044,12 +1070,15 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
     const isReply = depth > 0;
     const isCollapsed = depth === 0 && collapsedThreadIds.includes(comment.id);
     const replyStyle = depth >= 2 ? styles.replyItemDeep : styles.replyItem;
+    const isDeleting = deleteCommentMutation.isPending && deleteCommentMutation.variables === comment.id;
+    const isSavingEdit = updateCommentMutation.isPending && updateCommentMutation.variables?.commentId === comment.id;
     return (
       <View
         key={comment.id}
         style={[
           isReply ? replyStyle : styles.commentItem,
           isReply && { marginLeft: depth * 14 },
+          isDeleting && { opacity: 0.5 },
         ]}
       >
         <View style={styles.commentHeader}>
@@ -1072,13 +1101,17 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
           </View>
           {comment.isMine && (
             <Pressable accessibilityLabel="댓글 더보기" accessibilityRole="button"
+              accessibilityState={{ disabled: isDeleting, busy: isDeleting }}
+              disabled={isDeleting}
               style={({ pressed }) => [
                 styles.commentMoreButton,
                 pressed && { opacity: 0.6 },
               ]}
               onPress={() => openCommentActions(comment)}
             >
-              <Feather name="more-vertical" size={16} color={TEXT_MUTED} />
+              {isDeleting
+                ? <ActivityIndicator size="small" color={TEXT_MUTED} />
+                : <Feather name="more-vertical" size={16} color={TEXT_MUTED} />}
             </Pressable>
           )}
         </View>
@@ -1092,11 +1125,14 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
             />
             <View style={styles.commentEditActions}>
               <Pressable
+                accessibilityState={{ disabled: updateCommentMutation.isPending, busy: isSavingEdit }}
+                disabled={updateCommentMutation.isPending}
                 style={({ pressed }) => [
                   styles.commentEditButton,
-                  pressed && { opacity: 0.7 },
+                  (pressed || updateCommentMutation.isPending) && { opacity: 0.7 },
                 ]}
                 onPress={() => {
+                  if (updateCommentMutation.isPending) return;
                   const trimmed = editingCommentText.trim();
                   if (!trimmed) {
                     showBoardFeedbackAlert(Alert.alert, 'empty-comment');
@@ -1105,7 +1141,7 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                   updateCommentMutation.mutate({ commentId: comment.id, content: trimmed });
                 }}
               >
-                <Text style={styles.commentEditButtonText}>수정</Text>
+                <Text style={styles.commentEditButtonText}>{isSavingEdit ? '저장 중...' : '수정'}</Text>
               </Pressable>
               <Pressable
                 style={({ pressed }) => [
@@ -1139,7 +1175,10 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
           <CommentLikeButton
             liked={comment.isLiked}
             count={comment.stats.likeCount}
-            onPress={() => toggleCommentLikeMutation.mutate(comment.id)}
+            onPress={() => {
+              if (toggleCommentLikeMutation.isPending && toggleCommentLikeMutation.variables === comment.id) return;
+              toggleCommentLikeMutation.mutate(comment.id);
+            }}
           />
         </View>
         {depth === 0 && replies.length > 0 && (
@@ -1345,7 +1384,7 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
           {isLoading && !refreshing && <ListSkeleton count={5} itemHeight={88} />}
 
           {isError && !isFetchNextPageError && (
-            <QueryReadState error={listError} message="게시글을 불러오지 못했습니다." onRetry={() => void refetch()} />
+            <QueryReadState error={listError} message="게시글을 불러오지 못했습니다." onRetry={() => void refetch()} retrying={isFetching} />
           )}
 
           {!isLoading && !isError && posts.length === 0 && (
@@ -1534,13 +1573,17 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                           key={item.id}
                           accessibilityRole="button"
                           accessibilityLabel={`${fileName}, ${kind}${size ? `, ${size}` : ''} 열기`}
-                          style={({ pressed }) => [styles.fileCard, pressed && styles.fileCardPressed]}
+                          accessibilityState={{ busy: openingAttachmentId === item.id, disabled: !!openingAttachmentId }}
+                          disabled={!!openingAttachmentId}
+                          style={({ pressed }) => [styles.fileCard, (pressed || openingAttachmentId === item.id) && styles.fileCardPressed]}
                           onPress={() => {
-                            void openFileAttachment(item.id);
+                            void runAttachmentOpen(item.id, openFileAttachment);
                           }}
                         >
                           <View style={[styles.fileKind, kind === 'PDF' && styles.fileKindPdf]}>
-                            <Text style={[styles.fileKindText, kind === 'PDF' && styles.fileKindTextPdf]}>{kind}</Text>
+                            {openingAttachmentId === item.id
+                              ? <ActivityIndicator size="small" color={TEXT_MUTED} />
+                              : <Text style={[styles.fileKindText, kind === 'PDF' && styles.fileKindTextPdf]}>{kind}</Text>}
                           </View>
                           <View style={styles.fileCardBody}>
                             <Text style={styles.fileCardName} numberOfLines={2}>{fileName}</Text>
@@ -1550,6 +1593,7 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                             <Pressable
                               accessibilityRole="button"
                               accessibilityLabel={`${fileName} 공유`}
+                              accessibilityState={{ busy: sharingAttachmentId === item.id, disabled: !!savingAttachmentId }}
                               disabled={!!savingAttachmentId}
                               hitSlop={6}
                               style={({ pressed }) => [styles.fileSaveButton, pressed && { opacity: 0.6 }]}
@@ -1557,7 +1601,9 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                                 void shareAttachment(item.id);
                               }}
                             >
-                              <Feather name="share-2" size={18} color={TEXT_MUTED} />
+                              {sharingAttachmentId === item.id
+                                ? <ActivityIndicator size="small" color={TEXT_MUTED} />
+                                : <Feather name="share-2" size={18} color={TEXT_MUTED} />}
                             </Pressable>
                           ) : null}
                           <Pressable
@@ -1571,7 +1617,7 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                               void saveAttachment(item.id);
                             }}
                           >
-                            {savingAttachmentId === item.id
+                            {savingAttachmentId === item.id && !sharingAttachmentId
                               ? <ActivityIndicator size="small" color={TEXT_MUTED} />
                               : <Feather name="download" size={18} color={TEXT_MUTED} />}
                           </Pressable>
@@ -1591,13 +1637,15 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                             key={item.id}
                             accessibilityRole="imagebutton"
                             accessibilityLabel={`이미지 ${index + 1}/${modalAttachmentImages.length} 크게 보기`}
+                            accessibilityState={{ busy: openingAttachmentId === item.id, disabled: !!openingAttachmentId }}
+                            disabled={!!openingAttachmentId}
                             style={({ pressed }) => [
                               styles.imageThumb,
                               modalAttachmentImages.length === 1 && styles.imageSingle,
-                              pressed && { opacity: 0.75 },
+                              (pressed || openingAttachmentId === item.id) && { opacity: 0.75 },
                             ]}
                             onPress={() => {
-                              void openAttachmentImagePreview(item.id);
+                              void runAttachmentOpen(item.id, openAttachmentImagePreview);
                             }}
                           >
                             <Image
@@ -1606,6 +1654,11 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                               resizeMethod="resize"
                               resizeMode={modalAttachmentImages.length === 1 ? 'contain' : 'cover'}
                             />
+                            {openingAttachmentId === item.id ? (
+                              <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
+                                <ActivityIndicator size="small" color="#fff" />
+                              </View>
+                            ) : null}
                           </Pressable>
                         ))}
                       </ScrollView>
@@ -1624,7 +1677,10 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                   <Text style={styles.sectionTitle}>반응 남기기</Text>
                   <ReactionPicker
                     reactions={DEFAULT_REACTIONS}
-                    onReact={(reactionId) => addReactionMutation.mutate({ postId: selectedPost.id, reactionType: reactionId as BoardReactionKey })}
+                    onReact={(reactionId) => {
+                      if (addReactionMutation.isPending) return;
+                      addReactionMutation.mutate({ postId: selectedPost.id, reactionType: reactionId as BoardReactionKey });
+                    }}
                     reactionCounts={modalReactionCounts}
                     selectedReactions={effectiveMyReaction ? [effectiveMyReaction] : []}
                     showLabels={false}
@@ -1674,11 +1730,13 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
                     multiline
                   />
                   <Pressable accessibilityLabel="댓글 전송" accessibilityRole="button" accessibilityState={{ disabled: !commentText.trim() || addCommentMutation.isPending }}
-                    style={[styles.commentSubmitButton, !commentText.trim() && { opacity: 0.5 }]}
+                    style={[styles.commentSubmitButton, (!commentText.trim() || addCommentMutation.isPending) && { opacity: 0.5 }]}
                     onPress={handleAddComment}
                     disabled={!commentText.trim() || addCommentMutation.isPending}
                   >
-                    <Feather name="send" size={18} color="#fff" />
+                    {addCommentMutation.isPending
+                      ? <ActivityIndicator size="small" color="#fff" />
+                      : <Feather name="send" size={18} color="#fff" />}
                   </Pressable>
                 </View>
               </KeyboardSafeBottomBar>}
@@ -1700,7 +1758,8 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
           const imageId = previewImage?.images[index]?.id;
           if (imageId) void shareAttachment(imageId);
         } : undefined}
-        saving={!!savingAttachmentId}
+        saving={!!savingAttachmentId && !sharingAttachmentId}
+        sharing={!!sharingAttachmentId}
       />
       <PdfViewerModal
         visible={!!pdfViewer}
@@ -1713,9 +1772,11 @@ function BoardScreenContent({ sessionScope }: { sessionScope: number }) {
         onShare={CAN_SHARE_FILES ? () => {
           if (pdfViewer) void shareAttachment(pdfViewer.attachmentId);
         } : undefined}
-        saving={!!savingAttachmentId}
+        saving={!!savingAttachmentId && !sharingAttachmentId}
+        sharing={!!sharingAttachmentId}
+        opening={!!openingAttachmentId}
         onOpenExternal={() => {
-          if (pdfViewer) void openExternalAttachment(pdfViewer.attachmentId);
+          if (pdfViewer) void runAttachmentOpen(pdfViewer.attachmentId, openExternalAttachment);
         }}
       />
     </SafeAreaView>

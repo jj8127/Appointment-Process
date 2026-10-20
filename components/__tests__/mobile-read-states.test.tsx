@@ -110,7 +110,7 @@ describe('mobile read failure presentation', () => {
         ? '!isLoading && !isError && posts.length === 0'
         : '!isLoading && !isError && filteredPosts.length === 0';
     const failed = await render(`app/${route}`, ['isError &&', emptyExpression], {
-      isError: true, isFetchNextPageError: false, isLoading: false, filteredPosts: [], posts: [], searchQuery: '', notices: [], refetch: jest.fn(), listError: new Error('synthetic'), noticesError: new Error('synthetic'),
+      isError: true, isFetchNextPageError: false, isLoading: false, isFetching: false, filteredPosts: [], posts: [], searchQuery: '', notices: [], refetch: jest.fn(), listError: new Error('synthetic'), noticesError: new Error('synthetic'),
     });
     expect(failed.texts.join(' ')).toContain('불러오지 못했습니다');
     expect(failed.texts.join(' ')).not.toContain('등록된');

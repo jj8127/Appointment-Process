@@ -22,6 +22,7 @@ export default function ServiceHospitals() {
   const keyboardPadding = useKeyboardPadding();
   const [regions, setRegions] = useState<PlatformHospitalRegions | null>(null);
   const [regionsError, setRegionsError] = useState(false);
+  const [regionsLoading, setRegionsLoading] = useState(false);
   const [filters, setFilters] = useState(ALL);
   const [query, setQuery] = useState('');
   const [data, setData] = useState<PlatformHospitalList | null>(null);
@@ -62,10 +63,12 @@ export default function ServiceHospitals() {
 
   const loadRegions = useCallback(async () => {
     const owns = beginRegions();
+    setRegionsLoading(true);
     try {
       const next = await platformRequest<PlatformHospitalRegions>('get_hospital_regions');
       if (owns()) { setRegions(next); setRegionsError(false); }
     } catch { if (owns()) setRegionsError(true); }
+    finally { if (owns()) setRegionsLoading(false); }
   }, [beginRegions]);
   const search = useCallback(async (value: Filters, offset = 0) => {
     const owns = begin();
@@ -111,7 +114,7 @@ export default function ServiceHospitals() {
             <Text style={local.metadata}>{filters.district || '전체 시·군·구'}</Text><Feather name="chevron-down" size={14} color={COLORS.text.secondary} accessible={false} />
           </Pressable>}
         </View>
-        {regionsError && <View style={[styles.error, local.section]}><Text accessibilityRole="alert" style={styles.body}>지역 선택 정보를 불러오지 못했습니다.</Text><Button variant="ghost" onPress={() => void loadRegions()}>지역 정보 다시 불러오기</Button></View>}
+        {regionsError && <View style={[styles.error, local.section]}><Text accessibilityRole="alert" style={styles.body}>지역 선택 정보를 불러오지 못했습니다.</Text><Button variant="ghost" loading={regionsLoading} onPress={() => void loadRegions()}>지역 정보 다시 불러오기</Button></View>}
         {searching ? <ScrollView keyboardShouldPersistTaps="always" horizontal showsHorizontalScrollIndicator={false} style={local.section} contentContainerStyle={{ gap: 8 }}>
           {['', ...HOSPITAL_DIRECTORY_SPECIALTIES].map((specialty) => <Pressable key={specialty} accessibilityRole="button" accessibilityState={{ selected: filters.specialty === specialty }} aria-pressed={filters.specialty === specialty} onPress={() => setFilters((current) => ({ ...current, specialty }))} style={[styles.chip, filters.specialty === specialty && styles.selectedChip]}><Text style={[styles.body, filters.specialty === specialty && styles.selectedText]}>{specialty || '전체 진료 분야'}</Text></Pressable>)}
         </ScrollView> : <View style={[local.section, { gap: 8 }]}>

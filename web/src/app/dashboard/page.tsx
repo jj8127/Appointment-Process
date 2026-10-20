@@ -29,6 +29,7 @@ import {
   Card,
   Chip,
   Group,
+  Loader,
   Modal,
   Pagination,
   Paper,
@@ -1693,7 +1694,8 @@ export default function DashboardPage() {
       value = dayjs(dateVal).format('YYYY-MM-DD');
     }
 
-    const executeTransition = () => {
+    // Resolves once the transition's async work settles so the confirm dialog stays open meanwhile.
+    const executeTransition = () => new Promise<void>((resolve) => {
       startAppointmentTransition(async () => {
         try {
         const result = await updateAppointmentAction(
@@ -1735,12 +1737,14 @@ export default function DashboardPage() {
         }
         } catch {
           notifications.show({ title: '처리 결과 확인 필요', message: '서버 응답을 확인할 수 없습니다. 목록을 새로고침하여 상태를 확인해 주세요.', color: 'red' });
+        } finally {
+          resolve();
         }
       });
-    };
+    });
 
     if (type === 'schedule') {
-      executeTransition();
+      void executeTransition();
     } else {
       showConfirm({
         title: '위촉 승인',
@@ -1955,7 +1959,7 @@ export default function DashboardPage() {
   // Adds the typed extra document to the request list (plus button or Enter).
   const handleAddCustomDoc = () => {
     const val = customDocInput.trim();
-    if (isReadOnly || !val) return;
+    if (isReadOnly || !val || updateDocsRequestMutation.isPending) return;
     if (!selectedDocs.includes(val)) {
       const nextDocs = [...selectedDocs, val];
       setSelectedDocs(nextDocs);
@@ -2298,12 +2302,14 @@ export default function DashboardPage() {
               <button
                 type="button"
                 className={styles.softButton}
+                disabled={isFetching}
+                aria-busy={isFetching || undefined}
                 onClick={() => {
                   queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
                   queryClient.invalidateQueries({ queryKey: ['fc-signup-referral-code'] });
                 }}
               >
-                <IconRefresh size={16} stroke={1.8} /> 새로고침
+                {isFetching ? <Loader size={14} /> : <IconRefresh size={16} stroke={1.8} />} 새로고침
               </button>
             </div>
             <div className={styles.well}>
@@ -2823,7 +2829,7 @@ export default function DashboardPage() {
                                       message: '임시사번과 보증보험 조회 동의일을 비우고 조회중(임시사번 미입력) 단계로 되돌릴까요?',
                                       confirmLabel: '되돌리기',
                                       color: 'orange',
-                                      onConfirm: () => resetToLookupMutation.mutate(),
+                                      onConfirm: () => resetToLookupMutation.mutateAsync().catch(() => undefined),
                                     });
                                   }}
                                 >
@@ -3008,6 +3014,7 @@ export default function DashboardPage() {
                             color="dark"
                             leftSection={<IconSend size={16} />}
                             disabled={allowanceStateDisabled}
+                            loading={updateStatusMutation.isPending && updateStatusMutation.variables?.status === 'allowance-pending'}
                             onClick={() => allowanceStateButtons[0].onClick()}
                           >
                             사전 심사 요청
@@ -3017,6 +3024,7 @@ export default function DashboardPage() {
                             color="orange"
                             leftSection={<IconCheck size={16} />}
                             disabled={allowanceStateDisabled || allowanceDisplay.key === 'approved'}
+                            loading={updateStatusMutation.isPending && updateStatusMutation.variables?.status === 'allowance-consented'}
                             onClick={() => allowanceStateButtons[1].onClick()}
                           >
                             {allowanceDisplay.key === 'approved' ? '승인 완료됨' : '승인 완료'}
@@ -3343,6 +3351,7 @@ export default function DashboardPage() {
                       radius="xl"
                       size={34}
                       disabled={isReadOnly}
+                      loading={updateDocsRequestMutation.isPending}
                       onClick={handleAddCustomDoc}
                     >
                       <IconPlus size={16} />
@@ -3368,26 +3377,26 @@ export default function DashboardPage() {
                           message: '심사 완료 상태를 취소하시겠습니까?',
                           confirmLabel: '취소',
                           color: 'orange',
-                          onConfirm: () => {
-                            updateStatusMutation.mutate({
+                          onConfirm: () =>
+                            updateStatusMutation.mutateAsync({
                               status: 'docs-pending',
                               msg: '',
                               extra: buildDocWorkflowResetProfileFields(),
-                            });
-                          },
+                            }).catch(() => undefined),
                         });
                     };
+                    const reviewPending = updateStatusMutation.isPending;
                     return (
                       <div className={fcm.footer}>
                         <span className={fcm.footerStatus} data-done={docsReviewed || undefined}>
                           <i />서류 심사 · {docsReviewed ? '심사 완료' : '심사 대기'}
                         </span>
                         {docsReviewed ? (
-                          <Button radius="xl" variant="default" color="gray" disabled={reviewLocked} onClick={() => decideReview('pending')}>
+                          <Button radius="xl" variant="default" color="gray" disabled={reviewLocked} loading={reviewPending} onClick={() => decideReview('pending')}>
                             심사 완료 취소
                           </Button>
                         ) : (
-                          <Button radius="xl" color="orange" leftSection={<IconCheck size={16} />} disabled={reviewLocked} onClick={() => decideReview('approved')}>
+                          <Button radius="xl" color="orange" leftSection={<IconCheck size={16} />} disabled={reviewLocked} loading={reviewPending} onClick={() => decideReview('approved')}>
                             서류 심사 완료
                           </Button>
                         )}

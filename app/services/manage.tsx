@@ -35,7 +35,10 @@ export default function ServiceManage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
   const pending = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
   const beginRead = useReadAttempt();
   const beginWrite = useReadAttempt();
   const tracker = useRef(createCreationRequestTracker(randomUUID));
@@ -68,9 +71,15 @@ export default function ServiceManage() {
       setError(cause instanceof Error ? cause.message : '내역을 확인하지 못했습니다.');
     }
   };
+  const refreshManually = async () => {
+    if (pending.current || refreshingRef.current) return;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    try { await refresh(); } finally { refreshingRef.current = false; setRefreshing(false); }
+  };
   // The signed server checks admin authority again on every read and mutation.
   useEffect(() => {
-    beginRead(); beginWrite(); pending.current = false; setBusy(false); setError(null); setMessage(null);
+    beginRead(); beginWrite(); pending.current = false; setBusy(false); setBusyAction(null); setError(null); setMessage(null);
     setData(null); setFields(EMPTY_PARTNER); setHospital(EMPTY_HOSPITAL_DRAFT); setSettlement(EMPTY_SETTLEMENT);
     setEditing(false); setRevision(0); setPartnerId(randomUUID()); setActive(false);
     setApplicationId(''); setSettlementPartnerId(''); setConfirmed(false); tracker.current.complete();
@@ -81,7 +90,7 @@ export default function ServiceManage() {
   }, [token, allowed]);
   const write = async (action: string, payload: Record<string, unknown>) => {
     if (pending.current || !allowed || !token) return;
-    pending.current = true; setBusy(true); setError(null); setMessage(null);
+    pending.current = true; setBusy(true); setBusyAction(action); setError(null); setMessage(null);
     const owns = beginWrite(); beginRead();
     const requestKey = tracker.current.requestId(JSON.stringify([token, action, payload]));
     try {
@@ -98,7 +107,7 @@ export default function ServiceManage() {
       }
       return;
     }
-    finally { if (owns() && owner.current === ownerKey) { pending.current = false; setBusy(false); } }
+    finally { if (owns() && owner.current === ownerKey) { pending.current = false; setBusy(false); setBusyAction(null); } }
     await refresh();
   };
   const savePartner = () => {
@@ -125,7 +134,7 @@ export default function ServiceManage() {
       <Text style={styles.body}>실제 합의한 제휴와 비율만 등록하세요. 이 화면은 정산 기록을 관리하며, 은행 이체를 실행하지 않습니다.</Text>
       {error && <Text accessibilityRole="alert" style={styles.body}>{error}</Text>}
       {message && <Text accessibilityLiveRegion="polite" style={styles.body}>{message}</Text>}
-      <ServiceAction label="내역 새로 확인" onPress={() => { if (!pending.current) void refresh(); }} />
+      <ServiceAction label={refreshing ? '확인 중...' : '내역 새로 확인'} onPress={() => { void refreshManually(); }} />
       <Text style={styles.sectionTitle}>제휴사 등록</Text>
       {data?.partners.map((partner) => <Button key={partner.id} variant="outline" disabled={busy} onPress={() => {
         setEditing(true); setPartnerId(partner.id); setRevision(partner.revision); setServiceKey(partner.service_key);
@@ -158,7 +167,7 @@ export default function ServiceManage() {
         <Button variant={referrerBasis === 'commission' ? 'primary' : 'outline'} disabled={busy} onPress={() => setReferrerBasis('commission')}>수수료 총액 기준</Button>
       </>}
       <Pressable accessibilityRole="checkbox" accessibilityLabel="제휴사 활성화" accessibilityState={{ checked: active, disabled: busy }} disabled={busy} style={styles.list} onPress={() => setActive((value) => !value)}><Text style={styles.item}>{active ? '☑' : '□'} 제휴를 확인하여 활성화합니다.</Text></Pressable>
-      <Button loading={busy} fullWidth onPress={savePartner}>{editing ? '제휴사 수정 저장' : '합의된 제휴사 등록'}</Button>
+      <Button loading={busyAction === 'save_partner'} disabled={busy} fullWidth onPress={savePartner}>{editing ? '제휴사 수정 저장' : '합의된 제휴사 등록'}</Button>
       <HospitalPerformanceReport token={token} allowed={allowed} partners={(data?.partners ?? []).filter((partner) => partner.service_key === 'hospital')} />
       <Text style={styles.sectionTitle}>외부 거래·정산 확인</Text>
       {data?.applications.filter((item) => item.status === 'interest' && item.service_key !== 'insurance').map((item) => <Button key={item.id} variant={applicationId === item.id ? 'primary' : 'outline'} disabled={busy} onPress={() => { setApplicationId(item.id); setSettlementPartnerId(''); setConfirmed(false); }}>{PLATFORM_SERVICES[item.service_key]} · {new Date(item.created_at).toLocaleDateString('ko-KR')} · {item.id.slice(0, 8)}</Button>)}
@@ -167,7 +176,7 @@ export default function ServiceManage() {
       <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: confirmed, disabled: busy }} disabled={busy} style={styles.list} onPress={() => setConfirmed((value) => !value)}>
         <Text style={styles.item}>{confirmed ? '☑' : '□'} 실제 거래·취소 여부와 제휴사 정산 완료 증빙을 확인했습니다.</Text>
       </Pressable>
-      <Button loading={busy} disabled={!confirmed || !applicationId || !settlementPartnerId} fullWidth onPress={() => {
+      <Button loading={busyAction === 'settle_application'} disabled={busy || !confirmed || !applicationId || !settlementPartnerId} fullWidth onPress={() => {
         const amount = Number(settlement.commissionAmount);
         if (!settlement.commissionAmount.trim() || !Number.isSafeInteger(amount) || amount < 0) { setError('수수료 총액을 원 단위로 입력해 주세요.'); return; }
         void write('settle_application', { ...settlement, commissionAmount: amount, applicationId, partnerId: settlementPartnerId, confirmedCompleted: true });
@@ -182,7 +191,7 @@ export default function ServiceManage() {
       <FormInput label="실제 지급 시각 (시간대 포함)" accessibilityLabel="실제 지급 시각" value={payment.paidAt} editable={!busy} placeholder="2026-10-11T13:00:00+09:00" maxLength={40} onChangeText={(value) => setPayment((current) => ({ ...current, paidAt: value }))} />
       <FormInput label="이체 식별 번호" accessibilityLabel="이체 식별 번호" value={payment.transferReference} editable={!busy} maxLength={120} onChangeText={(value) => setPayment((current) => ({ ...current, transferReference: value }))} />
       <Pressable accessibilityRole="checkbox" accessibilityLabel="실제 이체 확인" accessibilityState={{ checked: paymentConfirmed, disabled: busy }} disabled={busy} style={styles.list} onPress={() => setPaymentConfirmed((value) => !value)}><Text style={styles.item}>{paymentConfirmed ? '☑' : '□'} 해당 대상에게 실제 이체가 완료된 것을 확인했습니다.</Text></Pressable>
-      <Button loading={busy} disabled={!benefitId || !paymentConfirmed || !payment.paidAt || !payment.transferReference} fullWidth onPress={() => void write('mark_paid', { ...payment, benefitId })}>실제 지급 완료 기록</Button>
+      <Button loading={busyAction === 'mark_paid'} disabled={busy || !benefitId || !paymentConfirmed || !payment.paidAt || !payment.transferReference} fullWidth onPress={() => void write('mark_paid', { ...payment, benefitId })}>실제 지급 완료 기록</Button>
     </>}
     </View>
   </ServiceInformation>;

@@ -3,6 +3,7 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   AppState,
   FlatList,
   Pressable,
@@ -226,8 +227,11 @@ export default function AdminMessengerScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refetch();
-    setRefreshing(false);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
   }, [refetch]);
 
   const formatTime = (isoString: string | null) => {
@@ -370,8 +374,19 @@ export default function AdminMessengerScreen() {
             </View>
           )}
         </View>
-        <Pressable accessibilityLabel="새로고침" accessibilityRole="button" style={styles.refreshBtn} onPress={() => { void refetch(); }}>
-          <Feather name="refresh-cw" size={16} color={MUTED} />
+        <Pressable
+          accessibilityLabel="새로고침"
+          accessibilityRole="button"
+          accessibilityState={{ disabled: isFetching, busy: isFetching }}
+          disabled={isFetching}
+          style={styles.refreshBtn}
+          onPress={() => { void refetch(); }}
+        >
+          {isFetching ? (
+            <ActivityIndicator size="small" color={MUTED} />
+          ) : (
+            <Feather name="refresh-cw" size={16} color={MUTED} />
+          )}
         </Pressable>
       </View>
 

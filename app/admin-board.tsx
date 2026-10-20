@@ -8,6 +8,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   BackHandler,
   Image,
@@ -139,6 +140,8 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
     useState<PendingBoardAttachmentRetry | null>(null);
   const pickingRef = useRef(false);
   const submitRef = useRef(false);
+  const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null);
+  const deletingAttachmentRef = useRef(false);
   const beginMutation = useReadAttempt();
   const currentOutcome = useRef<() => boolean>(() => true);
   const createIntent = useRef<{ requestId: string; categoryId: string; title: string; content: string } | null>(null);
@@ -301,11 +304,14 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
     operation: 'create' | 'update',
     retry: BoardNotificationRetry,
   ) {
-    if (!currentOutcome.current()) return;
+    if (!currentOutcome.current() || submitRef.current) return;
     if (!actor) {
       Alert.alert('알림 대상 오류', '현재 계정 정보를 확인할 수 없습니다.');
       return;
     }
+    const isCurrentOutcome = currentOutcome.current;
+    submitRef.current = true;
+    setLoading(true);
     try {
       const result = await retryBoardNotification(actor, retry);
       if (!currentOutcome.current()) return;
@@ -335,6 +341,8 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
           },
         ],
       );
+    } finally {
+      if (isCurrentOutcome()) { submitRef.current = false; setLoading(false); }
     }
   }
 
@@ -605,13 +613,16 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
   }, [canEditComposer]);
 
   const removeExistingAttachment = useCallback((file: LocalAttachment) => {
-    if (!actor || !postId || !canEditComposer) return;
+    if (!actor || !postId || !canEditComposer || deletingAttachmentRef.current) return;
     Alert.alert('첨부 삭제', `'${file.fileName}' 첨부파일을 삭제할까요?`, [
       { text: '취소', style: 'cancel' },
       {
         text: '삭제',
         style: 'destructive',
         onPress: async () => {
+          if (deletingAttachmentRef.current) return;
+          deletingAttachmentRef.current = true;
+          setDeletingAttachmentId(file.id);
           try {
             await deleteBoardAttachments(actor, postId, [file.id]);
             setExistingAttachments((prev) => prev.filter((item) => item.id !== file.id));
@@ -620,6 +631,9 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
           } catch (error) {
             logBoardError('attachment-delete', error);
             Alert.alert('오류', '첨부파일 삭제에 실패했습니다.');
+          } finally {
+            deletingAttachmentRef.current = false;
+            setDeletingAttachmentId(null);
           }
         },
       },
@@ -673,19 +687,22 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
             <Feather name="move" size={14} color={MUTED} />
           </Pressable>
         )}
-        <Pressable accessibilityLabel="첨부 삭제" accessibilityRole="button" accessibilityState={{ disabled: isActive || !canEditComposer }}
+        <Pressable accessibilityLabel="첨부 삭제" accessibilityRole="button"
+          accessibilityState={{ disabled: isActive || !canEditComposer || !!deletingAttachmentId, busy: deletingAttachmentId === item.id }}
           style={({ pressed }) => [
             styles.attachmentRemove,
-            pressed && { opacity: 0.6 },
+            (pressed || !!deletingAttachmentId) && { opacity: 0.6 },
           ]}
           onPress={() => removeExistingAttachment(item)}
-          disabled={isActive || !canEditComposer}
+          disabled={isActive || !canEditComposer || !!deletingAttachmentId}
         >
-          <Feather name="trash-2" size={16} color={MUTED} />
+          {deletingAttachmentId === item.id
+            ? <ActivityIndicator size="small" color={MUTED} />
+            : <Feather name="trash-2" size={16} color={MUTED} />}
         </Pressable>
       </View>
     ),
-    [canEditComposer, existingImages.length, removeExistingAttachment],
+    [canEditComposer, deletingAttachmentId, existingImages.length, removeExistingAttachment],
   );
 
   const renderNewImageItem = useCallback(
@@ -763,6 +780,7 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
                   pressed && { opacity: 0.75 },
                   (
                     loading
+                    || !!deletingAttachmentId
                     || !canWrite
                     || (!pendingAttachmentRetry && (!canSubmitContent || !categoryId || !title.trim() || !content.trim()))
                   ) && styles.headerSubmitButtonDisabled,
@@ -770,12 +788,13 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
                 onPress={handleSubmit}
                 disabled={
                   loading
+                  || !!deletingAttachmentId
                   || !canWrite
                   || (!pendingAttachmentRetry && (!canSubmitContent || !categoryId || !title.trim() || !content.trim()))
                 }
               >
                 <Text style={styles.headerSubmitButtonText}>
-                  {pendingAttachmentRetry ? '첨부 다시 시도' : '게시글 수정'}
+                  {loading ? '저장 중...' : pendingAttachmentRetry ? '첨부 다시 시도' : '게시글 수정'}
                 </Text>
               </Pressable>
             )}
@@ -954,15 +973,18 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
                           </View>
                           <Feather name="download" size={16} color={MUTED} />
                         </Pressable>
-                        <Pressable accessibilityLabel="첨부 삭제" accessibilityRole="button" accessibilityState={{ disabled: !canEditComposer }}
+                        <Pressable accessibilityLabel="첨부 삭제" accessibilityRole="button"
+                          accessibilityState={{ disabled: !canEditComposer || !!deletingAttachmentId, busy: deletingAttachmentId === file.id }}
                           style={({ pressed }) => [
                             styles.attachmentRemove,
-                            pressed && { opacity: 0.6 },
+                            (pressed || !!deletingAttachmentId) && { opacity: 0.6 },
                           ]}
                           onPress={() => removeExistingAttachment(file)}
-                          disabled={!canEditComposer}
+                          disabled={!canEditComposer || !!deletingAttachmentId}
                         >
-                          <Feather name="trash-2" size={16} color={MUTED} />
+                          {deletingAttachmentId === file.id
+                            ? <ActivityIndicator size="small" color={MUTED} />
+                            : <Feather name="trash-2" size={16} color={MUTED} />}
                         </Pressable>
                       </View>
                     ))}
@@ -1031,6 +1053,7 @@ function AdminBoardComposer({ actor, postId, sessionScope }: { actor: BoardActor
           onPress={handleSubmit}
           disabled={
             loading
+            || !!deletingAttachmentId
             || !canWrite
             || (!pendingAttachmentRetry && (!canSubmitContent || !categoryId || !title.trim() || !content.trim()))
           }

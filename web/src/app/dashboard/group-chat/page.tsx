@@ -186,6 +186,12 @@ function DashboardGroupChatContent() {
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
   const noticeUpdatingRef = useRef(false);
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
+  const deletingMessageRef = useRef(false);
+  const [reactingMessageIds, setReactingMessageIds] = useState<Set<string>>(new Set());
+  const reactingMessageIdsRef = useRef(new Set<string>());
+  const [openingAttachmentId, setOpeningAttachmentId] = useState<string | null>(null);
+  const openingAttachmentRef = useRef(false);
   const [requestGuard] = useState(createChatRequestGuard);
   useEffect(() => { requestGuard.activate(); return () => requestGuard.dispose(); }, [requestGuard]);
   const [uploading, setUploading] = useState(false);
@@ -494,7 +500,9 @@ function DashboardGroupChatContent() {
   }, [selectedFiles.length]);
 
   const handleReaction = useCallback(async (message: GroupChatMessage, reaction: string) => {
-    if (message.deleted_at) return;
+    if (message.deleted_at || reactingMessageIdsRef.current.has(message.id)) return;
+    reactingMessageIdsRef.current.add(message.id);
+    setReactingMessageIds(new Set(reactingMessageIdsRef.current));
     try {
       const alreadyReacted = message.reactions?.some((row) => row.reaction === reaction && row.reacted_by_me);
       const result = await groupChatSetReaction(message.id, alreadyReacted ? null : reaction);
@@ -503,12 +511,17 @@ function DashboardGroupChatContent() {
       ));
     } catch (error) {
       showGroupChatErrorNotification(error);
+    } finally {
+      reactingMessageIdsRef.current.delete(message.id);
+      setReactingMessageIds(new Set(reactingMessageIdsRef.current));
     }
   }, []);
 
   const handleDelete = useCallback(async (message: GroupChatMessage) => {
-    if (message.deleted_at || message.sender_actor_id !== actor?.id) return;
+    if (message.deleted_at || message.sender_actor_id !== actor?.id || deletingMessageRef.current) return;
     if (!window.confirm('메시지를 삭제할까요? 삭제한 메시지는 되돌릴 수 없습니다.')) return;
+    deletingMessageRef.current = true;
+    setDeletingMessageId(message.id);
     try {
       const result = await groupChatDeleteMessage(message.id);
       mergeMessage(result.message);
@@ -517,6 +530,9 @@ function DashboardGroupChatContent() {
       }
     } catch (error) {
       showGroupChatErrorNotification(error);
+    } finally {
+      deletingMessageRef.current = false;
+      setDeletingMessageId(null);
     }
   }, [actor?.id, mergeMessage, notice?.message_id]);
 
@@ -602,13 +618,23 @@ function DashboardGroupChatContent() {
               variant="light"
               color="gray"
               leftSection={<IconDownload size={16} />}
-              onClick={() => void openMessengerAttachment(attachment.id).catch(() => {
-                notifications.show({
-                  title: '파일 열기 실패',
-                  message: MESSENGER_ATTACHMENT_ERROR_COPY.downloadFailed,
-                  color: 'red',
+              loading={openingAttachmentId === attachment.id}
+              disabled={openingAttachmentId !== null && openingAttachmentId !== attachment.id}
+              onClick={() => {
+                if (openingAttachmentRef.current) return;
+                openingAttachmentRef.current = true;
+                setOpeningAttachmentId(attachment.id);
+                void openMessengerAttachment(attachment.id).catch(() => {
+                  notifications.show({
+                    title: '파일 열기 실패',
+                    message: MESSENGER_ATTACHMENT_ERROR_COPY.downloadFailed,
+                    color: 'red',
+                  });
+                }).finally(() => {
+                  openingAttachmentRef.current = false;
+                  setOpeningAttachmentId(null);
                 });
-              })}
+              }}
             >
               {attachment.name} · {formatMessengerAttachmentSize(attachment.size)}
             </Button>
@@ -655,6 +681,7 @@ function DashboardGroupChatContent() {
     const isMe = message.sender_actor_id === actor?.id;
     const deleted = Boolean(message.deleted_at);
     const reactions = message.reactions ?? [];
+    const reacting = reactingMessageIds.has(message.id);
 
     return (
       <Group key={message.id} justify={isMe ? 'flex-end' : 'flex-start'} align="flex-end" wrap="nowrap">
@@ -699,8 +726,9 @@ function DashboardGroupChatContent() {
                       key={reaction.reaction}
                       variant={reaction.reacted_by_me ? 'filled' : 'light'}
                       color={reaction.reacted_by_me ? 'orange' : 'gray'}
+                      disabled={reacting}
                       onClick={() => void handleReaction(message, reaction.reaction)}
-                      style={{ cursor: 'pointer' }}
+                      style={{ cursor: reacting ? 'progress' : 'pointer', opacity: reacting ? 0.6 : undefined }}
                     >
                       {reaction.reaction} {reaction.count}
                     </Badge>
@@ -710,7 +738,13 @@ function DashboardGroupChatContent() {
             </Paper>
             <Menu shadow="md" width={180} withinPortal position="bottom-end">
               <Menu.Target>
-                <ActionIcon variant="subtle" color="gray" size="sm" aria-label="메시지 작업">
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                  aria-label="메시지 작업"
+                  loading={deletingMessageId === message.id}
+                >
                   <IconDotsVertical size={16} />
                 </ActionIcon>
               </Menu.Target>
@@ -733,7 +767,7 @@ function DashboardGroupChatContent() {
                       key={reaction}
                       variant="light"
                       color="gray"
-                      disabled={deleted}
+                      disabled={deleted || reacting}
                       onClick={() => void handleReaction(message, reaction)}
                     >
                       {reaction}
@@ -752,7 +786,7 @@ function DashboardGroupChatContent() {
                 {isMe ? (
                   <Menu.Item
                     color="red"
-                    disabled={deleted}
+                    disabled={deleted || deletingMessageId !== null}
                     leftSection={<IconTrash size={14} />}
                     onClick={() => void handleDelete(message)}
                   >
@@ -804,7 +838,7 @@ function DashboardGroupChatContent() {
               {muted ? <IconBellOff size={18} /> : <IconBell size={18} />}
             </ActionIcon>
           </Tooltip>
-          <Button variant="white" color="dark" radius="xl" h={44} leftSection={<IconRefresh size={16} />} onClick={() => void loadGroupChat()}>
+          <Button variant="white" color="dark" radius="xl" h={44} leftSection={<IconRefresh size={16} />} loading={loading} onClick={() => void loadGroupChat()}>
             새로고침
           </Button>
           <Button color="dark" radius="xl" h={44} leftSection={<IconUsers size={16} />} onClick={() => setMemberDrawerOpen(true)}>
@@ -833,7 +867,7 @@ function DashboardGroupChatContent() {
           <Alert color="red" title="대화 불러오기 실패" mx="lg" mt="md">
             <Group justify="space-between" align="center">
               <Text size="sm">{loadError}</Text>
-              <Button size="xs" variant="subtle" color="red" onClick={() => void loadGroupChat()}>
+              <Button size="xs" variant="subtle" color="red" loading={loading} onClick={() => void loadGroupChat()}>
                 다시 시도
               </Button>
             </Group>

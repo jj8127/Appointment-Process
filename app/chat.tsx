@@ -433,6 +433,13 @@ export default function ChatScreen() {
     SelectedMessengerAttachment[]
   >([]);
   const [sendingAttachments, setSendingAttachments] = useState(false);
+  const [notificationRetrying, setNotificationRetrying] = useState(false);
+  const notificationRetryingRef = useRef(false);
+  const [deletingMessageIds, setDeletingMessageIds] = useState<Set<string>>(() => new Set());
+  const deletingMessageIdsRef = useRef(new Set<string>());
+  const [openingAttachmentId, setOpeningAttachmentId] = useState<string | null>(null);
+  const openingAttachmentIdRef = useRef<string | null>(null);
+  const sendBusy = sendingAttachments || notificationRetrying;
   // What a refused bubble needs to be sent again, keyed by its local id.
   const failedPayloadsRef = useRef(new Map<string, { content: string; attachments: readonly SelectedMessengerAttachment[] }>());
   const sendingTextRef = useRef(false);
@@ -1541,7 +1548,9 @@ export default function ChatScreen() {
     }
 
     const retryNotificationOnly = async (): Promise<void> => {
-      if (!isCurrentSend()) return;
+      if (!isCurrentSend() || notificationRetryingRef.current) return;
+      notificationRetryingRef.current = true;
+      setNotificationRetrying(true);
       try {
         const retryResult = await sendCommittedMessage(uploadedIntentIds);
         if (!isCurrentSend()) return;
@@ -1592,6 +1601,9 @@ export default function ChatScreen() {
             },
           ],
         );
+      } finally {
+        notificationRetryingRef.current = false;
+        setNotificationRetrying(false);
       }
     };
     const notificationDelivery = sendResult.delivery;
@@ -1677,11 +1689,19 @@ export default function ChatScreen() {
       || message.is_context_preview
       || !resolvedConversation?.id
       || !isNotificationUuid(message.id)
+      || deletingMessageIdsRef.current.has(message.id)
     ) {
       return;
     }
+    const setDeleting = (deleting: boolean) => {
+      if (deleting) deletingMessageIdsRef.current.add(message.id);
+      else deletingMessageIdsRef.current.delete(message.id);
+      setDeletingMessageIds(new Set(deletingMessageIdsRef.current));
+    };
     confirmMessengerDelete({
       logScope: 'chat',
+      onStart: () => setDeleting(true),
+      onSettled: () => setDeleting(false),
       onDelete: async () => {
         logger.debug('[delete] request', {
           conversationId: resolvedConversation.id,
@@ -1709,6 +1729,7 @@ export default function ChatScreen() {
   };
 
   const openMessageActions = (message: Message) => {
+    if (deletingMessageIdsRef.current.has(message.id)) return;
     setActionMessage(message);
   };
 
@@ -1773,13 +1794,22 @@ export default function ChatScreen() {
             />
           ) : null}
           {item.attachments.map((attachment) => {
+            const opening = openingAttachmentId === attachment.id;
             const open = () => {
-              void openAuthorizedMessengerAttachment(attachment.id, { logScope: 'chat' });
+              if (openingAttachmentIdRef.current) return;
+              openingAttachmentIdRef.current = attachment.id;
+              setOpeningAttachmentId(attachment.id);
+              void openAuthorizedMessengerAttachment(attachment.id, { logScope: 'chat' })
+                .finally(() => {
+                  openingAttachmentIdRef.current = null;
+                  setOpeningAttachmentId(null);
+                });
             };
             const card = (
             <TouchableOpacity
               key={attachment.id}
               accessibilityRole="button"
+              accessibilityState={{ busy: opening }}
               style={[
                 styles.fileCard,
                 isMe ? styles.fileCardMe : styles.fileCardOther,
@@ -1822,11 +1852,15 @@ export default function ChatScreen() {
                   {formatMessengerAttachmentSize(attachment.size)} · 탭하여 열기
                 </Text>
               </View>
-              <Feather
-                name="download"
-                size={15}
-                color={isMe ? 'rgba(255,255,255,0.82)' : '#9CA3AF'}
-              />
+              {opening ? (
+                <BrandedLoadingSpinner size="sm" color={isMe ? '#fff' : HANWHA_ORANGE} />
+              ) : (
+                <Feather
+                  name="download"
+                  size={15}
+                  color={isMe ? 'rgba(255,255,255,0.82)' : '#9CA3AF'}
+                />
+              )}
             </TouchableOpacity>
             );
             return attachment.mimeType.startsWith('image/')
@@ -1938,6 +1972,7 @@ export default function ChatScreen() {
     const isMe = item.sender_id === myId;
     const isHighlighted = highlightedMessageId === item.id;
     const isFailed = item.local_status === 'failed';
+    const isDeleting = deletingMessageIds.has(item.id);
     const unreadReceiptCount = isFailed ? 0 : getDirectMessageUnreadCount({
       isOwn: isMe,
       isRead: item.is_read,
@@ -1994,13 +2029,16 @@ export default function ChatScreen() {
 
           <View style={[styles.messageBubbleLine, isMe ? styles.messageBubbleLineMe : styles.messageBubbleLineOther]}>
             {isMe && messageMeta}
+            {isDeleting ? <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} /> : null}
             <Pressable
+              accessibilityState={{ busy: isDeleting }}
               onLongPress={() => openMessageActions(item)}
               delayLongPress={MESSENGER_MESSAGE_LONG_PRESS_MS}
               style={({ pressed }) => [
                 styles.bubbleWrapper,
                 isMe ? styles.bubbleWrapperMe : styles.bubbleWrapperOther,
                 pressed && { opacity: 0.9 },
+                isDeleting && { opacity: 0.45 },
               ]}>
               <View
                 style={[
@@ -2434,7 +2472,7 @@ export default function ChatScreen() {
             data={messages}
             keyExtractor={(item) => item.id}
             renderItem={renderItem}
-            extraData={highlightedMessageId}
+            extraData={`${highlightedMessageId}|${openingAttachmentId ?? ''}|${[...deletingMessageIds].join(',')}`}
             inverted
             onScroll={latestJump.onScroll}
             scrollEventThrottle={64}
@@ -2539,21 +2577,21 @@ export default function ChatScreen() {
               textAlignVertical="center"
               scrollEnabled={false}
             />
-            <Pressable accessibilityLabel="메시지 전송" accessibilityRole="button" accessibilityState={{ busy: sendingAttachments, disabled: sendingAttachments
+            <Pressable accessibilityLabel="메시지 전송" accessibilityRole="button" accessibilityState={{ busy: sendBusy, disabled: sendBusy
                 || (!text.trim() && selectedAttachments.length === 0) }}
               onPress={handleSendText}
               style={[
                 styles.sendBtn,
                 (
-                  sendingAttachments
+                  sendBusy
                   || (!text.trim() && selectedAttachments.length === 0)
                 ) && styles.sendBtnDisabled,
               ]}
               disabled={
-                sendingAttachments
+                sendBusy
                 || (!text.trim() && selectedAttachments.length === 0)
               }>
-              {sendingAttachments ? (
+              {sendBusy ? (
                 <BrandedLoadingSpinner size="sm" color="#fff" />
               ) : (
                 <Feather name="send" size={20} color="#fff" />

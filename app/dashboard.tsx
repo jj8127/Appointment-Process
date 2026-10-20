@@ -7,8 +7,9 @@ import * as DocumentPicker from 'expo-document-picker';
 import { FileSystemUploadType, uploadAsync } from 'expo-file-system/legacy';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { type ReactElement, useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   LayoutAnimation,
@@ -447,6 +448,11 @@ async function sendNotificationAndPush(
   };
 }
 
+type NotificationRetryHandlers = {
+  onRetryStart?: () => void;
+  onRetryEnd?: () => void;
+};
+
 const getPostCommitNotificationAlert = (
   successTitle: string,
   successMessage: string,
@@ -454,6 +460,7 @@ const getPostCommitNotificationAlert = (
     | NotificationAndPushResult
     | readonly NotificationAndPushResult[]
     | null,
+  retryHandlers?: NotificationRetryHandlers,
 ) => {
   const results = notificationResult
     ? Array.isArray(notificationResult)
@@ -482,13 +489,20 @@ const getPostCommitNotificationAlert = (
       successTitle,
     });
     const retryNotifications = async () => {
-      const retryResults = await Promise.all(
-        retryableResults.map((result) => result.retryNotification()),
-      );
+      retryHandlers?.onRetryStart?.();
+      let retryResults: NotificationAndPushResult[];
+      try {
+        retryResults = await Promise.all(
+          retryableResults.map((result) => result.retryNotification()),
+        );
+      } finally {
+        retryHandlers?.onRetryEnd?.();
+      }
       const retryAlert = getPostCommitNotificationAlert(
         successTitle,
         successMessage,
         retryResults,
+        retryHandlers,
       );
       Alert.alert(
         retryAlert.title,
@@ -637,6 +651,19 @@ export default function DashboardScreen() {
   const filterOptions = useMemo(() => createFilterOptions(), []);
 
   const [reminderLoading, setReminderLoading] = useState<string | null>(null);
+  const [notifyRetrying, setNotifyRetrying] = useState(false);
+  const notifyRetryHandlers = useMemo<NotificationRetryHandlers>(() => ({
+    onRetryStart: () => setNotifyRetrying(true),
+    onRetryEnd: () => setNotifyRetrying(false),
+  }), []);
+  const rejectSubmittingRef = useRef(false);
+  const [rejectSubmitting, setRejectSubmitting] = useState(false);
+  const allowanceApprovingRef = useRef(false);
+  const [allowanceApprovingId, setAllowanceApprovingId] = useState<string | null>(null);
+  const deletingDocRef = useRef(false);
+  const [deletingDocKey, setDeletingDocKey] = useState<string | null>(null);
+  const openingFileRef = useRef(false);
+  const [openingPath, setOpeningPath] = useState<string | null>(null);
 
   const canEdit = role === 'admin' && !readOnly;
   const assertCanEdit = () => {
@@ -645,7 +672,7 @@ export default function DashboardScreen() {
     }
   };
 
-  const { data, isLoading, isError, error: queryError, refetch } = useQuery({
+  const { data, isLoading, isFetching, isError, error: queryError, refetch } = useQuery({
     queryKey: ['dashboard', role, residentId, keyword],
     queryFn: () => fetchFcs(role, residentId, keyword),
     enabled: !!role,
@@ -929,6 +956,7 @@ export default function DashboardScreen() {
         '저장 완료',
         '임시번호/경력 정보가 저장되었습니다.',
         notificationResult,
+        notifyRetryHandlers,
       );
       Alert.alert(alert.title, alert.message, alert.buttons);
       refetch();
@@ -1007,6 +1035,7 @@ export default function DashboardScreen() {
         '저장 완료',
         '필수 서류 목록이 수정되었습니다.',
         notificationResult,
+        notifyRetryHandlers,
       );
       Alert.alert(alert.title, alert.message, alert.buttons);
       refetch();
@@ -1064,6 +1093,8 @@ export default function DashboardScreen() {
     },
   });
 
+  const allowanceStatusBusy = updateStatus.isPending || allowanceApprovingId !== null;
+
   const updateHanwhaSubmissionDate = useMutation({
     mutationFn: async ({ id, submittedDate }: { id: string; submittedDate: string }) => {
       assertCanEdit();
@@ -1113,6 +1144,7 @@ export default function DashboardScreen() {
         '발송 신호 완료',
         'FC에게 다위촉 URL 진행 안내를 보냈습니다.',
         notificationResult,
+        notifyRetryHandlers,
       );
       Alert.alert(alert.title, alert.message, alert.buttons);
       refetch();
@@ -1181,6 +1213,7 @@ export default function DashboardScreen() {
           ? '다위촉 URL 승인이 저장되었습니다.'
           : '다위촉 URL 반려가 저장되었습니다.',
         notificationResult,
+        notifyRetryHandlers,
       );
       Alert.alert(alert.title, alert.message, alert.buttons);
       setHanwhaPdfDrafts((prev) => {
@@ -1237,6 +1270,7 @@ export default function DashboardScreen() {
         '처리 완료',
         `${label} 위촉 정보가 ${vars.isReject ? '반려' : '저장'}되었습니다.`,
         notificationResult,
+        notifyRetryHandlers,
       );
       Alert.alert(alert.title, alert.message, alert.buttons);
       refetch();
@@ -1277,6 +1311,7 @@ export default function DashboardScreen() {
         '저장 완료',
         '위촉 예정월이 저장되었습니다.',
         notificationResult,
+        notifyRetryHandlers,
       );
       Alert.alert(alert.title, alert.message, alert.buttons);
       // 최신 데이터 반영
@@ -1357,6 +1392,7 @@ export default function DashboardScreen() {
         successTitle,
         successMessage,
         notificationResults,
+        notifyRetryHandlers,
       );
       Alert.alert(alert.title, alert.message, alert.buttons);
       refetch();
@@ -1394,6 +1430,9 @@ export default function DashboardScreen() {
         text: '삭제',
         style: 'destructive',
         onPress: async () => {
+          if (deletingDocRef.current) return;
+          deletingDocRef.current = true;
+          setDeletingDocKey(`${fcId}:${docType}`);
           try {
             await invokeAdminAction(residentId, 'deleteDocFile', { fcId, docType, storagePath });
             Alert.alert('삭제 완료', '파일을 삭제했습니다.');
@@ -1401,6 +1440,9 @@ export default function DashboardScreen() {
           } catch (err: unknown) {
             const error = err as Error;
             Alert.alert('삭제 실패', error?.message ?? '파일 삭제 중 문제가 발생했습니다.');
+          } finally {
+            deletingDocRef.current = false;
+            setDeletingDocKey(null);
           }
         },
       },
@@ -1533,12 +1575,20 @@ export default function DashboardScreen() {
       Alert.alert('열기 실패', '저장된 파일이 없습니다.');
       return;
     }
-    const { data: signed, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 300);
-    if (error || !signed?.signedUrl) {
-      Alert.alert('열기 실패', error?.message ?? 'URL 생성 실패: 버킷 설정을 확인해주세요.');
-      return;
+    if (openingFileRef.current) return;
+    openingFileRef.current = true;
+    setOpeningPath(path);
+    try {
+      const { data: signed, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 300);
+      if (error || !signed?.signedUrl) {
+        Alert.alert('열기 실패', error?.message ?? 'URL 생성 실패: 버킷 설정을 확인해주세요.');
+        return;
+      }
+      await WebBrowser.openBrowserAsync(signed.signedUrl);
+    } finally {
+      openingFileRef.current = false;
+      setOpeningPath(null);
     }
-    await WebBrowser.openBrowserAsync(signed.signedUrl);
   };
 
   const toggleExpand = (id: string) => {
@@ -1599,9 +1649,16 @@ export default function DashboardScreen() {
               {
                 text: '다시 등록',
                 onPress: () => {
-                  void registerReminder().then((retryResult) =>
-                    presentReminderResult(retryResult, true)
-                  );
+                  setReminderLoading(fc.id);
+                  void registerReminder()
+                    .then((retryResult) => presentReminderResult(retryResult, true))
+                    .catch((retryError: unknown) => {
+                      Alert.alert(
+                        '알림 등록 확인 필요',
+                        (retryError as Error)?.message ?? '알림 등록 결과를 확인하지 못했습니다.',
+                      );
+                    })
+                    .finally(() => setReminderLoading(null));
                 },
               },
             ],
@@ -1643,6 +1700,7 @@ export default function DashboardScreen() {
     // Robust check: remove all whitespace
     const code = deleteCode.replace(/\s/g, '');
     if (code === '1111') {
+      if (deleteFc.isPending) return;
       if (deleteTargetId) {
         deleteFc.mutate({ id: deleteTargetId });
       }
@@ -1674,6 +1732,21 @@ export default function DashboardScreen() {
     setRejectModalVisible(true);
   };
 
+  const runRejectSubmit = async (task: () => Promise<void>) => {
+    if (rejectSubmittingRef.current) return;
+    rejectSubmittingRef.current = true;
+    setRejectSubmitting(true);
+    try {
+      await task();
+    } finally {
+      rejectSubmittingRef.current = false;
+      setRejectSubmitting(false);
+    }
+  };
+  const closeUnlessRejecting = (close: (visible: boolean) => void) => () => {
+    if (!rejectSubmittingRef.current) close(false);
+  };
+
   const confirmRejectWithReason = async () => {
     const reason = rejectReason.trim();
     if (!rejectTarget) return;
@@ -1681,36 +1754,45 @@ export default function DashboardScreen() {
       Alert.alert('입력 필요', '반려 사유를 입력해주세요.');
       return;
     }
-    try {
-      const nextAllowanceDate = allowanceInputs[rejectTarget.id] ?? rejectTarget.allowance_date ?? '';
-      await updateStatus.mutateAsync({
-        id: rejectTarget.id,
-        nextStatus: 'allowance-pending',
-        deferSuccessAlert: true,
-        extra: {
-          allowance_date: nextAllowanceDate || null,
-          allowance_prescreen_requested_at: null,
-          allowance_reject_reason: reason,
-        },
-      });
-      const notificationResult = await sendNotificationAndPush(
-        residentId,
-        rejectTarget.id,
-        '보증 보험 동의 반려',
-        `보증 보험 동의가 반려되었습니다.\n사유: ${reason}`,
-        '/consent',
-      );
-      const alert = getPostCommitNotificationAlert(
-        '처리 완료',
-        '보증 보험 동의 반려가 저장되었습니다.',
-        notificationResult,
-      );
-      Alert.alert(alert.title, alert.message, alert.buttons);
-      setRejectModalVisible(false);
-    } catch (err: unknown) {
-      const error = err as Error;
-      Alert.alert('처리 실패', error?.message ?? '반려 처리 중 문제가 발생했습니다.');
-    }
+    const target = rejectTarget;
+    await runRejectSubmit(async () => {
+      const nextAllowanceDate = allowanceInputs[target.id] ?? target.allowance_date ?? '';
+      try {
+        await updateStatus.mutateAsync({
+          id: target.id,
+          nextStatus: 'allowance-pending',
+          deferSuccessAlert: true,
+          extra: {
+            allowance_date: nextAllowanceDate || null,
+            allowance_prescreen_requested_at: null,
+            allowance_reject_reason: reason,
+          },
+        });
+      } catch {
+        // updateStatus.onSettled already shows the failure alert.
+        return;
+      }
+      try {
+        const notificationResult = await sendNotificationAndPush(
+          residentId,
+          target.id,
+          '보증 보험 동의 반려',
+          `보증 보험 동의가 반려되었습니다.\n사유: ${reason}`,
+          '/consent',
+        );
+        const alert = getPostCommitNotificationAlert(
+          '처리 완료',
+          '보증 보험 동의 반려가 저장되었습니다.',
+          notificationResult,
+          notifyRetryHandlers,
+        );
+        Alert.alert(alert.title, alert.message, alert.buttons);
+        setRejectModalVisible(false);
+      } catch (err: unknown) {
+        const error = err as Error;
+        Alert.alert('처리 실패', error?.message ?? '반려 처리 중 문제가 발생했습니다.');
+      }
+    });
   };
 
   const confirmDocRejectWithReason = async () => {
@@ -1720,19 +1802,21 @@ export default function DashboardScreen() {
       Alert.alert('입력 필요', '반려 사유를 입력해주세요.');
       return;
     }
-    try {
-      await updateDocStatus.mutateAsync({
-        fcId: docRejectTarget.fcId,
-        docType: docRejectTarget.docType,
-        status: 'rejected',
-        phone: docRejectTarget.phone,
-        reviewerNote: reason,
-      });
-      setDocRejectModalVisible(false);
-    } catch (err: unknown) {
-      const error = err as Error;
-      Alert.alert('처리 실패', error?.message ?? '반려 처리 중 문제가 발생했습니다.');
-    }
+    const target = docRejectTarget;
+    await runRejectSubmit(async () => {
+      try {
+        await updateDocStatus.mutateAsync({
+          fcId: target.fcId,
+          docType: target.docType,
+          status: 'rejected',
+          phone: target.phone,
+          reviewerNote: reason,
+        });
+        setDocRejectModalVisible(false);
+      } catch {
+        // updateDocStatus.onSettled already shows the failure alert.
+      }
+    });
   };
 
   const confirmHanwhaRejectWithReason = async () => {
@@ -1742,23 +1826,25 @@ export default function DashboardScreen() {
       Alert.alert('입력 필요', '반려 사유를 입력해주세요.');
       return;
     }
-    try {
-      const draft = hanwhaPdfDrafts[hanwhaRejectTarget.id];
-      const submittedDate = hanwhaSubmissionInputs[hanwhaRejectTarget.id] ?? hanwhaRejectTarget.hanwha_commission_date_sub ?? null;
-      await updateHanwhaCommission.mutateAsync({
-        fc: hanwhaRejectTarget,
-        decision: 'reject',
-        rejectReason: reason,
-        pdfPath: draft?.path,
-        pdfName: draft?.name,
-        submittedDate,
-      });
-      clearHanwhaPdfDraft(hanwhaRejectTarget.id);
-      setHanwhaRejectModalVisible(false);
-    } catch (err: unknown) {
-      const error = err as Error;
-      Alert.alert('처리 실패', error?.message ?? '반려 처리 중 문제가 발생했습니다.');
-    }
+    const target = hanwhaRejectTarget;
+    await runRejectSubmit(async () => {
+      try {
+        const draft = hanwhaPdfDrafts[target.id];
+        const submittedDate = hanwhaSubmissionInputs[target.id] ?? target.hanwha_commission_date_sub ?? null;
+        await updateHanwhaCommission.mutateAsync({
+          fc: target,
+          decision: 'reject',
+          rejectReason: reason,
+          pdfPath: draft?.path,
+          pdfName: draft?.name,
+          submittedDate,
+        });
+        clearHanwhaPdfDraft(target.id);
+        setHanwhaRejectModalVisible(false);
+      } catch {
+        // updateHanwhaCommission.onSettled already shows the failure alert.
+      }
+    });
   };
 
   const confirmAppointmentRejectWithReason = async () => {
@@ -1768,25 +1854,27 @@ export default function DashboardScreen() {
       Alert.alert('입력 필요', '반려 사유를 입력해주세요.');
       return;
     }
-    try {
-      const currentAppointmentInput = appointmentActualInputs[appointmentRejectTarget.id] ?? {};
-      const selectedDate =
-        appointmentRejectTarget.type === 'life'
-          ? currentAppointmentInput.lifeDate ?? null
-          : currentAppointmentInput.nonLifeDate ?? null;
-      await updateAppointmentDate.mutateAsync({
-        id: appointmentRejectTarget.id,
-        type: appointmentRejectTarget.type,
-        date: selectedDate || null,
-        isReject: true,
-        phone: appointmentRejectTarget.phone,
-        rejectReason: reason,
-      });
-      setAppointmentRejectModalVisible(false);
-    } catch (err: unknown) {
-      const error = err as Error;
-      Alert.alert('처리 실패', error?.message ?? '반려 처리 중 문제가 발생했습니다.');
-    }
+    const target = appointmentRejectTarget;
+    await runRejectSubmit(async () => {
+      try {
+        const currentAppointmentInput = appointmentActualInputs[target.id] ?? {};
+        const selectedDate =
+          target.type === 'life'
+            ? currentAppointmentInput.lifeDate ?? null
+            : currentAppointmentInput.nonLifeDate ?? null;
+        await updateAppointmentDate.mutateAsync({
+          id: target.id,
+          type: target.type,
+          date: selectedDate || null,
+          isReject: true,
+          phone: target.phone,
+          rejectReason: reason,
+        });
+        setAppointmentRejectModalVisible(false);
+      } catch {
+        // updateAppointmentDate.onSettled already shows the failure alert.
+      }
+    });
   };
   const renderAdminActions = (fc: FcRow) => {
     if (role !== 'admin') return null;
@@ -1828,12 +1916,12 @@ export default function DashboardScreen() {
               <Text style={styles.actionButtonTextSecondary}>전화로 안내하기</Text>
             </Pressable>
             <Pressable
-              style={[styles.actionButtonPrimary, !canEdit && styles.actionButtonDisabled]}
+              style={[styles.actionButtonPrimary, (!canEdit || reminderLoading === fc.id) && styles.actionButtonDisabled]}
               onPress={() => handleSendReminder(fc)}
               disabled={!canEdit || reminderLoading === fc.id}
             >
               <Feather name="send" size={16} color="#fff" />
-              <Text style={styles.actionButtonText}>알림 전송</Text>
+              <Text style={styles.actionButtonText}>{reminderLoading === fc.id ? '전송 중...' : '알림 전송'}</Text>
             </Pressable>
           </View>,
         );
@@ -2016,7 +2104,7 @@ export default function DashboardScreen() {
                 style={[
                   styles.filterTab,
                   allowanceDisplay.key === 'entered' && styles.filterTabActive,
-                  (!canEdit || !currentAllowance || updateStatus.isPending) && styles.actionButtonDisabled,
+                  (!canEdit || !currentAllowance || allowanceStatusBusy) && styles.actionButtonDisabled,
                 ]}
                 onPress={async () => {
                   try {
@@ -2034,7 +2122,7 @@ export default function DashboardScreen() {
                     Alert.alert('처리 실패', error?.message ?? '상태 업데이트 중 문제가 발생했습니다.');
                   }
                 }}
-                disabled={!canEdit || !currentAllowance || updateStatus.isPending}
+                disabled={!canEdit || !currentAllowance || allowanceStatusBusy}
               >
                 <Text style={[styles.filterText, allowanceDisplay.key === 'entered' && styles.filterTextActive]}>
                   입력 완료
@@ -2044,7 +2132,7 @@ export default function DashboardScreen() {
                 style={[
                   styles.filterTab,
                   allowanceDisplay.key === 'prescreen' && styles.filterTabActive,
-                  (!canEdit || !currentAllowance || updateStatus.isPending) && styles.actionButtonDisabled,
+                  (!canEdit || !currentAllowance || allowanceStatusBusy) && styles.actionButtonDisabled,
                 ]}
                 onPress={async () => {
                   try {
@@ -2062,7 +2150,7 @@ export default function DashboardScreen() {
                     Alert.alert('처리 실패', error?.message ?? '상태 업데이트 중 문제가 발생했습니다.');
                   }
                 }}
-                disabled={!canEdit || !currentAllowance || updateStatus.isPending}
+                disabled={!canEdit || !currentAllowance || allowanceStatusBusy}
               >
                 <Text style={[styles.filterText, allowanceDisplay.key === 'prescreen' && styles.filterTextActive]}>
                   사전 심사 요청 완료
@@ -2072,9 +2160,12 @@ export default function DashboardScreen() {
                 style={[
                   styles.filterTab,
                   allowanceDisplay.key === 'approved' && styles.filterTabActive,
-                  (!canEdit || !currentAllowance || updateStatus.isPending) && styles.actionButtonDisabled,
+                  (!canEdit || !currentAllowance || allowanceStatusBusy) && styles.actionButtonDisabled,
                 ]}
                 onPress={async () => {
+                  if (allowanceApprovingRef.current) return;
+                  allowanceApprovingRef.current = true;
+                  setAllowanceApprovingId(fc.id);
                   try {
                     await updateStatus.mutateAsync({
                       id: fc.id,
@@ -2096,17 +2187,21 @@ export default function DashboardScreen() {
                       '처리 완료',
                       '보증 보험 동의 승인이 저장되었습니다.',
                       notificationResult,
+                      notifyRetryHandlers,
                     );
                     Alert.alert(alert.title, alert.message, alert.buttons);
                   } catch (err: unknown) {
                     const error = err as Error;
                     Alert.alert('처리 실패', error?.message ?? '상태 업데이트 중 문제가 발생했습니다.');
+                  } finally {
+                    allowanceApprovingRef.current = false;
+                    setAllowanceApprovingId(null);
                   }
                 }}
-                disabled={!canEdit || !currentAllowance || updateStatus.isPending}
+                disabled={!canEdit || !currentAllowance || allowanceStatusBusy}
               >
                 <Text style={[styles.filterText, allowanceDisplay.key === 'approved' && styles.filterTextActive]}>
-                  승인 완료
+                  {allowanceApprovingId === fc.id ? '처리 중...' : '승인 완료'}
                 </Text>
               </Pressable>
                   </>
@@ -2122,10 +2217,10 @@ export default function DashboardScreen() {
               style={[
                 styles.deleteButton,
                 { marginTop: 12 },
-                (!canEdit || updateStatus.isPending) && styles.actionButtonDisabled,
+                (!canEdit || allowanceStatusBusy) && styles.actionButtonDisabled,
               ]}
               onPress={() => openRejectModal(fc)}
-              disabled={!canEdit || updateStatus.isPending}
+              disabled={!canEdit || allowanceStatusBusy}
             >
               <Feather name="x-circle" size={16} color="#b91c1c" />
               <Text style={styles.deleteText}>미승인</Text>
@@ -2291,8 +2386,14 @@ export default function DashboardScreen() {
                     <View style={{ flex: 1 }}>
                       <Text style={styles.submittedText} numberOfLines={1}>{docType}</Text>
                       {hasFile ? (
-                        <Pressable onPress={() => openFile(doc.storage_path ?? undefined)}>
-                          <Text style={{ color: '#2563eb', fontSize: 12, marginTop: 2 }}>파일 열기</Text>
+                        <Pressable
+                          onPress={() => openFile(doc.storage_path ?? undefined)}
+                          disabled={openingPath !== null}
+                          style={openingPath !== null && openingPath !== doc.storage_path ? { opacity: 0.5 } : undefined}
+                        >
+                          <Text style={{ color: '#2563eb', fontSize: 12, marginTop: 2 }}>
+                            {openingPath === doc.storage_path ? '여는 중...' : '파일 열기'}
+                          </Text>
                         </Pressable>
                       ) : (
                         <Text style={{ color: MUTED, fontSize: 12, marginTop: 2 }}>파일 미제출</Text>
@@ -2302,7 +2403,13 @@ export default function DashboardScreen() {
                         <MobileStatusToggle
                           value={doc.status === 'approved' ? 'approved' : 'pending'}
                           neutralPending={doc.status === 'pending'}
+                          pending={
+                            updateDocStatus.isPending
+                            && updateDocStatus.variables?.fcId === fc.id
+                            && updateDocStatus.variables?.docType === docType
+                          }
                           onChange={(val) => {
+                            if (updateDocStatus.isPending) return;
                             if (doc.status === 'approved' && val !== 'approved') {
                               Alert.alert('승인 해제', '이미 승인된 서류입니다. 미승인으로 변경할까요?', [
                                 { text: '취소', style: 'cancel' },
@@ -2344,8 +2451,8 @@ export default function DashboardScreen() {
                         readOnly={!canEdit}
                       />
                       <Pressable
-                        style={[styles.deleteIconButton, (!canEdit || !hasFile) && { opacity: 0.4 }]}
-                        disabled={!canEdit || !hasFile}
+                        style={[styles.deleteIconButton, (!canEdit || !hasFile || deletingDocKey !== null) && { opacity: 0.4 }]}
+                        disabled={!canEdit || !hasFile || deletingDocKey !== null}
                         onPress={() =>
                           deleteDocFile({
                             fcId: fc.id,
@@ -2356,7 +2463,7 @@ export default function DashboardScreen() {
                         }
                       >
                         <Feather name="trash-2" size={14} color="#b91c1c" />
-                        <Text style={styles.deleteText}>삭제</Text>
+                        <Text style={styles.deleteText}>{deletingDocKey === `${fc.id}:${docType}` ? '삭제 중...' : '삭제'}</Text>
                       </Pressable>
                     </View>
                   </View>
@@ -2519,12 +2626,14 @@ export default function DashboardScreen() {
                 </Text>
               </Pressable>
               <Pressable
-                style={[styles.actionButtonSecondary, !hanwhaPdfPath && styles.actionButtonDisabled]}
+                style={[styles.actionButtonSecondary, (!hanwhaPdfPath || openingPath !== null) && styles.actionButtonDisabled]}
                 onPress={() => openFile(hanwhaPdfPath ?? undefined)}
-                disabled={!hanwhaPdfPath}
+                disabled={!hanwhaPdfPath || openingPath !== null}
               >
                 <Feather name="file-text" size={16} color={CHARCOAL} />
-                <Text style={styles.actionButtonTextSecondary}>PDF 열기</Text>
+                <Text style={styles.actionButtonTextSecondary}>
+                  {hanwhaPdfPath && openingPath === hanwhaPdfPath ? '여는 중...' : 'PDF 열기'}
+                </Text>
               </Pressable>
             </View>
 
@@ -2691,7 +2800,9 @@ export default function DashboardScreen() {
                   });
                 }}
               >
-                <Text style={styles.saveBtnText}>저장</Text>
+                <Text style={styles.saveBtnText}>
+                  {updateAppointmentSchedule.isPending && updateAppointmentSchedule.variables?.id === fc.id ? '저장중...' : '저장'}
+                </Text>
               </Pressable>
             </View>
 
@@ -2716,7 +2827,13 @@ export default function DashboardScreen() {
                 <MobileStatusToggle
                   value={lifeApproved ? 'approved' : 'pending'}
                   neutralPending={!lifeApproved && !fc.appointment_reject_reason_life}
+                  pending={
+                    updateAppointmentDate.isPending
+                    && updateAppointmentDate.variables?.id === fc.id
+                    && updateAppointmentDate.variables?.type === 'life'
+                  }
                   onChange={(val) => {
+                    if (updateAppointmentDate.isPending) return;
                     if (val === 'approved') {
                       if (!currentLifeActual) {
                         Alert.alert('확인', '위촉 완료일(생명)을 입력해주세요.');
@@ -2785,7 +2902,13 @@ export default function DashboardScreen() {
                 <MobileStatusToggle
                   value={nonlifeApproved ? 'approved' : 'pending'}
                   neutralPending={!nonlifeApproved && !fc.appointment_reject_reason_nonlife}
+                  pending={
+                    updateAppointmentDate.isPending
+                    && updateAppointmentDate.variables?.id === fc.id
+                    && updateAppointmentDate.variables?.type === 'nonlife'
+                  }
                   onChange={(val) => {
+                    if (updateAppointmentDate.isPending) return;
                     if (val === 'approved') {
                       if (!currentNonlifeActual) {
                         Alert.alert('확인', '위촉 완료일(손해)을 입력해주세요.');
@@ -3064,13 +3187,13 @@ export default function DashboardScreen() {
           visible={rejectModalVisible}
           transparent
           animationType="fade"
-          onRequestClose={() => setRejectModalVisible(false)}
+          onRequestClose={closeUnlessRejecting(setRejectModalVisible)}
         >
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={{ flex: 1 }}
           >
-            <Pressable style={styles.modalOverlay} onPress={() => setRejectModalVisible(false)}>
+            <Pressable style={styles.modalOverlay} onPress={closeUnlessRejecting(setRejectModalVisible)}>
               <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
                 <Text style={styles.modalTitle}>보증 보험 동의 반려</Text>
                 <Text style={styles.modalText}>
@@ -3089,16 +3212,19 @@ export default function DashboardScreen() {
 
                 <View style={styles.modalButtons}>
                   <Pressable
-                    style={[styles.modalBtn, styles.modalBtnCancel]}
-                    onPress={() => setRejectModalVisible(false)}
+                    style={[styles.modalBtn, styles.modalBtnCancel, rejectSubmitting && styles.saveButtonDisabled]}
+                    onPress={closeUnlessRejecting(setRejectModalVisible)}
+                    disabled={rejectSubmitting}
                   >
                     <Text style={styles.modalBtnTextCancel}>취소</Text>
                   </Pressable>
                   <Pressable
-                    style={[styles.modalBtn, styles.modalBtnDelete]}
+                    style={[styles.modalBtn, styles.modalBtnDelete, rejectSubmitting && styles.saveButtonDisabled]}
                     onPress={confirmRejectWithReason}
+                    disabled={rejectSubmitting}
+                    accessibilityState={{ disabled: rejectSubmitting, busy: rejectSubmitting }}
                   >
-                    <Text style={styles.modalBtnTextDelete}>반려</Text>
+                    <Text style={styles.modalBtnTextDelete}>{rejectSubmitting ? '처리 중...' : '반려'}</Text>
                   </Pressable>
                 </View>
               </Pressable>
@@ -3110,13 +3236,13 @@ export default function DashboardScreen() {
             visible={docRejectModalVisible}
             transparent
             animationType="fade"
-            onRequestClose={() => setDocRejectModalVisible(false)}
+            onRequestClose={closeUnlessRejecting(setDocRejectModalVisible)}
           >
             <KeyboardAvoidingView
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
               style={{ flex: 1 }}
             >
-              <Pressable style={styles.modalOverlay} onPress={() => setDocRejectModalVisible(false)}>
+              <Pressable style={styles.modalOverlay} onPress={closeUnlessRejecting(setDocRejectModalVisible)}>
                 <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
                   <Text style={styles.modalTitle}>서류 미승인 처리</Text>
                   <Text style={styles.modalText}>
@@ -3135,16 +3261,19 @@ export default function DashboardScreen() {
 
                   <View style={styles.modalButtons}>
                     <Pressable
-                      style={[styles.modalBtn, styles.modalBtnCancel]}
-                      onPress={() => setDocRejectModalVisible(false)}
+                      style={[styles.modalBtn, styles.modalBtnCancel, rejectSubmitting && styles.saveButtonDisabled]}
+                      onPress={closeUnlessRejecting(setDocRejectModalVisible)}
+                      disabled={rejectSubmitting}
                     >
                       <Text style={styles.modalBtnTextCancel}>취소</Text>
                     </Pressable>
                     <Pressable
-                      style={[styles.modalBtn, styles.modalBtnDelete]}
+                      style={[styles.modalBtn, styles.modalBtnDelete, rejectSubmitting && styles.saveButtonDisabled]}
                       onPress={confirmDocRejectWithReason}
+                      disabled={rejectSubmitting}
+                      accessibilityState={{ disabled: rejectSubmitting, busy: rejectSubmitting }}
                     >
-                      <Text style={styles.modalBtnTextDelete}>미승인</Text>
+                      <Text style={styles.modalBtnTextDelete}>{rejectSubmitting ? '처리 중...' : '미승인'}</Text>
                     </Pressable>
                   </View>
                 </Pressable>
@@ -3156,13 +3285,13 @@ export default function DashboardScreen() {
             visible={hanwhaRejectModalVisible}
             transparent
             animationType="fade"
-            onRequestClose={() => setHanwhaRejectModalVisible(false)}
+            onRequestClose={closeUnlessRejecting(setHanwhaRejectModalVisible)}
           >
             <KeyboardAvoidingView
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
               style={{ flex: 1 }}
             >
-              <Pressable style={styles.modalOverlay} onPress={() => setHanwhaRejectModalVisible(false)}>
+              <Pressable style={styles.modalOverlay} onPress={closeUnlessRejecting(setHanwhaRejectModalVisible)}>
                 <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
                   <Text style={styles.modalTitle}>다위촉 URL 반려</Text>
                   <Text style={styles.modalText}>
@@ -3181,16 +3310,19 @@ export default function DashboardScreen() {
 
                   <View style={styles.modalButtons}>
                     <Pressable
-                      style={[styles.modalBtn, styles.modalBtnCancel]}
-                      onPress={() => setHanwhaRejectModalVisible(false)}
+                      style={[styles.modalBtn, styles.modalBtnCancel, rejectSubmitting && styles.saveButtonDisabled]}
+                      onPress={closeUnlessRejecting(setHanwhaRejectModalVisible)}
+                      disabled={rejectSubmitting}
                     >
                       <Text style={styles.modalBtnTextCancel}>취소</Text>
                     </Pressable>
                     <Pressable
-                      style={[styles.modalBtn, styles.modalBtnDelete]}
+                      style={[styles.modalBtn, styles.modalBtnDelete, rejectSubmitting && styles.saveButtonDisabled]}
                       onPress={confirmHanwhaRejectWithReason}
+                      disabled={rejectSubmitting}
+                      accessibilityState={{ disabled: rejectSubmitting, busy: rejectSubmitting }}
                     >
-                      <Text style={styles.modalBtnTextDelete}>반려</Text>
+                      <Text style={styles.modalBtnTextDelete}>{rejectSubmitting ? '처리 중...' : '반려'}</Text>
                     </Pressable>
                   </View>
                 </Pressable>
@@ -3202,13 +3334,13 @@ export default function DashboardScreen() {
             visible={appointmentRejectModalVisible}
             transparent
             animationType="fade"
-            onRequestClose={() => setAppointmentRejectModalVisible(false)}
+            onRequestClose={closeUnlessRejecting(setAppointmentRejectModalVisible)}
           >
             <KeyboardAvoidingView
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
               style={{ flex: 1 }}
             >
-              <Pressable style={styles.modalOverlay} onPress={() => setAppointmentRejectModalVisible(false)}>
+              <Pressable style={styles.modalOverlay} onPress={closeUnlessRejecting(setAppointmentRejectModalVisible)}>
                 <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
                   <Text style={styles.modalTitle}>위촉 미승인 처리</Text>
                   <Text style={styles.modalText}>
@@ -3227,16 +3359,19 @@ export default function DashboardScreen() {
 
                   <View style={styles.modalButtons}>
                     <Pressable
-                      style={[styles.modalBtn, styles.modalBtnCancel]}
-                      onPress={() => setAppointmentRejectModalVisible(false)}
+                      style={[styles.modalBtn, styles.modalBtnCancel, rejectSubmitting && styles.saveButtonDisabled]}
+                      onPress={closeUnlessRejecting(setAppointmentRejectModalVisible)}
+                      disabled={rejectSubmitting}
                     >
                       <Text style={styles.modalBtnTextCancel}>취소</Text>
                     </Pressable>
                     <Pressable
-                      style={[styles.modalBtn, styles.modalBtnDelete]}
+                      style={[styles.modalBtn, styles.modalBtnDelete, rejectSubmitting && styles.saveButtonDisabled]}
                       onPress={confirmAppointmentRejectWithReason}
+                      disabled={rejectSubmitting}
+                      accessibilityState={{ disabled: rejectSubmitting, busy: rejectSubmitting }}
                     >
-                      <Text style={styles.modalBtnTextDelete}>미승인</Text>
+                      <Text style={styles.modalBtnTextDelete}>{rejectSubmitting ? '처리 중...' : '미승인'}</Text>
                     </Pressable>
                   </View>
                 </Pressable>
@@ -3283,8 +3418,9 @@ export default function DashboardScreen() {
                     <Text style={styles.modalBtnTextCancel}>취소</Text>
                   </Pressable>
                   <Pressable
-                    style={[styles.modalBtn, styles.modalBtnDelete]}
+                    style={[styles.modalBtn, styles.modalBtnDelete, deleteFc.isPending && styles.saveButtonDisabled]}
                     onPress={confirmDeleteWithCode}
+                    disabled={deleteFc.isPending}
                   >
                     <Text style={styles.modalBtnTextDelete}>삭제</Text>
                   </Pressable>
@@ -3507,7 +3643,7 @@ export default function DashboardScreen() {
           <View style={styles.headerContainer}>
           <View style={styles.headerTop}>
             <Text style={styles.headerTitle}>현황 대시보드</Text>
-            <RefreshButton onPress={() => { refetch(); }} />
+            <RefreshButton onPress={async () => { await refetch(); }} busy={isFetching} />
           </View>
           <Text style={styles.headerSub}>
             {role === 'admin' ? '전체 FC 진행 현황 및 서류 관리' : '나의 진행 현황 확인'}
@@ -3734,6 +3870,12 @@ export default function DashboardScreen() {
         state={notificationReceipt.state}
         onRetry={() => void notificationReceipt.retryMarkRead()}
       />
+      {notifyRetrying ? (
+        <View style={styles.notifyRetryBar} accessibilityRole="progressbar" accessibilityState={{ busy: true }}>
+          <ActivityIndicator size="small" color={ORANGE} />
+          <Text style={styles.notifyRetryText}>알림 등록 중...</Text>
+        </View>
+      ) : null}
       <KeyboardAwareWrapper
         refreshControl={screenRefreshControl}
         contentContainerStyle={{ paddingBottom: (deleteModalVisible ? 0 : keyboardPadding) + 40 }}
@@ -4069,6 +4211,18 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   saveButtonDisabled: { opacity: 0.6 },
+  notifyRetryBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#FFF7ED',
+  },
+  notifyRetryText: { fontSize: 13, fontWeight: '600', color: CHARCOAL },
   saveButtonText: {
     color: '#fff',
     fontSize: 12,

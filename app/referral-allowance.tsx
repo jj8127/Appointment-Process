@@ -31,24 +31,28 @@ function LoadingState() {
     <Text style={styles.body}>증원수당 내역을 확인하고 있습니다.</Text></View>;
 }
 
-function ErrorState({ error, retry, inline = false }: { error: unknown; retry: () => void; inline?: boolean }) {
+function ErrorState({ error, retry, inline = false, busy = false }: { error: unknown; retry: () => void; inline?: boolean; busy?: boolean }) {
   const router = useRouter();
   const needsRelogin = isReferralReloginError(error);
   return <View style={inline ? styles.readError : styles.state}><Feather name="alert-circle" size={inline ? 20 : 28} color={COLORS.primaryDark} />
     <Text style={styles.title}>{inline ? '최신 수당 내역을 불러오지 못했습니다' : needsRelogin ? '다시 로그인해주세요' : '수당 내역을 불러오지 못했습니다'}</Text>
     <Text style={styles.body}>{inline ? '이전에 확인한 내용을 표시합니다.' : needsRelogin ? '로그인 후 증원수당 내역을 다시 확인해주세요.' : '연결 상태를 확인한 뒤 다시 시도해주세요.'}</Text>
-    <Pressable style={styles.action} accessibilityRole="button"
+    <Pressable style={[styles.action, !needsRelogin && busy && styles.actionBusy]} accessibilityRole="button"
+      disabled={!needsRelogin && busy} accessibilityState={{ disabled: !needsRelogin && busy, busy: !needsRelogin && busy }}
       onPress={needsRelogin ? () => router.push('/login?skipAuto=1') : retry}>
+      {!needsRelogin && busy ? <ActivityIndicator size="small" color={COLORS.white} /> : null}
       <Text style={styles.actionText}>{needsRelogin ? '로그인' : '다시 시도'}</Text>
     </Pressable></View>;
 }
 
-function EmptyState({ month, retry }: { month: string; retry: () => void }) {
+function EmptyState({ month, retry, busy = false }: { month: string; retry: () => void; busy?: boolean }) {
   return <View style={styles.state}>
     <View style={styles.emptyIcon}><Feather name="bar-chart-2" size={30} color={COLORS.primaryDark} /></View>
     <Text style={[styles.title, styles.stateText]}>{formatReferralAllowanceMonth(month)} 수당 명세가 없습니다</Text>
     <Text style={[styles.body, styles.stateText]}>해당 월의 명세가 등록되면 이 화면에서 확인할 수 있습니다.</Text>
-    <Pressable style={styles.action} onPress={retry} accessibilityRole="button">
+    <Pressable style={[styles.action, busy && styles.actionBusy]} onPress={retry} accessibilityRole="button"
+      disabled={busy} accessibilityState={{ disabled: busy, busy }}>
+      {busy ? <ActivityIndicator size="small" color={COLORS.white} /> : null}
       <Text style={styles.actionText}>다시 확인</Text>
     </Pressable>
   </View>;
@@ -58,10 +62,10 @@ export default function ReferralAllowancePage() {
   const access = useReferralAllowanceAccess();
   return <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
     {access.isLoading ? <LoadingState /> : access.error && !access.data ? <ErrorState error={access.error} retry={access.retry} />
-      : <>{access.error ? <ErrorState error={access.error} retry={access.retry} inline /> : null}
+      : <>{access.error ? <ErrorState error={access.error} retry={access.retry} busy={access.isRefreshing} inline /> : null}
         {access.enabled ? <AllowanceStatement key={access.scope}
           initialAvailableMonths={access.data?.enabled ? access.data.availableMonths : []} />
-          : <UnavailableAllowanceStatement key={access.scope} retry={access.retry} />}</>}
+          : <UnavailableAllowanceStatement key={access.scope} retry={access.retry} busy={access.isRefreshing} />}</>}
   </SafeAreaView>;
 }
 
@@ -91,11 +95,11 @@ function AllowanceStateContent({ months, selectedMonth, onChangeMonth, children 
   </View>;
 }
 
-function UnavailableAllowanceStatement({ retry }: { retry: () => void }) {
+function UnavailableAllowanceStatement({ retry, busy }: { retry: () => void; busy: boolean }) {
   const [month, setMonth] = useState(DEFAULT_ALLOWANCE_MONTH);
   const months = useMemo(() => allowanceDisplayMonths([]), []);
   return <AllowanceStateContent months={months} selectedMonth={month} onChangeMonth={setMonth}>
-    <EmptyState month={month} retry={retry} />
+    <EmptyState month={month} retry={retry} busy={busy} />
   </AllowanceStateContent>;
 }
 
@@ -116,16 +120,16 @@ function AllowanceStatement({ initialAvailableMonths }: { initialAvailableMonths
     setMonth(next);
   };
 
-  if (query.error && !query.data) return <AllowanceStateContent months={months} selectedMonth={selectedMonth} onChangeMonth={changeMonth}>
-    <ErrorState error={query.error} retry={query.retry} />
-  </AllowanceStateContent>;
   if (query.isLoading) return <AllowanceStateContent months={months} selectedMonth={selectedMonth} onChangeMonth={changeMonth}>
     <LoadingState />
   </AllowanceStateContent>;
+  if (query.error && !query.data) return <AllowanceStateContent months={months} selectedMonth={selectedMonth} onChangeMonth={changeMonth}>
+    <ErrorState error={query.error} retry={query.retry} />
+  </AllowanceStateContent>;
   if (!query.enabled || !statement || statement.nodes.length === 0) return <AllowanceStateContent
     months={months} selectedMonth={selectedMonth} onChangeMonth={changeMonth}>
-    {query.error ? <ErrorState error={query.error} retry={query.retry} inline /> : null}
-    <EmptyState month={selectedMonth} retry={query.retry} />
+    {query.error ? <ErrorState error={query.error} retry={query.retry} busy={query.isRefreshing} inline /> : null}
+    <EmptyState month={selectedMonth} retry={query.retry} busy={query.isRefreshing} />
   </AllowanceStateContent>;
 
   return <>{query.error ? <ErrorState error={query.error} retry={query.retry} inline /> : null}
@@ -149,7 +153,7 @@ function StatementContent({ statement, months, onChangeMonth, selectedId, onSele
         <MonthSelector months={months} selectedMonth={statement.performanceMonth} onChangeMonth={onChangeMonth} />
         <Pressable style={styles.iconButton} onPress={onRefresh} disabled={refreshing} accessibilityState={{ busy: refreshing }}
           accessibilityRole="button" accessibilityLabel="수당 내역 새로 확인">
-          {refreshing ? <ActivityIndicator size="small" color={COLORS.primaryDark} />
+          {refreshing ? <ActivityIndicator size="small" color={COLORS.white} />
             : <Feather name="refresh-cw" size={19} color={COLORS.primaryDark} />}</Pressable>
       </View>
       <View style={styles.viewTabs} accessibilityRole="tablist">
@@ -360,6 +364,7 @@ const styles = StyleSheet.create({
   noteText: { flex: 1, fontSize: 12, lineHeight: 19, color: COLORS.primaryDark },
   action: { minHeight: TOUCH_TARGET.min, paddingHorizontal: 22, justifyContent: 'center', borderRadius: RADIUS.md, backgroundColor: COLORS.primary },
   actionText: { color: COLORS.white, fontSize: 14, fontWeight: '700' },
+  actionBusy: { flexDirection: 'row', alignItems: 'center', gap: 8, opacity: 0.7 },
   iconButton: { width: TOUCH_TARGET.min, height: TOUCH_TARGET.min, alignItems: 'center', justifyContent: 'center' },
   graphCard: { flex: 1, backgroundColor: COLORS.white, borderRadius: RADIUS.lg, overflow: 'hidden', borderWidth: 1, borderColor: COLORS.border.light },
   graphToolbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 12 },

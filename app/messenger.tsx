@@ -205,6 +205,8 @@ export default function MessengerHubScreen() {
     () => new Set<MessengerHubLoadingSource>(),
   );
   const [refreshing, setRefreshing] = useState(false);
+  const [hubRetrying, setHubRetrying] = useState(false);
+  const hubRetryingRef = useRef(false);
   const [renderedCacheScope, setRenderedCacheScope] = useState<string | null>(null);
   const oneShotOpenRef = useRef(false);
   const profileActionRef = useRef(false);
@@ -1016,9 +1018,15 @@ export default function MessengerHubScreen() {
   }, [loadAll]);
 
   const handleHubRetry = useCallback(() => {
+    if (hubRetryingRef.current) return;
+    hubRetryingRef.current = true;
+    setHubRetrying(true);
     setRoleFilter('all');
     setRoleFilterVisible(false);
-    void loadAll();
+    void loadAll().finally(() => {
+      hubRetryingRef.current = false;
+      setHubRetrying(false);
+    });
   }, [loadAll]);
 
   const resolveGaraminConversationRoom = useCallback(async (
@@ -1440,6 +1448,7 @@ export default function MessengerHubScreen() {
         <MessengerHubNotice
           message={`${visibleFailedSources.join(', ')} 정보를 불러오지 못했습니다. 표시된 목록은 최신 성공 결과입니다.`}
           onRetry={handleHubRetry}
+          retrying={hubRetrying}
         />
       ) : null}
       {creatingRequestParticipantId !== null ? (

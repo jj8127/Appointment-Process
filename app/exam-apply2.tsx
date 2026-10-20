@@ -399,6 +399,12 @@ export default function ExamApplyScreen() {
     uploadId: string;
   } | null>(null);
   const consumedRouteHydrationKeysRef = useRef(new Set<string>());
+  const applySubmittingRef = useRef(false);
+  const [isPreparingApply, setIsPreparingApply] = useState(false);
+  const notifyRetryingRef = useRef(false);
+  const [isRetryingNotify, setIsRetryingNotify] = useState(false);
+  const pickingPaymentProofRef = useRef(false);
+  const [isPickingPaymentProof, setIsPickingPaymentProof] = useState(false);
   const [selectedApplyId, setSelectedApplyId] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [policyNow, setPolicyNow] = useState(() => new Date());
@@ -822,34 +828,42 @@ export default function ExamApplyScreen() {
   }, [appSessionToken, applicationTargetFcId]);
 
   const pickPaymentProof = useCallback(async () => {
+    if (pickingPaymentProofRef.current) return;
     if (isConfirmedForRound) {
       Alert.alert('수정 불가', lockMessage);
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsMultipleSelection: false,
-      quality: 0.9,
-    });
-    if (result.canceled) return;
+    pickingPaymentProofRef.current = true;
+    setIsPickingPaymentProof(true);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: false,
+        quality: 0.9,
+      });
+      if (result.canceled) return;
 
-    const normalized = normalizeExamPaymentProofSelection(
-      result.assets[0] ?? {},
-      Crypto.randomUUID(),
-    );
-    if (!normalized.ok) {
-      Alert.alert('첨부 불가', normalized.message);
-      return;
+      const normalized = normalizeExamPaymentProofSelection(
+        result.assets[0] ?? {},
+        Crypto.randomUUID(),
+      );
+      if (!normalized.ok) {
+        Alert.alert('첨부 불가', normalized.message);
+        return;
+      }
+
+      setSelectedPaymentProof(normalized.value);
+      void discardPreparedPaymentProof();
+    } finally {
+      pickingPaymentProofRef.current = false;
+      setIsPickingPaymentProof(false);
     }
-
-    await discardPreparedPaymentProof();
-    setSelectedPaymentProof(normalized.value);
   }, [discardPreparedPaymentProof, isConfirmedForRound, lockMessage]);
 
-  const removePaymentProof = useCallback(async () => {
-    await discardPreparedPaymentProof();
+  const removePaymentProof = useCallback(() => {
     setSelectedPaymentProof(null);
+    void discardPreparedPaymentProof();
   }, [discardPreparedPaymentProof]);
 
   const selectApplicationTarget = useCallback(async (target: ExamApplicationTarget) => {
@@ -995,6 +1009,7 @@ export default function ExamApplyScreen() {
       if (result.failedTargets.length > 0) {
         let retryTargets = result.failedTargets;
         const retryNotificationDelivery = async () => {
+          if (notifyRetryingRef.current) return;
           if (!result.notificationPayloads) {
             Alert.alert(
               '알림 대상 오류',
@@ -1002,37 +1017,44 @@ export default function ExamApplyScreen() {
             );
             return;
           }
-          const retryResult = await sendExamApplyNotificationsBestEffort(
-            result.notificationPayloads,
-            notifyExamFlow,
-            retryTargets,
-          );
-          if (retryResult.invalidTargets.length > 0) {
-            Alert.alert(
-              '알림 대상 오류',
-              '알림을 받을 사용자 정보를 확인할 수 없습니다.',
+          notifyRetryingRef.current = true;
+          setIsRetryingNotify(true);
+          try {
+            const retryResult = await sendExamApplyNotificationsBestEffort(
+              result.notificationPayloads,
+              notifyExamFlow,
+              retryTargets,
             );
-            return;
-          }
-          if (retryResult.failedTargets.length === 0) {
+            if (retryResult.invalidTargets.length > 0) {
+              Alert.alert(
+                '알림 대상 오류',
+                '알림을 받을 사용자 정보를 확인할 수 없습니다.',
+              );
+              return;
+            }
+            if (retryResult.failedTargets.length === 0) {
+              Alert.alert(
+                '알림 등록 완료',
+                '저장된 시험 신청 알림을 등록했습니다.',
+              );
+              return;
+            }
+            retryTargets = retryResult.failedTargets;
             Alert.alert(
-              '알림 등록 완료',
-              '저장된 시험 신청 알림을 등록했습니다.',
+              '알림 등록 실패',
+              '시험 신청은 저장되었지만 알림을 다시 등록하지 못했습니다.',
+              [
+                { text: '확인' },
+                {
+                  text: '다시 등록',
+                  onPress: () => void retryNotificationDelivery(),
+                },
+              ],
             );
-            return;
+          } finally {
+            notifyRetryingRef.current = false;
+            setIsRetryingNotify(false);
           }
-          retryTargets = retryResult.failedTargets;
-          Alert.alert(
-            '알림 등록 실패',
-            '시험 신청은 저장되었지만 알림을 다시 등록하지 못했습니다.',
-            [
-              { text: '확인' },
-              {
-                text: '다시 등록',
-                onPress: () => void retryNotificationDelivery(),
-              },
-            ],
-          );
         };
         Alert.alert(
           '신청 완료 · 알림 등록 실패',
@@ -1105,6 +1127,7 @@ export default function ExamApplyScreen() {
   });
 
   const handleCancelPress = (registrationId: string) => {
+    if (cancelMutation.isPending) return;
     const target = myApplies.find((a) => a.id === registrationId);
     if (!target) {
       Alert.alert('알림', '취소할 신청 내역이 없습니다.');
@@ -1179,8 +1202,10 @@ export default function ExamApplyScreen() {
     setSelectedLocationId(id);
   };
 
+  const isApplyBusy = applyMutation.isPending || isPreparingApply || isRetryingNotify;
+
   const handleApplyPress = async () => {
-    if (applyMutation.isPending) return;
+    if (applySubmittingRef.current || isApplyBusy) return;
     if (isMyApplyHistoryBlocked) {
       Alert.alert('알림', '신청 내역을 다시 불러온 뒤 시도해주세요.');
       return;
@@ -1201,53 +1226,60 @@ export default function ExamApplyScreen() {
       return;
     }
 
-    const freshHistoryResult = await refetchMyApply();
-    if (freshHistoryResult.error || !freshHistoryResult.data) {
-      Alert.alert('알림', '신청 내역을 다시 불러온 뒤 시도해주세요.');
-      return;
-    }
-    const freshMyApplies = freshHistoryResult.data;
-    const freshExistingForRound = freshMyApplies.find(
-      (application) =>
-        isCurrentFlow(application)
-        && isExamMonthSlotConsumed(application.status)
-        && application.round_id === selectedRoundId,
-    );
-    const activeForSelectedMonth = selectedRound
-      ? freshMyApplies.find(
-          (application) =>
-            isCurrentFlow(application)
-            && isExamMonthSlotConsumed(application.status)
-            && isExamRegistrationInRoundMonth(
-              application,
-              getRoundForMonthComparison(selectedRound),
-              examFlowType,
-            ),
-        )
-      : undefined;
-    if (activeForSelectedMonth && activeForSelectedMonth.round_id !== selectedRoundId) {
-      showExamMonthConflictFeedback();
-      return;
-    }
+    applySubmittingRef.current = true;
+    setIsPreparingApply(true);
+    try {
+      const freshHistoryResult = await refetchMyApply();
+      if (freshHistoryResult.error || !freshHistoryResult.data) {
+        Alert.alert('알림', '신청 내역을 다시 불러온 뒤 시도해주세요.');
+        return;
+      }
+      const freshMyApplies = freshHistoryResult.data;
+      const freshExistingForRound = freshMyApplies.find(
+        (application) =>
+          isCurrentFlow(application)
+          && isExamMonthSlotConsumed(application.status)
+          && application.round_id === selectedRoundId,
+      );
+      const activeForSelectedMonth = selectedRound
+        ? freshMyApplies.find(
+            (application) =>
+              isCurrentFlow(application)
+              && isExamMonthSlotConsumed(application.status)
+              && isExamRegistrationInRoundMonth(
+                application,
+                getRoundForMonthComparison(selectedRound),
+                examFlowType,
+              ),
+          )
+        : undefined;
+      if (activeForSelectedMonth && activeForSelectedMonth.round_id !== selectedRoundId) {
+        showExamMonthConflictFeedback();
+        return;
+      }
 
-    const missingMessage = formatMissingExamApplicationFields(getMissingExamApplicationFields({
-      hasApplicationTarget: !isProxyApplication || !!selectedTarget,
-      hasPaymentProof: hasExamPaymentProof({
-        selectedProof: selectedPaymentProof,
-        existingProofAttached: !!freshExistingForRound?.payment_proof_attached,
-      }),
-      selectedRoundId,
-      selectedLocationId,
-      hasSelectedSubject: wantsNonlife || wantsThird,
-    }));
-    if (missingMessage) {
-      Alert.alert('입력 확인', missingMessage);
-      return;
-    }
+      const missingMessage = formatMissingExamApplicationFields(getMissingExamApplicationFields({
+        hasApplicationTarget: !isProxyApplication || !!selectedTarget,
+        hasPaymentProof: hasExamPaymentProof({
+          selectedProof: selectedPaymentProof,
+          existingProofAttached: !!freshExistingForRound?.payment_proof_attached,
+        }),
+        selectedRoundId,
+        selectedLocationId,
+        hasSelectedSubject: wantsNonlife || wantsThird,
+      }));
+      if (missingMessage) {
+        Alert.alert('입력 확인', missingMessage);
+        return;
+      }
 
-    applyMutation.mutate({
-      existingProofAttachedForSubmit: !!freshExistingForRound?.payment_proof_attached,
-    });
+      await applyMutation.mutateAsync({
+        existingProofAttachedForSubmit: !!freshExistingForRound?.payment_proof_attached,
+      }).catch(() => {});
+    } finally {
+      applySubmittingRef.current = false;
+      setIsPreparingApply(false);
+    }
   };
 
   if (!hydrated) {
@@ -1285,7 +1317,7 @@ export default function ExamApplyScreen() {
               errorMessage={applicationTargetsError}
               onRetry={() => { void refetchApplicationTargets(); }}
               onLogin={applicationTargetsNeedRelogin ? () => router.push('/login?skipAuto=1') : undefined}
-              disabled={applyMutation.isPending}
+              disabled={isApplyBusy}
               onChange={(target) => {
                 void selectApplicationTarget(target);
               }}
@@ -1327,13 +1359,12 @@ export default function ExamApplyScreen() {
           <ExamPaymentProofField
             selectedProof={selectedPaymentProof}
             existingProofAttached={existingProofAttached}
-            disabled={isConfirmedForRound || applyMutation.isPending}
+            disabled={isConfirmedForRound || isApplyBusy}
+            busy={isPickingPaymentProof}
             onPick={() => {
               void pickPaymentProof();
             }}
-            onRemove={() => {
-              void removePaymentProof();
-            }}
+            onRemove={removePaymentProof}
           />
         </View>
 
@@ -1492,9 +1523,12 @@ export default function ExamApplyScreen() {
                             onPress={() => handleCancelPress(currentApply.id)}
                             disabled={cancelMutation.isPending}
                             accessibilityRole="button"
-                            accessibilityState={{ disabled: cancelMutation.isPending }}
+                            accessibilityState={{ disabled: cancelMutation.isPending, busy: cancelMutation.isPending }}
+                            style={cancelMutation.isPending ? { opacity: 0.5 } : undefined}
                           >
-                            <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600' }}>취소</Text>
+                            <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600' }}>
+                              {cancelMutation.isPending ? '취소 중...' : '취소'}
+                            </Text>
                           </Pressable>
                         )}
                       </View>
@@ -1736,21 +1770,24 @@ export default function ExamApplyScreen() {
             <View style={styles.actionButtons}>
               <Pressable
                 onPress={handleApplyPress}
-                disabled={applyMutation.isPending || isMyApplyHistoryBlocked}
+                disabled={isApplyBusy || isMyApplyHistoryBlocked}
+                accessibilityState={{ disabled: isApplyBusy || isMyApplyHistoryBlocked, busy: isApplyBusy }}
                 style={({ pressed }) => [styles.submitBtnWrapper, pressed && styles.pressedScale]}
               >
                 <View
                   style={[
                     styles.submitBtn,
-                        applyMutation.isPending || isMyApplyHistoryBlocked || isConfirmedForRound
+                        isApplyBusy || isMyApplyHistoryBlocked || isConfirmedForRound
                       ? styles.submitBtnDisabled
                       : styles.submitBtnActive,
                   ]}
                 >
                   <Text style={styles.submitBtnText}>
-                    {isConfirmedForRound ? '시험 접수 완료' : existingForRound ? '신청 내역 수정하기' : '시험 신청하기'}
+                    {isRetryingNotify
+                      ? '알림 등록 중...'
+                      : isConfirmedForRound ? '시험 접수 완료' : existingForRound ? '신청 내역 수정하기' : '시험 신청하기'}
                   </Text>
-                  {applyMutation.isPending && (
+                  {isApplyBusy && (
                     <BrandedLoadingSpinner size="sm" color="#fff" style={{ marginLeft: 8 }} />
                   )}
                 </View>

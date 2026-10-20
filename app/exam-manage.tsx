@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Modal,
@@ -307,8 +308,8 @@ export default function ExamManageLifeScreen() {
       });
       return params;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['exam-applicants', EXAM_TYPE] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['exam-applicants', EXAM_TYPE] });
     },
     onSettled: (_data, error) => {
       if (error) {
@@ -329,10 +330,10 @@ export default function ExamManageLifeScreen() {
       });
       return input;
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['exam-applicants', EXAM_TYPE] });
       setRejectTarget(null);
       setRejectReason('');
-      queryClient.invalidateQueries({ queryKey: ['exam-applicants', EXAM_TYPE] });
       Alert.alert('반려 완료', '시험 신청을 반려했습니다.');
     },
     onSettled: (_data, error) => {
@@ -351,8 +352,8 @@ export default function ExamManageLifeScreen() {
       });
       return applicant;
     },
-    onSuccess: (applicant) => {
-      queryClient.invalidateQueries({ queryKey: ['exam-applicants', EXAM_TYPE] });
+    onSuccess: async (applicant) => {
+      await queryClient.invalidateQueries({ queryKey: ['exam-applicants', EXAM_TYPE] });
       Alert.alert('취소 완료', `${applicant.name} 신청을 관리자 취소 처리했습니다.`);
     },
     onSettled: (_data, error) => {
@@ -364,6 +365,7 @@ export default function ExamManageLifeScreen() {
   });
 
   const handleToggle = (applicant: ApplicantRow) => {
+    if (toggleMutation.isPending) return;
     toggleMutation.mutate({ applicant, value: !applicant.isConfirmed });
   };
 
@@ -401,6 +403,9 @@ export default function ExamManageLifeScreen() {
     const statusColor = a.isConfirmed ? BADGE_CONFIRMED_TEXT : BADGE_PENDING_TEXT;
     const isDeleting =
       deleteMutation.isPending && deleteMutation.variables?.registrationId === a.registrationId;
+    const isToggling =
+      toggleMutation.isPending
+      && toggleMutation.variables?.applicant.registrationId === a.registrationId;
     return (
       <View
         key={a.registrationId}
@@ -439,7 +444,11 @@ export default function ExamManageLifeScreen() {
               <Text style={[styles.statusBadgeText, a.isConfirmed ? styles.textConfirmed : styles.textPending]}>
                 {statusText}
               </Text>
-              <Feather name={a.isConfirmed ? 'check' : 'x'} size={14} color={statusColor} />
+              {isToggling ? (
+                <ActivityIndicator size="small" color={statusColor} />
+              ) : (
+                <Feather name={a.isConfirmed ? 'check' : 'x'} size={14} color={statusColor} />
+              )}
             </Pressable>
             <Pressable
               onPress={() => handleDelete(a)}
@@ -515,7 +524,7 @@ export default function ExamManageLifeScreen() {
         <View style={styles.header}>
           <View style={styles.headerTop}>
             <Text style={styles.headerTitle}>생명보험 신청자</Text>
-            <RefreshButton onPress={() => {refetch()}} />
+            <RefreshButton onPress={onRefresh} busy={refreshing} />
           </View>
 
           <View style={styles.searchBox}>
@@ -585,7 +594,9 @@ export default function ExamManageLifeScreen() {
         visible={Boolean(rejectTarget)}
         transparent
         animationType="fade"
-        onRequestClose={() => setRejectTarget(null)}
+        onRequestClose={() => {
+          if (!rejectMutation.isPending) setRejectTarget(null);
+        }}
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -604,7 +615,11 @@ export default function ExamManageLifeScreen() {
               style={styles.rejectInput}
             />
             <View style={styles.modalActions}>
-              <Pressable style={styles.modalCancel} onPress={() => setRejectTarget(null)}>
+              <Pressable
+                style={[styles.modalCancel, rejectMutation.isPending && { opacity: 0.5 }]}
+                disabled={rejectMutation.isPending}
+                onPress={() => setRejectTarget(null)}
+              >
                 <Text style={styles.modalCancelText}>닫기</Text>
               </Pressable>
               <Pressable

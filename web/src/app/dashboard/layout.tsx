@@ -5,7 +5,7 @@ import { DashboardNotificationBell } from '@/components/DashboardNotificationBel
 import { GlobalFcSearch } from '@/components/GlobalFcSearch';
 import { NotificationReadAcknowledger } from '@/components/NotificationReadAcknowledger';
 import { getDashboardRoleLabel, getDashboardRoleSubLabel } from '@/lib/staff-identity';
-import { Avatar, Box, Burger, Divider, Drawer, Group, Menu, NavLink, Text, Tooltip, UnstyledButton, useMantineTheme } from '@mantine/core';
+import { Avatar, Box, Burger, Center, Divider, Drawer, Group, Loader, Menu, NavLink, Text, Tooltip, UnstyledButton, useMantineTheme } from '@mantine/core';
 import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import {
   IconCalendarEvent,
@@ -70,7 +70,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const isDesktop = useMediaQuery(`(min-width: ${theme.breakpoints.sm})`);
   const router = useRouter();
   const pathname = usePathname();
-  const { role, logout, hydrated, displayName, residentMask, residentId, staffType, isReadOnly } = useSession();
+  const { role, logout, hydrated, transitioning, displayName, residentMask, residentId, staffType, isReadOnly } = useSession();
   const isFcSession = role === 'fc';
 
   const roleLabel = getDashboardRoleLabel({ role, staffType, isReadOnly });
@@ -169,7 +169,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [hydrated, pathname, role, router]);
 
   if (!hydrated || (role !== 'admin' && role !== 'manager' && role !== 'fc')) {
-    return null;
+    // Logout clears the session at once; keep a spinner up until the redirect lands.
+    return transitioning ? (
+      <Center mih="100vh" role="status" aria-label="로그아웃 중">
+        <Loader color="orange" />
+      </Center>
+    ) : null;
   }
 
   const showGroupTabs = isDesktop && navGroups.length > 1;

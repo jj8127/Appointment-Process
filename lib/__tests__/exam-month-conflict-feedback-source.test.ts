@@ -81,7 +81,7 @@ describe('exam month conflict feedback source contract', () => {
         "myApplyHistoryGuardState === 'loading' || myApplyHistoryGuardState === 'error'",
       );
       expect(source).toContain(
-        'disabled={applyMutation.isPending || isMyApplyHistoryBlocked}',
+        'disabled={isApplyBusy || isMyApplyHistoryBlocked}',
       );
       expect(source).toContain('{isMyApplyHistoryLoading ? (');
       expect(source).toContain(') : hasMyApplyHistoryError ? (');
@@ -93,12 +93,12 @@ describe('exam month conflict feedback source contract', () => {
         /const activeForSelectedMonth = selectedRound\s+\? freshMyApplies\.find/,
       );
       expect(submitHandler).toContain('isExamMonthSlotConsumed(application.status)');
-      expect(submitHandler).toContain('applyMutation.mutate({');
+      expect(submitHandler).toContain('applyMutation.mutateAsync({');
       expect(submitHandler).toContain(
         'existingProofAttachedForSubmit: !!freshExistingForRound?.payment_proof_attached',
       );
       expect(submitHandler.indexOf('await refetchMyApply()')).toBeLessThan(
-        submitHandler.indexOf('applyMutation.mutate({'),
+        submitHandler.indexOf('applyMutation.mutateAsync({'),
       );
 
       expect(source).toContain('useRef(new Set<string>())');

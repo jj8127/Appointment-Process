@@ -227,7 +227,7 @@ export default function MessengerHubPage() {
                 >
                   채팅 열기
                 </Button>
-                <Button variant="subtle" color="gray" radius="xl" onClick={() => { void refetch(); }}>
+                <Button variant="subtle" color="gray" radius="xl" loading={isFetching} onClick={() => { void refetch(); }}>
                   새로고침
                 </Button>
               </Group>

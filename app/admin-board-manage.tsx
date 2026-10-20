@@ -468,6 +468,19 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
       logError: logBoardError,
     });
   }, [loadFreshAttachments]);
+  const [openingAttachmentId, setOpeningAttachmentId] = useState<string | null>(null);
+  const openingAttachmentRef = useRef(false);
+  const runAttachmentOpen = useCallback(async (attachmentId: string, open: (id: string) => Promise<void>) => {
+    if (openingAttachmentRef.current) return;
+    openingAttachmentRef.current = true;
+    setOpeningAttachmentId(attachmentId);
+    try {
+      await open(attachmentId);
+    } finally {
+      openingAttachmentRef.current = false;
+      setOpeningAttachmentId(null);
+    }
+  }, []);
   const modalReactionCounts = {
     like: modalReactions.like,
     heart: modalReactions.heart,
@@ -492,8 +505,11 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refetch();
-    setRefreshing(false);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
   }, [refetch]);
 
   const handleLogout = () => {
@@ -769,7 +785,9 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
         setEditingCommentId(comment.id);
         setEditingCommentText(safeText(comment.content));
       },
-      onDelete: () => deleteCommentMutation.mutate(comment.id),
+      onDelete: () => {
+        if (!deleteCommentMutation.isPending) deleteCommentMutation.mutate(comment.id);
+      },
     });
   };
 
@@ -788,12 +806,15 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
     const isReply = depth > 0;
     const isCollapsed = depth === 0 && collapsedThreadIds.includes(comment.id);
     const replyStyle = depth >= 2 ? styles.replyItemDeep : styles.replyItem;
+    const isDeleting = deleteCommentMutation.isPending && deleteCommentMutation.variables === comment.id;
+    const isSavingEdit = updateCommentMutation.isPending && updateCommentMutation.variables?.commentId === comment.id;
     return (
       <View
         key={comment.id}
         style={[
           isReply ? replyStyle : styles.commentItem,
           isReply && { marginLeft: depth * 14 },
+          isDeleting && { opacity: 0.5 },
         ]}
       >
         <View style={styles.commentHeader}>
@@ -816,13 +837,17 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
           </View>
           {comment.isMine && (
             <Pressable accessibilityLabel="댓글 더보기" accessibilityRole="button"
+              accessibilityState={{ disabled: isDeleting, busy: isDeleting }}
+              disabled={isDeleting}
               style={({ pressed }) => [
                 styles.commentMoreButton,
                 pressed && { opacity: 0.6 },
               ]}
               onPress={() => openCommentActions(comment)}
             >
-              <Feather name="more-vertical" size={16} color={TEXT_MUTED} />
+              {isDeleting
+                ? <ActivityIndicator size="small" color={TEXT_MUTED} />
+                : <Feather name="more-vertical" size={16} color={TEXT_MUTED} />}
             </Pressable>
           )}
         </View>
@@ -836,11 +861,14 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
             />
             <View style={styles.commentEditActions}>
               <Pressable
+                accessibilityState={{ disabled: updateCommentMutation.isPending, busy: isSavingEdit }}
+                disabled={updateCommentMutation.isPending}
                 style={({ pressed }) => [
                   styles.commentEditButton,
-                  pressed && { opacity: 0.7 },
+                  (pressed || updateCommentMutation.isPending) && { opacity: 0.7 },
                 ]}
                 onPress={() => {
+                  if (updateCommentMutation.isPending) return;
                   const trimmed = editingCommentText.trim();
                   if (!trimmed) {
                     showBoardFeedbackAlert(Alert.alert, 'empty-comment');
@@ -849,7 +877,7 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
                   updateCommentMutation.mutate({ commentId: comment.id, content: trimmed });
                 }}
               >
-                <Text style={styles.commentEditButtonText}>수정</Text>
+                <Text style={styles.commentEditButtonText}>{isSavingEdit ? '저장 중...' : '수정'}</Text>
               </Pressable>
               <Pressable
                 style={({ pressed }) => [
@@ -883,7 +911,10 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
           <CommentLikeButton
             liked={comment.isLiked}
             count={comment.stats.likeCount}
-            onPress={() => toggleCommentLikeMutation.mutate(comment.id)}
+            onPress={() => {
+              if (toggleCommentLikeMutation.isPending && toggleCommentLikeMutation.variables === comment.id) return;
+              toggleCommentLikeMutation.mutate(comment.id);
+            }}
           />
         </View>
         {depth === 0 && replies.length > 0 && (
@@ -961,6 +992,7 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
   };
 
   const handleDelete = (post: BoardPost) => {
+    if (deletePostMutation.isPending) return;
     if (!canManagePost(post)) {
       Alert.alert('권한 없음', '본인 게시글만 삭제할 수 있습니다.');
       return;
@@ -970,7 +1002,9 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
       {
         text: '삭제',
         style: 'destructive',
-        onPress: () => deletePostMutation.mutate(post.id),
+        onPress: () => {
+          if (!deletePostMutation.isPending) deletePostMutation.mutate(post.id);
+        },
       },
     ]);
   };
@@ -1134,7 +1168,7 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
           )}
 
           {isError && !isFetchNextPageError && (
-            <QueryReadState error={listError} message="게시글을 불러오지 못했습니다." onRetry={() => void refetch()} />
+            <QueryReadState error={listError} message="게시글을 불러오지 못했습니다." onRetry={() => void refetch()} retrying={isFetching} />
           )}
 
           {!isLoading && !isError && filteredPosts.length === 0 && (
@@ -1264,17 +1298,22 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
                     <Text style={styles.actionText}>수정</Text>
                   </Pressable>
                   <Pressable
+                    accessibilityState={{ disabled: !canManagePost(post) || deletePostMutation.isPending, busy: deletePostMutation.isPending && deletePostMutation.variables === post.id }}
                     style={({ pressed }) => [
                       styles.actionButton,
                       styles.actionDelete,
                       pressed && { opacity: 0.7 },
-                      !canManagePost(post) && styles.actionButtonDisabled,
+                      (!canManagePost(post) || deletePostMutation.isPending) && styles.actionButtonDisabled,
                     ]}
                     onPress={() => handleDelete(post)}
-                    disabled={!canManagePost(post)}
+                    disabled={!canManagePost(post) || deletePostMutation.isPending}
                   >
-                    <Feather name="trash-2" size={14} color="#ef4444" />
-                    <Text style={[styles.actionText, { color: '#ef4444' }]}>삭제</Text>
+                    {deletePostMutation.isPending && deletePostMutation.variables === post.id
+                      ? <ActivityIndicator size="small" color="#ef4444" />
+                      : <Feather name="trash-2" size={14} color="#ef4444" />}
+                    <Text style={[styles.actionText, { color: '#ef4444' }]}>
+                      {deletePostMutation.isPending && deletePostMutation.variables === post.id ? '삭제 중...' : '삭제'}
+                    </Text>
                   </Pressable>
                 </View>
                 </Pressable>
@@ -1394,6 +1433,8 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
                   </View>
                   {canShowPostActions && (
                     <Pressable accessibilityLabel="게시글 더보기" accessibilityRole="button"
+                      accessibilityState={{ disabled: deletePostMutation.isPending, busy: deletePostMutation.isPending }}
+                      disabled={deletePostMutation.isPending}
                       style={({ pressed }) => [
                         styles.moreButton,
                         !canManageSelected && styles.moreButtonDisabled,
@@ -1401,7 +1442,9 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
                       ]}
                       onPress={openActionSheet}
                     >
-                      <Feather name="more-vertical" size={20} color={CHARCOAL} />
+                      {deletePostMutation.isPending
+                        ? <ActivityIndicator size="small" color={CHARCOAL} />
+                        : <Feather name="more-vertical" size={20} color={CHARCOAL} />}
                     </Pressable>
                   )}
                 </View>
@@ -1446,15 +1489,24 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
                     {modalAttachmentImages.map((item) => (
                         <Pressable
                           key={item.id}
+                          accessibilityState={{ busy: openingAttachmentId === item.id, disabled: !!openingAttachmentId }}
+                          disabled={!!openingAttachmentId}
                           style={({ pressed }) => [
                             styles.attachmentGridItem,
-                            pressed && { opacity: 0.75 },
+                            (pressed || openingAttachmentId === item.id) && { opacity: 0.75 },
                           ]}
                           onPress={() => {
-                            void openAttachmentImagePreview(item.id);
+                            void runAttachmentOpen(item.id, openAttachmentImagePreview);
                           }}
                         >
-                          <Image source={{ uri: item.url }} style={styles.attachmentGridImage} resizeMethod="resize" />
+                          <View>
+                            <Image source={{ uri: item.url }} style={styles.attachmentGridImage} resizeMethod="resize" />
+                            {openingAttachmentId === item.id ? (
+                              <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
+                                <ActivityIndicator size="small" color="#fff" />
+                              </View>
+                            ) : null}
+                          </View>
                           <Text style={styles.attachmentName} numberOfLines={1}>
                             {item.title}
                           </Text>
@@ -1469,9 +1521,11 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
                       .map((item) => (
                         <Pressable
                           key={item.id}
-                          style={styles.attachmentItem}
+                          accessibilityState={{ busy: openingAttachmentId === item.id, disabled: !!openingAttachmentId }}
+                          disabled={!!openingAttachmentId}
+                          style={[styles.attachmentItem, openingAttachmentId === item.id && { opacity: 0.6 }]}
                           onPress={() => {
-                            void openFileAttachment(item.id);
+                            void runAttachmentOpen(item.id, openFileAttachment);
                           }}
                         >
                           <View style={styles.attachmentIcon}>
@@ -1481,7 +1535,9 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
                             <Text style={styles.attachmentName}>{safeDecodeFileName(item.fileName)}</Text>
                             <Text style={styles.attachmentSize}>{formatFileSize(item.fileSize)}</Text>
                           </View>
-                          <Feather name="download" size={16} color={TEXT_MUTED} />
+                          {openingAttachmentId === item.id
+                            ? <ActivityIndicator size="small" color={TEXT_MUTED} />
+                            : <Feather name="download" size={16} color={TEXT_MUTED} />}
                         </Pressable>
                       ))}
                   </View>
@@ -1495,7 +1551,10 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
                 <Text style={styles.sectionTitle}>반응 남기기</Text>
                 <ReactionPicker
                   reactions={DEFAULT_REACTIONS}
-                  onReact={(reactionId) => addReactionMutation.mutate({ postId: selectedPost.id, reactionType: reactionId as BoardReactionKey })}
+                  onReact={(reactionId) => {
+                    if (addReactionMutation.isPending) return;
+                    addReactionMutation.mutate({ postId: selectedPost.id, reactionType: reactionId as BoardReactionKey });
+                  }}
                   reactionCounts={modalReactionCounts}
                   selectedReactions={effectiveMyReaction ? [effectiveMyReaction] : []}
                   showLabels={false}
@@ -1545,11 +1604,13 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
                     multiline
                   />
                   <Pressable accessibilityLabel="댓글 전송" accessibilityRole="button" accessibilityState={{ disabled: !commentText.trim() || addCommentMutation.isPending }}
-                    style={[styles.commentSubmitButton, !commentText.trim() && { opacity: 0.5 }]}
+                    style={[styles.commentSubmitButton, (!commentText.trim() || addCommentMutation.isPending) && { opacity: 0.5 }]}
                     onPress={handleAddComment}
                     disabled={!commentText.trim() || addCommentMutation.isPending}
                   >
-                    <Feather name="send" size={18} color="#fff" />
+                    {addCommentMutation.isPending
+                      ? <ActivityIndicator size="small" color="#fff" />
+                      : <Feather name="send" size={18} color="#fff" />}
                   </Pressable>
                 </View>
               </KeyboardSafeBottomBar>}
@@ -1573,9 +1634,10 @@ function AdminBoardManageContent({ sessionScope }: { sessionScope: number }) {
                       <Text style={styles.actionSheetText}>수정</Text>
                     </Pressable>
                     <Pressable
+                      disabled={deletePostMutation.isPending}
                       style={({ pressed }) => [
                         styles.actionSheetButton,
-                        pressed && { opacity: 0.6 },
+                        (pressed || deletePostMutation.isPending) && { opacity: 0.6 },
                       ]}
                       onPress={() => {
                         closeActionSheet();

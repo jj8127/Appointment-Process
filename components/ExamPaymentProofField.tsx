@@ -1,5 +1,5 @@
 import { Feather } from '@expo/vector-icons';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { ExamPaymentProofSelection } from '@/lib/exam-payment-proof';
 
@@ -11,6 +11,7 @@ type Props = {
   selectedProof: ExamPaymentProofSelection | null;
   existingProofAttached: boolean;
   disabled?: boolean;
+  busy?: boolean;
   onPick: () => void;
   onRemove: () => void;
 };
@@ -18,11 +19,13 @@ type Props = {
 export function ExamPaymentProofField({
   selectedProof,
   existingProofAttached,
-  disabled = false,
+  disabled: disabledProp = false,
+  busy = false,
   onPick,
   onRemove,
 }: Props) {
   const hasProof = Boolean(selectedProof || existingProofAttached);
+  const disabled = disabledProp || busy;
 
   return (
     <View style={styles.wrapper}>
@@ -62,6 +65,7 @@ export function ExamPaymentProofField({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={hasProof ? '입금 내역 사진 변경' : '입금 내역 사진 선택'}
+          accessibilityState={{ disabled, busy }}
           disabled={disabled}
           onPress={onPick}
           style={({ pressed }) => [
@@ -70,7 +74,11 @@ export function ExamPaymentProofField({
             pressed && !disabled && styles.pressed,
           ]}
         >
-          <Feather aria-hidden accessible={false} name="image" size={17} color="#fff" />
+          {busy ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Feather aria-hidden accessible={false} name="image" size={17} color="#fff" />
+          )}
           <Text style={styles.pickButtonText}>{hasProof ? '사진 변경' : '사진 선택'}</Text>
         </Pressable>
 

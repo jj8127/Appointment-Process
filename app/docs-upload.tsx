@@ -170,8 +170,11 @@ function DocsUploadScreenContent() {
   const deletingRef = useRef(false);
   const [deletingType, setDeletingType] = useState<string | null>(null);
   const [uploadingType, setUploadingType] = useState<string | null>(null);
-  const [approving, setApproving] = useState(false);
+  const [approvingAction, setApprovingAction] = useState<'approve' | 'reject' | null>(null);
+  const approvingRef = useRef(false);
+  const [openingType, setOpeningType] = useState<string | null>(null);
   const pickingRef = useRef(false);
+  const uploadingRef = useRef(false);
   const storageDebuggedRef = useRef(false);
   const keyboardPadding = useKeyboardPadding();
   const [refreshing, setRefreshing] = useState(false);
@@ -368,7 +371,7 @@ function DocsUploadScreenContent() {
 
   const handlePick = async (type: string) => {
     if (!fc) return;
-    if (pickingRef.current) return;
+    if (pickingRef.current || uploadingRef.current) return;
     const targetDoc = docs.find((d) => d.type === type);
     if (targetDoc?.status === 'approved') {
       Alert.alert('수정 불가', '이 서류는 승인되어 수정할 수 없습니다.');
@@ -392,6 +395,7 @@ function DocsUploadScreenContent() {
     const asset = result.assets?.[0];
     if (!asset?.uri) return;
 
+    uploadingRef.current = true;
     setUploadingType(type as string);
     let uploadStateCleared = false;
     try {
@@ -463,7 +467,7 @@ function DocsUploadScreenContent() {
         .maybeSingle();
       if (profileUpdateError) throw profileUpdateError;
       requireMutationRowReceipt(profileReceipt, { id: fc.id, status: 'docs-pending' });
-      const updatedDocs: DocItem[] = docs.map((doc) =>
+      const markUploaded = (doc: DocItem): DocItem =>
         doc.type === type
           ? {
             ...doc,
@@ -471,9 +475,9 @@ function DocsUploadScreenContent() {
             storagePath: objectPath,
             originalName: fileName,
           }
-          : doc,
-      );
-      setDocs(updatedDocs);
+          : doc;
+      const updatedDocs: DocItem[] = docs.map(markUploaded);
+      setDocs((previous) => previous.map(markUploaded));
 
       const nameLabel = fc.name || 'FC';
       const notificationJobs = [
@@ -525,6 +529,7 @@ function DocsUploadScreenContent() {
         return combineFcNotifyDeliveryResults(retryResults);
       };
 
+      uploadingRef.current = false;
       setUploadingType(null);
       uploadStateCleared = true;
       logger.debug('[upload] success', { objectPath });
@@ -543,6 +548,7 @@ function DocsUploadScreenContent() {
       Alert.alert('오류', err?.message ?? '업로드 실패');
     } finally {
       if (!uploadStateCleared) {
+        uploadingRef.current = false;
         setUploadingType(null);
       }
     }
@@ -601,8 +607,9 @@ function DocsUploadScreenContent() {
   };
 
   const handleApprove = async (isApprove: boolean) => {
-    if (!fc) return;
-    setApproving(true);
+    if (!fc || approvingRef.current) return;
+    approvingRef.current = true;
+    setApprovingAction(isApprove ? 'approve' : 'reject');
     try {
       const nextProfilePatch = isApprove
         ? { status: HANWHA_HANDOFF_STATUS }
@@ -629,7 +636,8 @@ function DocsUploadScreenContent() {
     } catch (err: any) {
       Alert.alert('오류', err?.message ?? '상태 업데이트 실패');
     } finally {
-      setApproving(false);
+      approvingRef.current = false;
+      setApprovingAction(null);
     }
   };
 
@@ -682,7 +690,8 @@ function DocsUploadScreenContent() {
               <View style={styles.adminActionRow}>
                 <Button
                   onPress={() => handleApprove(false)}
-                  disabled={approving}
+                  disabled={!!approvingAction || !!uploadingType || !!deletingType}
+                  loading={approvingAction === 'reject'}
                   variant="outline"
                   size="lg"
                   style={{ flex: 1, borderColor: '#ef4444', backgroundColor: '#fff' }}
@@ -691,8 +700,8 @@ function DocsUploadScreenContent() {
                 </Button>
                 <Button
                   onPress={() => handleApprove(true)}
-                  disabled={approving}
-                  loading={approving}
+                  disabled={!!approvingAction || !!uploadingType || !!deletingType}
+                  loading={approvingAction === 'approve'}
                   variant="primary"
                   size="lg"
                   style={{ flex: 1 }}
@@ -818,29 +827,43 @@ function DocsUploadScreenContent() {
                   <View style={styles.cardActions}>
                     {isUploaded && (
                       <Pressable
-                        style={({ pressed }) => [styles.btnGhost, pressed && styles.pressed]}
+                        style={({ pressed }) => [
+                          styles.btnGhost,
+                          openingType === doc.type && styles.btnDisabled,
+                          pressed && styles.pressed,
+                        ]}
+                        disabled={openingType === doc.type}
                         onPress={() => {
-                          if (!doc.storagePath) return;
+                          if (!doc.storagePath || openingType) return;
                           logger.debug('[storage] open file', {
                             bucket: BUCKET,
                             storagePath: doc.storagePath,
                             uploadedUrl: doc.uploadedUrl,
                           });
+                          setOpeningType(doc.type);
                           (async () => {
-                            const { data: signed, error } = await supabase.storage
-                              .from(BUCKET)
-                              .createSignedUrl(doc.storagePath!, 300);
-                            if (error || !signed?.signedUrl) {
-                              Alert.alert('파일 열기 실패', error?.message ?? '링크 생성에 실패했습니다.');
-                              return;
+                            try {
+                              const { data: signed, error } = await supabase.storage
+                                .from(BUCKET)
+                                .createSignedUrl(doc.storagePath!, 300);
+                              if (error || !signed?.signedUrl) {
+                                Alert.alert('파일 열기 실패', error?.message ?? '링크 생성에 실패했습니다.');
+                                return;
+                              }
+                              await openExternalUrl(signed.signedUrl).catch(() => {
+                                Alert.alert('파일 열기 실패', '링크를 열 수 없습니다.');
+                              });
+                            } finally {
+                              setOpeningType(null);
                             }
-                            openExternalUrl(signed.signedUrl).catch(() => {
-                              Alert.alert('파일 열기 실패', '링크를 열 수 없습니다.');
-                            });
                           })();
                         }}
                       >
-                        <Feather name="external-link" size={16} color={COLORS.text.primary} />
+                        {openingType === doc.type ? (
+                          <BrandedLoadingSpinner size="sm" color={COLORS.text.primary} />
+                        ) : (
+                          <Feather name="external-link" size={16} color={COLORS.text.primary} />
+                        )}
                         <Text style={styles.btnGhostText}>열기</Text>
                       </Pressable>
                     )}
@@ -849,11 +872,11 @@ function DocsUploadScreenContent() {
                       style={({ pressed }) => [
                         styles.btnSecondary,
                         isRejected && styles.btnRetry,
-                        (isUploading || isLocked) && styles.btnDisabled,
-                        pressed && !isLocked && !isUploading && styles.pressed,
+                        (!!uploadingType || isLocked) && styles.btnDisabled,
+                        pressed && !isLocked && !uploadingType && styles.pressed,
                       ]}
                       onPress={() => handlePick(doc.type)}
-                      disabled={isUploading || isLocked || !!deletingType || profileLoadState !== 'success'}
+                      disabled={!!uploadingType || isLocked || !!deletingType || profileLoadState !== 'success'}
                     >
                       {isUploading ? (
                         <BrandedLoadingSpinner size="sm" color={COLORS.primary} />

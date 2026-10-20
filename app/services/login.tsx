@@ -90,6 +90,9 @@ export default function PlatformLogin() {
     toggleRememberPassword();
   }, [toggleRememberPassword]);
 
+  // Keep the form busy after success until the landing effect navigates away.
+  const busy = loading || manualLoginSucceeded;
+
   const login = async () => {
     if (pending.current) return;
     const invalid = [validatePhone(phone), validateRequired(password, '비밀번호')].find(value => !value.isValid);
@@ -129,8 +132,8 @@ export default function PlatformLogin() {
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ headerShown: false, title: '모두온 로그인' }} />
       <View style={styles.header}>
-        <Pressable accessibilityState={{ disabled: loading }} accessibilityRole="button" accessibilityLabel="전체 서비스로 돌아가기"
-          disabled={loading} onPress={() => returnTo(router, '/')} style={styles.back}>
+        <Pressable accessibilityState={{ disabled: busy }} accessibilityRole="button" accessibilityLabel="전체 서비스로 돌아가기"
+          disabled={busy} onPress={() => returnTo(router, '/')} style={styles.back}>
           <Feather name="arrow-left" size={24} color={COLORS.text.primary} />
         </Pressable>
         <ModuonBrand />
@@ -140,22 +143,22 @@ export default function PlatformLogin() {
         <Text style={styles.description}>기존 가람in 계정으로도 로그인할 수 있습니다.</Text>
         <FormInput label="휴대폰 번호" accessibilityLabel="휴대폰 번호" value={phone}
           onChangeText={setPhone} keyboardType="phone-pad" autoComplete="tel"
-          placeholder="010으로 시작하는 11자리" editable={!loading} containerStyle={styles.field} />
+          placeholder="010으로 시작하는 11자리" editable={!busy} containerStyle={styles.field} />
         <FormInput label="비밀번호" accessibilityLabel="비밀번호" value={password}
           onChangeText={setPassword} variant="password" autoCapitalize="none"
-          editable={!loading} returnKeyType="done" onSubmitEditing={login} containerStyle={styles.field} />
+          editable={!busy} returnKeyType="done" onSubmitEditing={login} containerStyle={styles.field} />
         <Pressable accessibilityRole="checkbox" accessibilityLabel="비밀번호 저장"
-          accessibilityState={{ checked: rememberPassword }} disabled={loading}
+          accessibilityState={{ checked: rememberPassword }} disabled={busy}
           onPressIn={handleRememberPasswordPressIn} onPress={handleRememberPasswordPress} style={styles.remember}>
           <Feather name={rememberPassword ? 'check-square' : 'square'} size={22} color={COLORS.primary} />
           <Text style={styles.linkText}>비밀번호 저장</Text>
         </Pressable>
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-        <Button loading={loading} disabled={loading || !hydrated} onPress={login} submitOnPressIn dismissKeyboardOnPress fullWidth>로그인</Button>
-        <Pressable accessibilityRole="button" disabled={loading} onPress={() => router.push({ pathname: '/reset-password', params: { audience: 'platform', ...(typeof service === 'string' ? { service } : {}), ...(skipAuto === '1' ? { skipAuto } : {}) } })} style={styles.link}>
+        <Button loading={busy} disabled={busy || !hydrated} onPress={login} submitOnPressIn dismissKeyboardOnPress fullWidth>로그인</Button>
+        <Pressable accessibilityRole="button" disabled={busy} onPress={() => router.push({ pathname: '/reset-password', params: { audience: 'platform', ...(typeof service === 'string' ? { service } : {}), ...(skipAuto === '1' ? { skipAuto } : {}) } })} style={styles.link}>
           <Text style={styles.linkText}>비밀번호 찾기</Text>
         </Pressable>
-        <Pressable accessibilityRole="button" disabled={loading} onPress={() => router.replace(resolvePlatformAuthRoute(service, 'signup'))} style={styles.link}>
+        <Pressable accessibilityRole="button" disabled={busy} onPress={() => router.replace(resolvePlatformAuthRoute(service, 'signup'))} style={styles.link}>
           <Text style={styles.linkText}>모두온 회원가입</Text>
         </Pressable>
       </KeyboardAwareWrapper>

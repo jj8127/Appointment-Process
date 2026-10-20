@@ -4,6 +4,7 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   Platform,
   Pressable,
   RefreshControl,
@@ -52,6 +53,7 @@ export default function ReferralPage() {
     data: referralTree,
     isLoading: referralTreeLoading,
     isError: referralTreeError,
+    isFetching: referralTreeFetching,
     error: referralTreeQueryError,
     refetch: refetchReferralTree,
     loadChildrenOf,
@@ -319,9 +321,17 @@ export default function ReferralPage() {
                 : referralTreeErrorMessage}
             </Text>
             <Pressable
-              style={({ pressed }) => [styles.treeRetryBtn, pressed && { opacity: 0.85 }]}
+              style={({ pressed }) => [
+                styles.treeRetryBtn,
+                (pressed || (!referralNeedsRelogin && referralTreeFetching)) && { opacity: 0.85 },
+              ]}
+              disabled={!referralNeedsRelogin && referralTreeFetching}
+              accessibilityState={{ busy: !referralNeedsRelogin && referralTreeFetching }}
               onPress={referralNeedsRelogin ? openRelogin : () => refetchReferralTree()}
             >
+              {!referralNeedsRelogin && referralTreeFetching ? (
+                <ActivityIndicator size="small" color={COLORS.white} />
+              ) : null}
               <Text style={styles.treeRetryBtnText}>
                 {referralNeedsRelogin ? '다시 로그인' : '관계 구조 다시 불러오기'}
               </Text>
@@ -468,6 +478,9 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
   },
   treeRetryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     backgroundColor: COLORS.primary,
     borderRadius: RADIUS.full,
     paddingHorizontal: SPACING.lg,

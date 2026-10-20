@@ -466,7 +466,7 @@ export default function RequestBoardScreen() {
 
   const handleRefresh = () => {
     setRefreshing(true);
-    void fetchData({ force: true });
+    void fetchData({ force: true }).finally(() => setRefreshing(false));
   };
 
   const recentNotifs = notifications.slice(0, 3);
@@ -568,6 +568,11 @@ export default function RequestBoardScreen() {
     setDesignerRejectModalVisible(false);
     setDesignerRejectTarget(null);
     setDesignerRejectReason('');
+  };
+
+  const closeDesignerRejectModal = () => {
+    if (designerActionRef.current) return;
+    resetDesignerRejectModal();
   };
 
   const handleDesignerRejectOpen = (request: RbRequestListItem) => {
@@ -1298,7 +1303,7 @@ export default function RequestBoardScreen() {
         visible={designerRejectModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={resetDesignerRejectModal}
+        onRequestClose={closeDesignerRejectModal}
       >
         {(modalInsets) => <KeyboardAvoidingView
           style={styles.modalKeyboardAvoidingView}
@@ -1306,7 +1311,7 @@ export default function RequestBoardScreen() {
         >
           <Pressable
             style={styles.modalOverlay}
-            onPress={resetDesignerRejectModal}
+            onPress={closeDesignerRejectModal}
           />
           <View style={[styles.modalSheet, { paddingBottom: modalInsets.bottom + 16 }]}>
             <View style={styles.modalHandle} />
@@ -1329,7 +1334,7 @@ export default function RequestBoardScreen() {
             <View style={styles.modalBtns}>
               <Pressable
                 style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.7 }]}
-                onPress={resetDesignerRejectModal}
+                onPress={closeDesignerRejectModal}
                 disabled={designerActionKey != null}
               >
                 <Text style={styles.modalCancelBtnText}>취소</Text>

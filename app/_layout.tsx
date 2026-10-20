@@ -141,7 +141,16 @@ if (Platform.OS !== 'web') {
 SplashScreen.preventAutoHideAsync();
 
 function HomeLiteLogoutBackButton() {
-  const { logout } = useSession();
+  const { logout: sessionLogout, role } = useSession();
+  const requested = useRef(false);
+  useEffect(() => {
+    if (role) requested.current = false;
+  }, [role]);
+  const logout = useCallback(() => {
+    if (requested.current) return;
+    requested.current = true;
+    sessionLogout();
+  }, [sessionLogout]);
   // HomeLiteScreen's focused logout hook owns the login navigation.
   return (
     <Pressable onPress={logout} accessibilityRole="button" accessibilityLabel="로그아웃"

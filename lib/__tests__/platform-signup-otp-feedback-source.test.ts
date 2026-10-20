@@ -8,7 +8,7 @@ describe('common signup OTP feedback contract', () => {
     const source = read('app/services/signup.tsx');
     // The phone question's keyboard-docked action requests the code; its notice and failure sit under the phone line.
     const requestAction = source.indexOf("onPress: () => { void submit('otp'); }");
-    const feedback = source.indexOf('<StackField label="휴대폰 번호" active={isTyping(\'phone\')} message={notice} error={otpError}>');
+    const feedback = source.indexOf('<StackField label="휴대폰 번호" active={isTyping(\'phone\')} message={loading === \'otp\' ? \'인증 문자 요청 중...\' : notice} error={otpError}>');
     const codeField = source.indexOf('<StackField label="인증 코드"');
 
     expect(requestAction).toBeGreaterThan(-1);
@@ -23,7 +23,7 @@ describe('common signup OTP feedback contract', () => {
     const stacked = read('components/StackedForm.tsx');
     expect(source).toContain('keyboardShouldPersistTaps="always"');
     // Keyboard-docked actions (code request, 확인, 다음) and the final consent submit fire on press-in.
-    expect(stacked).toContain('<StackButton label={label} disabled={disabled} onPress={onPress} submitOnPressIn />');
+    expect(stacked).toContain('<StackButton label={label} disabled={disabled} loading={loading} onPress={onPress} submitOnPressIn />');
     expect(source).toMatch(/onPress=\{\(\) => \{ void submit\('signup'\); \}\}\s+submitOnPressIn/);
     expect(source).toContain('if (blocked) { Keyboard.dismiss(); setError(blocked); return; }');
     expect(source).toContain('모두온 가입이 완료됐어요');

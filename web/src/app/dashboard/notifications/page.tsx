@@ -8,6 +8,7 @@ import {
     Button,
     Group,
     Image,
+    Loader,
     LoadingOverlay,
     Modal,
     ScrollArea,
@@ -38,8 +39,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useMemo, useRef, useState, type CSSProperties } from 'react';
 
+import { ConfirmModal } from '@/components/ConfirmModal';
 import { useSession } from '@/hooks/use-session';
 import { deleteAdminNotice, fetchAdminNotices, type AdminNoticeItem } from '@/lib/admin-notice-client';
 import {
@@ -170,19 +172,27 @@ export default function NotificationsPage() {
     const [confirmConfig, setConfirmConfig] = useState<{
         title: string;
         message: string;
-        onConfirm: () => void;
+        onConfirm: () => void | Promise<unknown>;
     } | null>(null);
 
-    const showConfirm = (config: { title: string; message: string; onConfirm: () => void }) => {
+    const showConfirm = (config: { title: string; message: string; onConfirm: () => void | Promise<unknown> }) => {
         setConfirmConfig(config);
         openConfirm();
     };
 
-    const handleConfirm = () => {
-        if (confirmConfig?.onConfirm) {
-            confirmConfig.onConfirm();
+    const [confirmSubmitting, setConfirmSubmitting] = useState(false);
+    const confirmSubmittingRef = useRef(false);
+    const handleConfirm = async () => {
+        if (!confirmConfig || confirmSubmittingRef.current) return;
+        confirmSubmittingRef.current = true;
+        setConfirmSubmitting(true);
+        try {
+            await confirmConfig.onConfirm();
+            closeConfirm();
+        } finally {
+            confirmSubmittingRef.current = false;
+            setConfirmSubmitting(false);
         }
-        closeConfirm();
     };
 
     // 공지 작성/수정/삭제 가능 여부
@@ -225,6 +235,7 @@ export default function NotificationsPage() {
         queryFn: () => fetchBoardDetail(boardActor!, openedPostId!),
         enabled: Boolean(boardActor && openedPostId),
     });
+    const listRefreshing = isFetching || boardQuery.isFetching;
     const categoryNameOf = (categoryId: string) => boardCategories.find((category) => category.id === categoryId)?.name ?? '게시글';
 
     // Delete Mutation
@@ -254,9 +265,8 @@ export default function NotificationsPage() {
         showConfirm({
             title: '공지사항 삭제',
             message: '정말 삭제하시겠습니까? (앱 알림 이력은 유지될 수 있습니다)',
-            onConfirm: () => {
-                deleteMutation.mutate(id);
-            },
+            // onError already notifies; the promise only tells the dialog when to close.
+            onConfirm: () => deleteMutation.mutateAsync(id).catch(() => undefined),
         });
     };
 
@@ -328,12 +338,14 @@ export default function NotificationsPage() {
                     <button
                         type="button"
                         className={styles.softButton}
+                        disabled={listRefreshing}
+                        aria-busy={listRefreshing || undefined}
                         onClick={() => {
                             queryClient.invalidateQueries({ queryKey: ['notices'] });
                             queryClient.invalidateQueries({ queryKey: ['board-posts'] });
                         }}
                     >
-                        <IconRefresh size={16} stroke={1.8} /> 새로고침
+                        {listRefreshing ? <Loader size={14} /> : <IconRefresh size={16} stroke={1.8} />} 새로고침
                     </button>
                     {canCreate || canWritePost ? (
                         <Button
@@ -603,26 +615,16 @@ export default function NotificationsPage() {
             </Modal>
 
             {/* 확인 모달 */}
-            <Modal
+            <ConfirmModal
                 opened={confirmOpened}
                 onClose={closeConfirm}
-                title={<Text fw={700}>{confirmConfig?.title}</Text>}
-                size="sm"
-                radius="lg"
-                centered
-            >
-                <Stack gap="md">
-                    <Text size="sm">{confirmConfig?.message}</Text>
-                    <Group justify="flex-end">
-                        <Button variant="default" radius="xl" onClick={closeConfirm}>
-                            취소
-                        </Button>
-                        <Button color="red" radius="xl" onClick={handleConfirm}>
-                            삭제
-                        </Button>
-                    </Group>
-                </Stack>
-            </Modal>
+                onConfirm={() => void handleConfirm()}
+                title={confirmConfig?.title}
+                message={confirmConfig?.message}
+                confirmLabel="삭제"
+                color="red"
+                submitting={confirmSubmitting}
+            />
         </div>
     );
 }

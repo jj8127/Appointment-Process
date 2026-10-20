@@ -224,6 +224,8 @@ function BoardContent() {
   const [newPost, setNewPost] = useState({ title: '', content: '' });
   const creationRequest = useRef(createCreationRequestTracker());
   const saveSubmitting = useRef(false);
+  const deletingAttachmentRef = useRef(false);
+  const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null);
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [commentText, setCommentText] = useState('');
   const [replyTarget, setReplyTarget] = useState<{
@@ -927,12 +929,14 @@ function BoardContent() {
   };
 
   const removeExistingAttachment = useCallback(async (file: BoardDetail['attachments'][number]) => {
-    if (!actor || !editingPostId) return;
+    if (!actor || !editingPostId || deletingAttachmentRef.current) return;
     const shouldDelete = typeof window !== 'undefined'
       ? window.confirm(`'${file.fileName}' 첨부파일을 삭제할까요?`)
       : false;
     if (!shouldDelete) return;
 
+    deletingAttachmentRef.current = true;
+    setDeletingAttachmentId(file.id);
     try {
       await deleteBoardAttachments(actor, editingPostId, [file.id]);
       setExistingAttachments((prev) => prev.filter((item) => item.id !== file.id));
@@ -949,6 +953,9 @@ function BoardContent() {
         message: error instanceof Error ? error.message : '첨부파일 삭제에 실패했습니다.',
         color: 'red',
       });
+    } finally {
+      deletingAttachmentRef.current = false;
+      setDeletingAttachmentId(null);
     }
   }, [actor, editingPostId, queryClient]);
 
@@ -1225,7 +1232,12 @@ function BoardContent() {
             {comment.isMine && (
               <Menu shadow="md" width={140}>
                 <Menu.Target>
-                  <ActionIcon aria-label="댓글 작업" variant="subtle" color="gray">
+                  <ActionIcon
+                    aria-label="댓글 작업"
+                    variant="subtle"
+                    color="gray"
+                    loading={deleteCommentMutation.isPending && deleteCommentMutation.variables === comment.id}
+                  >
                     <IconDotsVertical size={16} />
                   </ActionIcon>
                 </Menu.Target>
@@ -1242,7 +1254,9 @@ function BoardContent() {
                   <Menu.Item
                     color="red"
                     leftSection={<IconTrash size={14} />}
+                    disabled={deleteCommentMutation.isPending}
                     onClick={() => {
+                      if (deleteCommentMutation.isPending) return;
                       const confirmDelete = typeof window !== 'undefined'
                         ? window.confirm('댓글을 삭제하시겠습니까?')
                         : false;
@@ -1280,6 +1294,7 @@ function BoardContent() {
                   size="xs"
                   variant="filled"
                   color="orange"
+                  loading={updateCommentMutation.isPending}
                   onClick={() => {
                     const trimmed = editingCommentText.trim();
                     if (!trimmed) {
@@ -1386,6 +1401,7 @@ function BoardContent() {
   };
 
   const handleDeletePost = (post: BoardPost) => {
+    if (deletePostMutation.isPending) return;
     if (!canManagePost(post)) {
       notifications.show({
         title: '권한 없음',
@@ -1584,7 +1600,12 @@ function BoardContent() {
                         {canManagePost(post) && (
                           <Menu shadow="md" width={200}>
                             <Menu.Target>
-                              <ActionIcon aria-label="게시글 작업" variant="subtle" color="gray">
+                              <ActionIcon
+                                aria-label="게시글 작업"
+                                variant="subtle"
+                                color="gray"
+                                loading={deletePostMutation.isPending && deletePostMutation.variables === post.id}
+                              >
                                 <IconDotsVertical size={16} />
                               </ActionIcon>
                             </Menu.Target>
@@ -1613,6 +1634,7 @@ function BoardContent() {
                               <Menu.Item
                                 color="red"
                                 leftSection={<IconTrash size={14} />}
+                                disabled={deletePostMutation.isPending}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleDeletePost(post);
@@ -1856,7 +1878,8 @@ function BoardContent() {
                             aria-label="기존 첨부파일 삭제"
                             variant="subtle"
                             color="red"
-                            disabled={composerDisabled}
+                            loading={deletingAttachmentId === file.id}
+                            disabled={composerDisabled || deletingAttachmentId !== null}
                             onClick={() => void removeExistingAttachment(file)}
                           >
                             <IconTrash size={16} />

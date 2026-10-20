@@ -418,7 +418,7 @@ describe('C06 / D08 GaramLink mobile messenger controlled failures', () => {
       canWriteRequestBoard, activeConv: { id: 'room', primaryConversationId: 1, type: 'dm' },
       accountReadScope: { current: account }, messageReadScope: { current: room }, sessionReadKey: 'account', activeConversationRef: { current: 'room' },
       inputText: 'synthetic draft', pendingFiles: [{ uri: 'synthetic-file', name: 'synthetic', type: 'text/plain' }],
-      sendingRef: { current: false }, beginSend: () => () => true, rbUser: { id: 1 }, conversations: [], creatingDm: null,
+      sendingRef: { current: false }, deletingRef: { current: false }, beginSend: () => () => true, rbUser: { id: 1 }, conversations: [], creatingDm: null,
       setInputText: jest.fn(), setPendingFiles: jest.fn(), setSending: jest.fn(), setMessages: jest.fn(), setConversations: jest.fn(), setCreatingDm: jest.fn(),
       rbUploadAttachments: jest.fn(async () => ({ success: true, data: [] })),
       rbSendDmMessage: jest.fn(async () => ({ success: true, data: { id: 1, message: 'synthetic', createdAt: '2026-01-01T00:00:00Z' } })),
@@ -490,7 +490,7 @@ describe('C06 / D08 GaramLink mobile messenger controlled failures', () => {
     const context = {
       canWriteRequestBoard: true, activeConv: { id: 'room', type: 'dm' }, accountReadScope: { current: account }, messageReadScope: { current: room }, sessionReadKey: 'account',
       confirmMessengerDelete: ({ onDelete: action }: { onDelete: typeof onDelete }) => { onDelete = action; }, rbDeleteDmMessage: jest.fn(() => pending.promise),
-      setMessages: jest.fn(), loadMessages: jest.fn(), loadConversations: jest.fn(),
+      setMessages: jest.fn(), loadMessages: jest.fn(), loadConversations: jest.fn(), deletingRef: { current: false },
     };
     await routeHandler('app/request-board-messenger.tsx', 'handleDeleteMessage', context)({ id: 1, isOwn: true });
     const first = transition === 'after request' ? onDelete() : undefined;
@@ -1248,7 +1248,7 @@ describe('platform requests keep their account and service owner', () => {
     return {
       allowed: true, token: 'fictional-admin-token', ownerKey, owner: { current: ownerKey }, pending: { current: false },
       beginRead: actualBeginAttempt(), beginWrite: actualBeginAttempt(),
-      PlatformApiError: PlatformReadError, setData: jest.fn(), setError: jest.fn(), setMessage: jest.fn(), setBusy: jest.fn(),
+      PlatformApiError: PlatformReadError, setData: jest.fn(), setError: jest.fn(), setMessage: jest.fn(), setBusy: jest.fn(), setBusyAction: jest.fn(),
       platformRequest: jest.fn(async () => ({ ok: true })), ...overrides,
     };
   };

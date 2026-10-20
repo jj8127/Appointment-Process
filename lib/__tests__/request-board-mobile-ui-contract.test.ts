@@ -427,7 +427,7 @@ describe('request-board mobile UI contracts', () => {
     expect(homeSource).toContain('shouldSkipRequestBoardPassiveRefresh');
     expect(homeSource).toContain('requestBoardRefreshInFlightRef');
     expect(homeSource).toContain('lastRequestBoardRefreshCompletedAtRef');
-    expect(homeSource).toContain('void fetchData({ force: true });');
+    expect(homeSource).toContain('void fetchData({ force: true }).finally(() => setRefreshing(false));');
     expect(homeSource.match(/await fetchData\(\{ force: true \}\);/g)).toHaveLength(2);
   });
 

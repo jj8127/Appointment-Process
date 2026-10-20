@@ -43,6 +43,7 @@ type ImagePreviewModalProps = {
   /** Shows a share button (system share sheet) for the image on screen. */
   onShare?: (index: number) => void;
   saving?: boolean;
+  sharing?: boolean;
 };
 
 const OVERLAY_HORIZONTAL_PADDING = 16;
@@ -225,7 +226,8 @@ export function ZoomableImage({ uri, pageWidth, pageHeight, isZoomed, onZoomStat
   );
 }
 
-export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose, onSave, onShare, saving }: ImagePreviewModalProps) {
+export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose, onSave, onShare, saving, sharing }: ImagePreviewModalProps) {
+  const fileBusy = !!saving || !!sharing;
   const { width, height } = useWindowDimensions();
   const pageWidth = Math.max(width - OVERLAY_HORIZONTAL_PADDING * 2, 1);
   const defaultBodyHeight = Math.max(height - 140, 1);
@@ -299,20 +301,23 @@ export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose, 
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="사진 공유"
-                disabled={saving}
-                style={({ pressed }) => [styles.closeButton, (pressed || saving) && { opacity: 0.7 }]}
+                accessibilityState={{ busy: !!sharing, disabled: fileBusy }}
+                disabled={fileBusy}
+                style={({ pressed }) => [styles.closeButton, (pressed || fileBusy) && { opacity: 0.7 }]}
                 onPress={() => onShare(currentIndex)}
               >
-                <Feather aria-hidden accessible={false} name="share-2" size={20} color="#fff" />
+                {sharing
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Feather aria-hidden accessible={false} name="share-2" size={20} color="#fff" />}
               </Pressable>
             ) : null}
             {onSave && totalCount > 0 ? (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="사진 저장"
-                accessibilityState={{ busy: !!saving, disabled: !!saving }}
-                disabled={saving}
-                style={({ pressed }) => [styles.closeButton, (pressed || saving) && { opacity: 0.7 }]}
+                accessibilityState={{ busy: !!saving, disabled: fileBusy }}
+                disabled={fileBusy}
+                style={({ pressed }) => [styles.closeButton, (pressed || fileBusy) && { opacity: 0.7 }]}
                 onPress={() => onSave(currentIndex)}
               >
                 {saving

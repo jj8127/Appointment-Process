@@ -73,6 +73,10 @@ type ApplicantDetailData = {
   navigation: ExamApplicantNavigation;
 };
 
+type ApplicantSlideDirection = 'next' | 'previous';
+// The side buttons set this before routing, so the next applicant's details slide in from that side.
+let pendingApplicantSlideDirection: ApplicantSlideDirection | null = null;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -198,6 +202,25 @@ export default function ExamApplicantDetailPage() {
   });
   const applicant = detailData?.applicant;
   const navigation = detailData?.navigation ?? { previousId: null, nextId: null };
+  const applicantId = applicant?.id ?? null;
+  const [navigatingToId, setNavigatingToId] = useState<string | null>(null);
+  const [slide, setSlide] = useState<{ id: string | null; direction: ApplicantSlideDirection | null }>({
+    id: null,
+    direction: null,
+  });
+  if (applicantId && applicantId !== slide.id) {
+    // The first applicant shown appears without a slide; later ones come in from the side that was pressed.
+    setSlide({ id: applicantId, direction: slide.id ? pendingApplicantSlideDirection : null });
+  }
+  if (navigatingToId && applicantId === navigatingToId) {
+    setNavigatingToId(null);
+  }
+  const goToApplicant = (targetId: string | null, direction: ApplicantSlideDirection) => {
+    if (!targetId || navigatingToId) return;
+    pendingApplicantSlideDirection = direction;
+    setNavigatingToId(targetId);
+    router.push(`/dashboard/exam/applicants/${encodeURIComponent(targetId)}`);
+  };
 
   const receptionMutation = useMutation({
     mutationFn: async () => {
@@ -352,11 +375,8 @@ export default function ExamApplicantDetailPage() {
           size={56}
           aria-label="이전 신청자로 이동"
           disabled={!navigation.previousId}
-          onClick={() => {
-            if (navigation.previousId) {
-              router.push(`/dashboard/exam/applicants/${encodeURIComponent(navigation.previousId)}`);
-            }
-          }}
+          loading={navigatingToId !== null && navigatingToId === navigation.previousId}
+          onClick={() => goToApplicant(navigation.previousId, 'previous')}
         >
           <IconChevronLeft size={30} stroke={2.2} />
         </ActionIcon>
@@ -369,17 +389,23 @@ export default function ExamApplicantDetailPage() {
           size={56}
           aria-label="다음 신청자로 이동"
           disabled={!navigation.nextId}
-          onClick={() => {
-            if (navigation.nextId) {
-              router.push(`/dashboard/exam/applicants/${encodeURIComponent(navigation.nextId)}`);
-            }
-          }}
+          loading={navigatingToId !== null && navigatingToId === navigation.nextId}
+          onClick={() => goToApplicant(navigation.nextId, 'next')}
         >
           <IconChevronRight size={30} stroke={2.2} />
         </ActionIcon>
       </Tooltip>
+      <div className={styles.sideNavigationGutter}>
       <div className={surface.page}>
-        <Stack gap={14}>
+        <Stack
+          gap={14}
+          key={slide.id ?? 'applicant'}
+          className={slide.direction === 'next'
+            ? styles.slideInFromRight
+            : slide.direction === 'previous'
+              ? styles.slideInFromLeft
+              : undefined}
+        >
           <Group justify="space-between" align="center">
             <Button
               variant="subtle"
@@ -587,6 +613,7 @@ export default function ExamApplicantDetailPage() {
             onSubmit={() => rejectMutation.mutate()}
           />
         </Stack>
+      </div>
       </div>
     </Box>
   );

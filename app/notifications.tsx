@@ -5,6 +5,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   AppState,
   FlatList,
@@ -139,6 +140,10 @@ export default function NotificationsScreen() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [dragArmed, setDragArmed] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const deletingRef = useRef(false);
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  const openingIdRef = useRef<string | null>(null);
 
   const inboxRole: 'admin' | 'fc' | null = role;
   const inboxResidentId = resolveNotificationInboxResidentId({
@@ -707,19 +712,20 @@ export default function NotificationsScreen() {
   );
 
   const cancelSelection = () => {
+    if (deletingRef.current) return;
     setSelectionMode(false);
     setSelectedIds(new Set());
   };
 
   const handleSelectAll = () => {
-    if (!notices.length) return;
+    if (!notices.length || deletingRef.current) return;
     setSelectionMode(true);
     setSelectedIds(new Set(notices.map((n) => n.id)));
   };
 
   const handleDeleteSelected = () => {
     const selectedSnapshot = Array.from(selectedIdsRef.current);
-    if (!selectedSnapshot.length) return;
+    if (!selectedSnapshot.length || deletingRef.current) return;
     Alert.alert('알림 삭제', `선택한 ${selectedSnapshot.length}개를 삭제할까요?`, [
       { text: '취소', style: 'cancel' },
       {
@@ -733,6 +739,9 @@ export default function NotificationsScreen() {
   };
 
   const doDelete = async (selectedSnapshot: string[]) => {
+    if (deletingRef.current) return;
+    deletingRef.current = true;
+    setDeleting(true);
     try {
       if (!inboxRole) {
         throw new Error('로그인 정보를 확인할 수 없습니다.');
@@ -803,6 +812,9 @@ export default function NotificationsScreen() {
         if (!mountedRef.current) return;
         Alert.alert('오류', message);
       }, 150);
+    } finally {
+      deletingRef.current = false;
+      if (mountedRef.current) setDeleting(false);
     }
   };
 
@@ -845,13 +857,22 @@ export default function NotificationsScreen() {
       return;
     }
     if (item.target && role) {
+      if (openingIdRef.current) return;
       const sessionKeyAtPress = inboxNavigationSessionKey;
-      const prepared = await prepareInboxNotificationNavigation({
-        notificationId: item.rawId,
-        target: item.target,
-        viewerRole: role,
-        owner: inboxNavigationOwner,
-      });
+      openingIdRef.current = item.id;
+      setOpeningId(item.id);
+      let prepared: Awaited<ReturnType<typeof prepareInboxNotificationNavigation>>;
+      try {
+        prepared = await prepareInboxNotificationNavigation({
+          notificationId: item.rawId,
+          target: item.target,
+          viewerRole: role,
+          owner: inboxNavigationOwner,
+        });
+      } finally {
+        openingIdRef.current = null;
+        if (mountedRef.current) setOpeningId(null);
+      }
       if (
         !mountedRef.current
         || inboxNavigationSessionKeyRef.current !== sessionKeyAtPress
@@ -916,7 +937,9 @@ export default function NotificationsScreen() {
           onLayout={onItemLayout}
         >
           <View style={[styles.iconBox, { backgroundColor: bgIcon }]}>
-            <Feather name={iconName} size={20} color={iconColor} />
+            {openingId === item.id
+              ? <ActivityIndicator size="small" color={iconColor} />
+              : <Feather name={iconName} size={20} color={iconColor} />}
           </View>
           <View style={styles.contentBox}>
             <View style={styles.titleRow}>
@@ -965,23 +988,30 @@ export default function NotificationsScreen() {
       <View style={styles.header}>
         {selectionMode ? (
           <View style={styles.selectionHeader}>
-            <Pressable onPress={cancelSelection}>
-              <Text style={styles.cancelText}>취소</Text>
+            <Pressable onPress={cancelSelection} disabled={deleting}>
+              <Text style={[styles.cancelText, deleting && { opacity: 0.4 }]}>취소</Text>
             </Pressable>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <Pressable onPress={handleSelectAll} disabled={!notices.length}>
-                <Text style={[styles.selectAllText, !notices.length && { opacity: 0.4 }]}>모두 선택</Text>
+              <Pressable onPress={handleSelectAll} disabled={!notices.length || deleting}>
+                <Text style={[styles.selectAllText, (!notices.length || deleting) && { opacity: 0.4 }]}>모두 선택</Text>
               </Pressable>
               <Text style={styles.selectionTitle}>{selectedIds.size}개 선택됨</Text>
-              <Pressable onPress={handleDeleteSelected} disabled={!selectedIds.size}>
-                <Text style={[styles.deleteText, !selectedIds.size && { opacity: 0.5 }]}>삭제</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !selectedIds.size || deleting, busy: deleting }}
+                onPress={handleDeleteSelected}
+                disabled={!selectedIds.size || deleting}
+              >
+                <Text style={[styles.deleteText, (!selectedIds.size || deleting) && { opacity: 0.5 }]}>
+                  {deleting ? '삭제 중...' : '삭제'}
+                </Text>
               </Pressable>
             </View>
           </View>
         ) : (
           <>
             <Text style={styles.headerTitle}>알림 센터</Text>
-            <RefreshButton onPress={load} />
+            <RefreshButton onPress={load} busy={refreshing} />
           </>
         )}
       </View>
@@ -998,8 +1028,14 @@ export default function NotificationsScreen() {
       {loadError ? (
         <View style={styles.loadErrorBanner}>
           <Text style={styles.loadErrorText}>{loadError}</Text>
-          <Pressable style={styles.loadErrorRetry} onPress={() => void load()}>
-            <Text style={styles.loadErrorRetryText}>다시 시도</Text>
+          <Pressable
+            style={[styles.loadErrorRetry, refreshing && { opacity: 0.6 }]}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: refreshing, busy: refreshing }}
+            disabled={refreshing}
+            onPress={handleRefresh}
+          >
+            <Text style={styles.loadErrorRetryText}>{refreshing ? '다시 불러오는 중...' : '다시 시도'}</Text>
           </Pressable>
         </View>
       ) : null}

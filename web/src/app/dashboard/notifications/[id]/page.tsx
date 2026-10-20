@@ -75,6 +75,8 @@ export default function NotificationDetailPage() {
     onError: (err: Error) => {
       notifications.show({ title: '삭제 실패', message: err.message, color: 'red' });
     },
+    // The confirm dialog stays open with its spinner until the request settles.
+    onSettled: () => closeConfirm(),
   });
 
   if (boardPostId) {
@@ -209,7 +211,7 @@ export default function NotificationDetailPage() {
       {/* 삭제 확인 모달 */}
       <Modal
         opened={confirmOpened}
-        onClose={closeConfirm}
+        onClose={() => { if (!deleteMutation.isPending) closeConfirm(); }}
         title={<Text fw={700}>공지사항 삭제</Text>}
         size="sm"
         centered
@@ -217,10 +219,10 @@ export default function NotificationDetailPage() {
         <Stack gap="md">
           <Text size="sm">정말 삭제하시겠습니까? (앱 알림 이력은 유지될 수 있습니다)</Text>
           <Group justify="flex-end">
-            <Button variant="default" onClick={closeConfirm}>
+            <Button variant="default" disabled={deleteMutation.isPending} onClick={closeConfirm}>
               취소
             </Button>
-            <Button color="red" loading={deleteMutation.isPending} onClick={() => { closeConfirm(); deleteMutation.mutate(); }}>
+            <Button color="red" loading={deleteMutation.isPending} onClick={() => deleteMutation.mutate()}>
               삭제
             </Button>
           </Group>

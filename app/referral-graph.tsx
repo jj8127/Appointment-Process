@@ -211,14 +211,21 @@ export default function ReferralGraphPage() {
           </Text>
           <Text style={styles.stateDescription}>{errorMessage}</Text>
           <Pressable
-            style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.primaryButton,
+              { flexDirection: 'row', gap: 6 },
+              (pressed || (!needsRelogin && isFetching)) && styles.pressed,
+            ]}
             onPress={
               needsRelogin
                 ? () => router.push('/login?skipAuto=1')
                 : () => void refetch()
             }
+            disabled={!needsRelogin && isFetching}
             accessibilityRole="button"
+            accessibilityState={{ disabled: !needsRelogin && isFetching, busy: !needsRelogin && isFetching }}
           >
+            {!needsRelogin && isFetching ? <ActivityIndicator size="small" color={COLORS.white} /> : null}
             <Text style={styles.primaryButtonText}>
               {needsRelogin ? '다시 로그인' : '다시 시도'}
             </Text>

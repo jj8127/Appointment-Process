@@ -637,6 +637,7 @@ export default function RequestBoardCreateScreen() {
   const sessionReadKey = `${residentId ?? ''}:${appSessionToken ?? ''}`;
   dataReadScope.current.setScope(sessionReadKey);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [customers, setCustomers] = useState<RbCustomerProfile[]>([]);
   const [products, setProducts] = useState<MobileRequestProduct[]>([]);
   const [designers, setDesigners] = useState<RbDesigner[]>([]);
@@ -1020,6 +1021,7 @@ export default function RequestBoardCreateScreen() {
   };
 
   const handleBack = useCallback(() => {
+    if (submittingRef.current) return;
     const target = resolveRequestBoardCreateBackTarget(step, composeEntryStep);
     if (target.type === 'back') {
       router.back();
@@ -1035,6 +1037,7 @@ export default function RequestBoardCreateScreen() {
   useFocusEffect(
     useCallback(() => {
       const onHardwareBack = () => {
+        if (submittingRef.current) return true;
         if (step === 'customer') return false;
         handleBack();
         return true;
@@ -1123,6 +1126,7 @@ export default function RequestBoardCreateScreen() {
     );
   };
   const saveNewCustomer = async () => {
+    if (submittingRef.current) return;
     if (!newCustomer.name.trim() || !newCustomer.birthDate.trim() || !newCustomer.phone.trim()) {
       Alert.alert('필수 정보 확인', '피보험자 이름, 생년월일, 연락처는 필수입니다.');
       return;
@@ -1181,6 +1185,7 @@ export default function RequestBoardCreateScreen() {
       return;
     }
 
+    submittingRef.current = true;
     try {
       setSubmitting(true);
       const result = await rbSaveCustomer(newCustomer);
@@ -1218,6 +1223,7 @@ export default function RequestBoardCreateScreen() {
         ),
       );
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -1271,8 +1277,9 @@ export default function RequestBoardCreateScreen() {
   });
 
   const retryAttachmentDelivery = async () => {
-    if (!pendingAttachmentDelivery || submitting) return;
+    if (!pendingAttachmentDelivery || submittingRef.current) return;
 
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const result = await runAttachmentDelivery(pendingAttachmentDelivery);
@@ -1289,11 +1296,13 @@ export default function RequestBoardCreateScreen() {
         '설계 요청은 이미 등록되어 있습니다. 확인되지 않은 첨부 전달만 다시 시도해주세요.',
       );
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
 
   const submitRequest = async (retryFailedOnly = false) => {
+    if (submittingRef.current) return;
     if (dataError || catalogLoading || !hasLoadedInitialRequestDataRef.current) {
       Alert.alert('조회 확인 필요', '설계 요청 데이터를 다시 불러온 뒤 시도해주세요.');
       return;
@@ -1389,6 +1398,7 @@ export default function RequestBoardCreateScreen() {
       ),
     };
 
+    submittingRef.current = true;
     try {
       setSubmitting(true);
       const settledRequestResults = await Promise.allSettled(
@@ -1508,6 +1518,7 @@ export default function RequestBoardCreateScreen() {
         toRequestBoardSessionErrorMessage(err, '설계 요청을 보내지 못했습니다.'),
       );
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -1559,7 +1570,8 @@ export default function RequestBoardCreateScreen() {
           return (
             <Pressable
               key={customer.id}
-              style={({ pressed }) => [styles.customerCard, pressed && { opacity: 0.85 }]}
+              style={({ pressed }) => [styles.customerCard, pressed && !deleting && { opacity: 0.85 }]}
+              disabled={deleting}
               onPress={() => (isCustomerManagement ? undefined : selectCustomer(customer))}
             >
               <View style={styles.customerCardBody}>
@@ -1585,9 +1597,11 @@ export default function RequestBoardCreateScreen() {
                     accessibilityRole="button"
                     style={({ pressed }) => [
                       styles.customerPrimaryAction,
-                      pressed && { opacity: 0.9 },
+                      deleting && styles.disabledButton,
+                      pressed && !deleting && { opacity: 0.9 },
                     ]}
                     onPress={() => selectCustomer(customer)}
+                    disabled={deleting}
                   >
                     <Feather name="file-plus" size={16} color="#fff" />
                     <Text style={styles.customerPrimaryActionText} numberOfLines={1}>요청 작성</Text>
@@ -2378,8 +2392,8 @@ export default function RequestBoardCreateScreen() {
       {step === 'sent' && dataError ? (
         <View style={styles.sentWarning} accessibilityRole="alert">
           <Text style={styles.sentWarningText}>{dataError}</Text>
-          <Pressable accessibilityRole="button" disabled={loading} onPress={() => void loadData()} style={styles.sentRetryButton}>
-            <Text style={styles.sentRetryText}>데이터 다시 불러오기</Text>
+          <Pressable accessibilityRole="button" disabled={loading} accessibilityState={{ busy: loading }} onPress={() => void loadData()} style={styles.sentRetryButton}>
+            <Text style={styles.sentRetryText}>{loading ? '불러오는 중...' : '데이터 다시 불러오기'}</Text>
           </Pressable>
           {isRequestBoardSessionReauthError(dataError) ? (
             <Pressable accessibilityRole="button" onPress={() => resetTo(router, '/login?skipAuto=1')}>

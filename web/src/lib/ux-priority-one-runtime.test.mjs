@@ -1265,7 +1265,7 @@ test('C01/C02/D01: notice retry retains uploaded URLs and request id after respo
 
 test('W02: document mutation double click locks synchronously and failure settlement allows retry', () => {
   let calls = 0; const statusSubmitting = { current: false };
-  const values = { statusSubmitting, isReadOnly: false, updateStatusMutation: { isPending: false, mutate() { calls++; } } };
+  const values = { statusSubmitting, isReadOnly: false, updateStatusMutation: { isPending: false, mutateAsync() { calls++; return Promise.resolve(); } } };
   const submit = execute(extract('app/dashboard/docs/page.tsx', 'submitDocumentStatus'), values);
   const input = { doc: { id: 'synthetic' }, status: 'approved' };
   submit(input); submit(input); assert.equal(calls, 1);
@@ -1315,6 +1315,7 @@ test('W03: canceling real group message deletion leaves the message and pinned n
     window: { confirm: () => { prompts++; return false; } },
     groupChatDeleteMessage: async () => { calls++; },
     mergeMessage: () => { changes++; }, setNotice: () => { changes++; }, showGroupChatErrorNotification() {},
+    deletingMessageRef: { current: false }, setDeletingMessageId() {},
   });
   await remove({ id: 'synthetic-message', sender_actor_id: 'synthetic-actor', deleted_at: null });
   assert.equal(prompts, 1); assert.equal(calls, 0); assert.equal(changes, 0);
@@ -1563,6 +1564,7 @@ test('existing board attachment deletion updates the list and frees capacity onl
     deleteBoardAttachments: async (_, id, files) => { writes++; assert.equal(id, 'synthetic-post'); assert.deepEqual([...files], ['one']); },
     setExistingAttachments: (update) => { existing = update(existing); }, notifications: noNotifications,
     queryClient: { invalidateQueries: (query) => invalidated.push(query.queryKey) },
+    deletingAttachmentRef: { current: false }, setDeletingAttachmentId() {},
   });
   await remove(existing[0]); assert.equal(writes, 0); assert.equal(existing.length, 2);
   accepted = true; await remove(existing[0]); assert.equal(writes, 1); assert.deepEqual(existing.map((file) => file.id), ['two']);

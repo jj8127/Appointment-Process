@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { MotiView } from 'moti';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Pressable,
@@ -103,6 +104,7 @@ export default function NoticeScreen() {
     data,
     isLoading,
     isError,
+    isFetching,
     error: noticesError,
     refetch,
     fetchNextPage,
@@ -159,14 +161,24 @@ export default function NoticeScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await refetch();
-    setRefreshing(false);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const handleDelete = (id: string) => {
+    if (deleteMutation.isPending) return;
     Alert.alert('공지 삭제', '이 공지사항을 삭제할까요?', [
       { text: '취소', style: 'cancel' },
-      { text: '삭제', style: 'destructive', onPress: () => deleteMutation.mutate(id) },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: () => {
+          if (!deleteMutation.isPending) deleteMutation.mutate(id);
+        },
+      },
     ]);
   };
 
@@ -208,7 +220,7 @@ export default function NoticeScreen() {
         )}
 
         {isError && (
-          <QueryReadState error={noticesError} message="공지를 불러오지 못했습니다." onRetry={() => void refetch()} />
+          <QueryReadState error={noticesError} message="공지를 불러오지 못했습니다." onRetry={() => void refetch()} retrying={isFetching} />
         )}
 
         {!isLoading && !isError && !notices.length && (
@@ -233,13 +245,19 @@ export default function NoticeScreen() {
                 <View style={styles.headerActions}>
                   <Text style={styles.date}>{new Date(n.created_at).toLocaleDateString()}</Text>
                   {role === 'admin' && !readOnly && (
-                    <Pressable style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="공지 삭제" accessibilityRole="button"
+                    <Pressable style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', opacity: deleteMutation.isPending && deleteMutation.variables !== n.id ? 0.4 : 1 }} accessibilityLabel="공지 삭제" accessibilityRole="button"
+                      accessibilityState={{ disabled: deleteMutation.isPending, busy: deleteMutation.isPending && deleteMutation.variables === n.id }}
+                      disabled={deleteMutation.isPending}
                       onPress={(event) => {
                         event.stopPropagation();
                         handleDelete(n.id);
                       }}
                     >
-                      <Feather name="trash-2" size={18} color="#B91C1C" />
+                      {deleteMutation.isPending && deleteMutation.variables === n.id ? (
+                        <ActivityIndicator size="small" color="#B91C1C" />
+                      ) : (
+                        <Feather name="trash-2" size={18} color="#B91C1C" />
+                      )}
                     </Pressable>
                   )}
                 </View>

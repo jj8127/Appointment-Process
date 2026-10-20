@@ -994,8 +994,12 @@ function LegacyInsuranceHome() {
   );
   const { data: fcReferralInfo } = useMyReferralCode();
   const fcReferralCode = isFc ? fcReferralInfo?.code ?? null : null;
+  const referralSharingRef = useRef(false);
+  const [referralSharing, setReferralSharing] = useState(false);
   const shareFcReferralCode = useCallback(async () => {
-    if (!fcReferralCode) return;
+    if (!fcReferralCode || referralSharingRef.current) return;
+    referralSharingRef.current = true;
+    setReferralSharing(true);
     try {
       await Share.share({
         message: buildReferralShareText({
@@ -1006,6 +1010,9 @@ function LegacyInsuranceHome() {
       });
     } catch (err: unknown) {
       Alert.alert('공유 실패', err instanceof Error ? err.message : '추천 코드를 공유하지 못했습니다.');
+    } finally {
+      referralSharingRef.current = false;
+      setReferralSharing(false);
     }
   }, [fcReferralCode]);
   const currentStepYoutube = FC_STAGE_YOUTUBE_PLACEHOLDERS[nextAction.key];
@@ -1775,6 +1782,7 @@ function LegacyInsuranceHome() {
                 referralCode={fcReferralCode}
                 onOpen={(href) => handlePressLink(href)}
                 onShareReferral={() => void shareFcReferralCode()}
+                referralSharing={referralSharing}
                 onHowTo={openHowToOptions}
                 renderTile={(tile, link, index) => (
                   <View

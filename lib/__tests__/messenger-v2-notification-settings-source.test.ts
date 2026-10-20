@@ -39,14 +39,16 @@ describe('Messenger V2 notification settings UI contract', () => {
     expect(source).toContain("state === 'active'");
   });
 
-  test('aggregates both products and supports optimistic unmute rollback', () => {
+  test('aggregates both products and removes a row only after unmute succeeds', () => {
     const source = readSource('app', 'muted-conversations.tsx');
     expect(source).toContain('getMutedMessengerRooms()');
     expect(source).toContain('rbGetMessengerRoomPreferences()');
     expect(source).toContain('setRoomMuted(item.room as MessengerRoomRef, false)');
     expect(source).toContain('rbSetMessengerRoomMuted(');
     expect(source).toContain('setItems((current) => current.filter');
-    expect(source).toContain('setItems((current) => [...current, item])');
+    expect(source).not.toContain('setItems((current) => [...current, item])');
+    expect(source.indexOf('setItems((current) => current.filter'))
+      .toBeGreaterThan(source.indexOf('rbSetMessengerRoomMuted('));
     expect(source).not.toContain('<Text>{item.key}</Text>');
   });
 

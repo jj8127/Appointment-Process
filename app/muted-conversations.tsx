@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -121,6 +121,8 @@ export default function MutedConversationsScreen() {
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<string[]>([]);
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const pendingKeyRef = useRef<string | null>(null);
+  const loadSequenceRef = useRef(0);
 
   const loadDirectRoomTitles = useCallback(async (): Promise<DirectRoomTitles> => {
     const titles = new Map<string, string>();
@@ -139,6 +141,8 @@ export default function MutedConversationsScreen() {
   }, [capabilities.internalPeopleSource, residentId, viewerContext]);
 
   const load = useCallback(async () => {
+    const sequence = loadSequenceRef.current + 1;
+    loadSequenceRef.current = sequence;
     setLoading(true);
     setErrors([]);
     const fcPromise = getMutedMessengerRooms();
@@ -160,6 +164,7 @@ export default function MutedConversationsScreen() {
       rbPromise,
       directRoomTitlesPromise,
     ]);
+    if (sequence !== loadSequenceRef.current) return;
     const directRoomTitles = directRoomTitlesResult.status === 'fulfilled'
       ? directRoomTitlesResult.value
       : new Map<string, string>();
@@ -200,9 +205,9 @@ export default function MutedConversationsScreen() {
   }, [hydrated, load, role, router]);
 
   const unmute = async (item: MutedConversation) => {
-    if (pendingKey) return;
+    if (pendingKeyRef.current) return;
+    pendingKeyRef.current = item.key;
     setPendingKey(item.key);
-    setItems((current) => current.filter((candidate) => candidate.key !== item.key));
     try {
       if (item.source === 'garamin') {
         await setRoomMuted(item.room as MessengerRoomRef, false);
@@ -213,10 +218,11 @@ export default function MutedConversationsScreen() {
         );
         if (!result.success) throw new Error(result.error);
       }
+      setItems((current) => current.filter((candidate) => candidate.key !== item.key));
     } catch {
-      setItems((current) => [...current, item]);
       setErrors((current) => Array.from(new Set([...current, '설정 저장'])));
     } finally {
+      pendingKeyRef.current = null;
       setPendingKey(null);
     }
   };
@@ -247,8 +253,14 @@ export default function MutedConversationsScreen() {
           <View accessibilityRole="alert" style={styles.errorCard}>
             <Feather name="alert-circle" size={18} color="#B42318" />
             <Text style={styles.errorText}>{errors.join(', ')} 설정을 모두 불러오거나 저장하지 못했어요.</Text>
-            <Pressable accessibilityRole="button" onPress={() => void load()} style={styles.retryButton}>
-              <Text style={styles.retryText}>다시 시도</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ busy: loading, disabled: loading }}
+              disabled={loading}
+              onPress={() => void load()}
+              style={[styles.retryButton, loading && styles.disabled]}
+            >
+              <Text style={styles.retryText}>{loading ? '불러오는 중...' : '다시 시도'}</Text>
             </Pressable>
           </View>
         ) : null}
@@ -278,9 +290,10 @@ export default function MutedConversationsScreen() {
                 <Pressable
                   accessibilityLabel={`${item.title} 알림 켜기`}
                   accessibilityRole="button"
+                  accessibilityState={{ busy: pendingKey === item.key, disabled: pendingKey !== null }}
                   disabled={pendingKey !== null}
                   onPress={() => void unmute(item)}
-                  style={({ pressed }) => [styles.unmuteButton, pressed && styles.buttonPressed, pendingKey !== null && styles.disabled]}
+                  style={({ pressed }) => [styles.unmuteButton, pressed && styles.buttonPressed, pendingKey !== null && pendingKey !== item.key && styles.disabled]}
                 >
                   {pendingKey === item.key ? <ActivityIndicator color={ACCENT} size="small" /> : <Text style={styles.unmuteText}>알림 켜기</Text>}
                 </Pressable>

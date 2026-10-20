@@ -225,6 +225,8 @@ function AllowanceConsentScreenContent() {
           '보증보험 조회 동의일이 제출되었습니다. 관리자가 사전 심사를 준비할 예정입니다.',
         notificationLabel: '관리자',
         onDone: () => returnTo(router, INSURANCE_HOME_ROUTE),
+        onRetryStart: () => setLoading(true),
+        onRetryEnd: () => setLoading(false),
       });
     } catch (err: any) {
       Alert.alert('저장 실패', err?.message ?? '정보를 저장하지 못했습니다.');

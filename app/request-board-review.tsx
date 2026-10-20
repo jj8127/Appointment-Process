@@ -976,7 +976,7 @@ export default function RequestBoardReviewScreen() {
         <View style={styles.errorWrap}>
           <Feather name="alert-circle" size={44} color={COLORS.error} />
           <Text style={styles.errorText}>{fetchError}</Text>
-          <Pressable style={styles.retryBtn} onPress={fetchData}>
+          <Pressable style={styles.retryBtn} onPress={() => { setLoading(true); void fetchData(); }}>
             <Text style={styles.retryBtnText}>다시 시도</Text>
           </Pressable>
         </View>
@@ -1203,7 +1203,7 @@ export default function RequestBoardReviewScreen() {
         visible={attachmentUploadDraft != null}
         transparent
         animationType="slide"
-        onRequestClose={resetAttachmentUploadDraft}
+        onRequestClose={() => { if (!submitting) resetAttachmentUploadDraft(); }}
       >
         {(modalInsets) => <KeyboardAvoidingView
           style={styles.modalKeyboardAvoidingView}
@@ -1211,7 +1211,7 @@ export default function RequestBoardReviewScreen() {
         >
           <Pressable
             style={styles.modalOverlay}
-            onPress={resetAttachmentUploadDraft}
+            onPress={() => { if (!submitting) resetAttachmentUploadDraft(); }}
           />
           <View
             style={[
@@ -1285,7 +1285,7 @@ export default function RequestBoardReviewScreen() {
         visible={designerRejectModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={resetDesignerRejectModal}
+        onRequestClose={() => { if (!submitting) resetDesignerRejectModal(); }}
       >
         {(modalInsets) => <KeyboardAvoidingView
           style={styles.modalKeyboardAvoidingView}
@@ -1293,7 +1293,7 @@ export default function RequestBoardReviewScreen() {
         >
           <Pressable
             style={styles.modalOverlay}
-            onPress={resetDesignerRejectModal}
+            onPress={() => { if (!submitting) resetDesignerRejectModal(); }}
           />
           <View style={[styles.modalSheet, { paddingBottom: modalInsets.bottom + 16 }]}>
             <View style={styles.modalHandle} />
@@ -1344,7 +1344,7 @@ export default function RequestBoardReviewScreen() {
         visible={rejectModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setRejectModalVisible(false)}
+        onRequestClose={() => { if (!submitting) setRejectModalVisible(false); }}
       >
         {(modalInsets) => <KeyboardAvoidingView
           style={styles.modalKeyboardAvoidingView}
@@ -1352,7 +1352,7 @@ export default function RequestBoardReviewScreen() {
         >
           <Pressable
             style={styles.modalOverlay}
-            onPress={() => setRejectModalVisible(false)}
+            onPress={() => { if (!submitting) setRejectModalVisible(false); }}
           />
           <View style={[styles.modalSheet, { paddingBottom: modalInsets.bottom + 16 }]}>
             <View style={styles.modalHandle} />

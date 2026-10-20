@@ -39,6 +39,7 @@ type Props = {
   referralCode: string | null;
   onOpen: (href: string) => void;
   onShareReferral: () => void;
+  referralSharing?: boolean;
   onHowTo: () => void;
   /** Wraps each icon tile, e.g. with the shortcut tour zone. */
   renderTile?: (tile: ReactNode, link: FcHomeShortcutLink, index: number) => ReactNode;
@@ -103,7 +104,7 @@ function AllowanceCard({ title, onPress }: { title: string; onPress: () => void 
   );
 }
 
-function ReferralCard({ title, code, onPress, onShare }: { title: string; code: string | null; onPress: () => void; onShare: () => void }) {
+function ReferralCard({ title, code, onPress, onShare, sharing = false }: { title: string; code: string | null; onPress: () => void; onShare: () => void; sharing?: boolean }) {
   const { data } = useReferralTree({ depth: 1 });
   const count = data?.root.directInviteeCount ?? data?.descendants.length ?? null;
   const initials = (data?.descendants ?? [])
@@ -137,7 +138,15 @@ function ReferralCard({ title, code, onPress, onShare }: { title: string; code: 
           ) : null}
         </View>
         {code ? (
-          <Pressable onPress={onShare} hitSlop={8} accessibilityRole="button" accessibilityLabel="추천 코드 공유">
+          <Pressable
+            onPress={onShare}
+            disabled={sharing}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="추천 코드 공유"
+            accessibilityState={{ disabled: sharing, busy: sharing }}
+            style={sharing ? styles.widgetActionDisabled : undefined}
+          >
             <Text style={styles.widgetAction}>코드 공유</Text>
           </Pressable>
         ) : null}
@@ -146,7 +155,7 @@ function ReferralCard({ title, code, onPress, onShare }: { title: string; code: 
   );
 }
 
-export function FcHomeShortcuts({ links, referralCode, onOpen, onShareReferral, onHowTo, renderTile }: Props) {
+export function FcHomeShortcuts({ links, referralCode, onOpen, onShareReferral, referralSharing = false, onHowTo, renderTile }: Props) {
   const allowance = links.find((link) => link.href === '/referral-allowance');
   const referral = links.find((link) => link.href === '/referral');
   const gridLinks = links.filter((link) => link !== allowance && link !== referral);
@@ -161,7 +170,7 @@ export function FcHomeShortcuts({ links, referralCode, onOpen, onShareReferral, 
         <View style={styles.widgets}>
           {allowance ? <AllowanceCard title="수당" onPress={() => onOpen(allowance.href)} /> : null}
           {referral ? (
-            <ReferralCard title="내 추천" code={referralCode} onPress={() => onOpen(referral.href)} onShare={onShareReferral} />
+            <ReferralCard title="내 추천" code={referralCode} onPress={() => onOpen(referral.href)} onShare={onShareReferral} sharing={referralSharing} />
           ) : null}
         </View>
       ) : null}
@@ -205,6 +214,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   widgetFoot: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 26 },
   widgetAction: { fontSize: 13, fontWeight: '700', color: '#374151' },
+  widgetActionDisabled: { opacity: 0.5 },
   avatars: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   avatar: { width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: '#f5f6f8', backgroundColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center' },
   avatarOverlap: { marginLeft: -8 },

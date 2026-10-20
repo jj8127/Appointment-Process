@@ -424,6 +424,7 @@ export default function RequestBoardMessengerScreen() {
   const [olderMessageLoadError, setOlderMessageLoadError] = useState('');
   const [anchorContextError, setAnchorContextError] = useState('');
   const [anchorContextRetryKey, setAnchorContextRetryKey] = useState(0);
+  const [anchorContextLoadingSequence, setAnchorContextLoadingSequence] = useState<number | null>(null);
   const [anchorContextGaps, setAnchorContextGaps] = useState<AnchorContextGaps | null>(null);
   const [anchorModeExitedForRoute, setAnchorModeExitedForRoute] = useState<string | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
@@ -440,6 +441,10 @@ export default function RequestBoardMessengerScreen() {
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
+  const [deletingMessageId, setDeletingMessageId] = useState<number | null>(null);
+  const deletingRef = useRef(false);
+  const [downloadingUrl, setDownloadingUrl] = useState<string | null>(null);
+  const downloadingRef = useRef(false);
   const beginSend = useReadAttempt();
   useDraftExitGuard(false, sending);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
@@ -1171,9 +1176,14 @@ export default function RequestBoardMessengerScreen() {
           participantPhone: res.data.participant.phone ?? directoryUser.phone ?? null,
         };
         openConversation(conv);
+      } else {
+        Alert.alert('대화 시작 실패', '대화를 시작하지 못했습니다.');
       }
     } catch {
-      if (ownsAccount()) logger.warn('[messenger] create DM failed');
+      if (ownsAccount()) {
+        logger.warn('[messenger] create DM failed');
+        Alert.alert('대화 시작 실패', '대화를 시작하지 못했습니다.');
+      }
     } finally {
       if (ownsAccount()) setCreatingDm(null);
     }
@@ -1430,6 +1440,7 @@ export default function RequestBoardMessengerScreen() {
     if (anchorContextAttemptRef.current === contextKey) return;
     anchorContextAttemptRef.current = contextKey;
     const sequence = ++anchorContextSequenceRef.current;
+    setAnchorContextLoadingSequence(sequence);
 
     void (async () => {
       try {
@@ -1437,6 +1448,7 @@ export default function RequestBoardMessengerScreen() {
           ? await rbGetMessageContext(parsedRequestDesignerId!, parsedAnchorMessageId)
           : await rbGetDirectMessageContext(parsedDirectConversationId!, parsedAnchorMessageId);
         if (sequence !== anchorContextSequenceRef.current) return;
+        setAnchorContextError('');
         if (!result.success) {
           if (focusAnchorFromLoadedMessages(parsedAnchorMessageId)) {
             return;
@@ -1466,6 +1478,7 @@ export default function RequestBoardMessengerScreen() {
         focusAnchorMessage(parsedAnchorMessageId);
       } catch (error) {
         if (sequence !== anchorContextSequenceRef.current) return;
+        setAnchorContextError('');
         logger.warn('[messenger] message context failed', error);
         if (focusAnchorFromLoadedMessages(parsedAnchorMessageId)) {
           return;
@@ -1473,6 +1486,8 @@ export default function RequestBoardMessengerScreen() {
         anchorContextAttemptRef.current = null;
         setAnchorContextError(REQUEST_BOARD_MESSAGE_CONTEXT_GUIDANCE);
         flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      } finally {
+        setAnchorContextLoadingSequence((current) => (current === sequence ? null : current));
       }
     })();
   }, [
@@ -1495,11 +1510,12 @@ export default function RequestBoardMessengerScreen() {
     syncHistoryAvailability,
   ]);
 
+  const anchorContextLoading = anchorContextLoadingSequence !== null;
   const retryAnchorContext = useCallback(() => {
+    if (anchorContextLoading) return;
     anchorContextAttemptRef.current = null;
-    setAnchorContextError('');
     setAnchorContextRetryKey((current) => current + 1);
-  }, []);
+  }, [anchorContextLoading]);
 
   const notificationReceipt = useNotificationReceiptCompletion({
     params: { notificationId, notificationTarget },
@@ -1838,7 +1854,9 @@ export default function RequestBoardMessengerScreen() {
   }, [previewImage]);
 
   const handleDownloadPreviewImage = useCallback(async () => {
-    if (!previewImage) return;
+    if (!previewImage || downloadingRef.current) return;
+    downloadingRef.current = true;
+    setDownloadingUrl(previewImage);
     try {
       const imageFileName = extractFileNameFromUrl(previewImage);
       const normalizedImageFileName = /\.[a-z0-9]{2,6}$/i.test(imageFileName)
@@ -1853,17 +1871,26 @@ export default function RequestBoardMessengerScreen() {
     } catch (error) {
       logger.warn('[messenger] preview download failed', error);
       Alert.alert('다운로드 실패', '이미지를 저장하지 못했습니다.');
+    } finally {
+      downloadingRef.current = false;
+      setDownloadingUrl(null);
     }
   }, [downloadRemoteFile, extractFileNameFromUrl, previewImage]);
 
   const handleDownloadAttachment = useCallback(
     async (file: MessageAttachment) => {
+      if (downloadingRef.current) return;
+      downloadingRef.current = true;
+      setDownloadingUrl(file.fileUrl);
       try {
         const downloadedFile = await downloadRemoteFile(file.fileUrl, file.fileName, file.fileType);
         Alert.alert('다운로드 완료', `${downloadedFile.destinationLabel}에 저장되었습니다.\n${downloadedFile.fileName}`);
       } catch (error) {
         logger.warn('[messenger] attachment download failed', error);
         Alert.alert('다운로드 실패', '파일을 저장하지 못했습니다.');
+      } finally {
+        downloadingRef.current = false;
+        setDownloadingUrl(null);
       }
     },
     [downloadRemoteFile],
@@ -1877,7 +1904,7 @@ export default function RequestBoardMessengerScreen() {
   }, []);
 
   const handleDeleteMessage = useCallback((message: UnifiedMessage) => {
-    if (!canWriteRequestBoard || !message.isOwn || message.id <= 0 || !activeConv) {
+    if (!canWriteRequestBoard || !message.isOwn || message.id <= 0 || !activeConv || deletingRef.current) {
       return;
     }
     const ownsAccount = accountReadScope.current.captureOwner(sessionReadKey);
@@ -1887,6 +1914,14 @@ export default function RequestBoardMessengerScreen() {
 
     confirmMessengerDelete({
       logScope: 'request-board-messenger',
+      onStart: () => {
+        deletingRef.current = true;
+        setDeletingMessageId(message.id);
+      },
+      onSettled: () => {
+        deletingRef.current = false;
+        setDeletingMessageId(null);
+      },
       onDelete: async () => {
         if (!isCurrent()) return;
         const result = activeConv.type === 'request'
@@ -1906,9 +1941,9 @@ export default function RequestBoardMessengerScreen() {
   }, [activeConv, canWriteRequestBoard, loadConversations, loadMessages, sessionReadKey]);
 
   const openMessageActions = useCallback((message: UnifiedMessage) => {
-    if (message.deleted) return;
+    if (message.deleted || message.id === deletingMessageId) return;
     setActionMessage(message);
-  }, []);
+  }, [deletingMessageId]);
 
   const closeMessageActions = useCallback(() => {
     setActionMessage(null);
@@ -2099,8 +2134,8 @@ export default function RequestBoardMessengerScreen() {
           <View style={styles.anchorContextBanner} accessibilityRole="alert">
             <Feather name="info" size={16} color={COLORS.primary} />
             <Text style={styles.anchorContextBannerText}>{anchorContextError}</Text>
-            <Pressable accessibilityRole="button" onPress={retryAnchorContext} style={styles.anchorContextRetryButton}>
-              <Text style={styles.anchorContextRetryText}>다시 시도</Text>
+            <Pressable accessibilityRole="button" disabled={anchorContextLoading} accessibilityState={{ busy: anchorContextLoading }} onPress={retryAnchorContext} style={styles.anchorContextRetryButton}>
+              <Text style={styles.anchorContextRetryText}>{anchorContextLoading ? '불러오는 중...' : '다시 시도'}</Text>
             </Pressable>
           </View>
         ) : null}
@@ -2194,8 +2229,8 @@ export default function RequestBoardMessengerScreen() {
         {msgError ? (
           <View style={styles.anchorContextBanner} accessibilityRole="alert">
             <Text style={styles.anchorContextBannerText}>{msgError}</Text>
-            <Pressable accessibilityRole="button" disabled={msgLoading} onPress={() => void loadMessages(activeConv)}>
-              <Text style={styles.anchorContextRetryText}>다시 시도</Text>
+            <Pressable accessibilityRole="button" disabled={msgLoading} accessibilityState={{ busy: msgLoading }} onPress={() => void loadMessages(activeConv)}>
+              <Text style={styles.anchorContextRetryText}>{msgLoading ? '불러오는 중...' : '다시 시도'}</Text>
             </Pressable>
             {isRequestBoardSessionReauthError(msgError) ? <Pressable accessibilityRole="button" onPress={() => resetTo(router, '/login?skipAuto=1')}><Text style={styles.anchorContextRetryText}>다시 로그인</Text></Pressable> : null}
           </View>
@@ -2220,7 +2255,7 @@ export default function RequestBoardMessengerScreen() {
             <FlatList<UnifiedMessage>
               ref={flatListRef}
               data={messages}
-              extraData={highlightedMessageId}
+              extraData={`${highlightedMessageId}:${deletingMessageId}:${downloadingUrl}`}
               keyExtractor={(item) => String(item.id)}
               inverted
               keyboardShouldPersistTaps="handled"
@@ -2302,6 +2337,7 @@ export default function RequestBoardMessengerScreen() {
                           styles.fileCard,
                           isOwn ? styles.fileCardOwn : styles.fileCardOther,
                         ]}
+                        disabled={downloadingUrl !== null}
                         onPress={() => {
                           void handleDownloadAttachment(file);
                         }}
@@ -2323,11 +2359,15 @@ export default function RequestBoardMessengerScreen() {
                             {formatFileSize(file.fileSize)}
                           </Text>
                         </View>
-                        <Feather
-                          name="download"
-                          size={14}
-                          color={isOwn ? 'rgba(255,255,255,0.7)' : COLORS.gray[400]}
-                        />
+                        {downloadingUrl === file.fileUrl ? (
+                          <BrandedLoadingSpinner size="sm" color={isOwn ? '#fff' : COLORS.primary} />
+                        ) : (
+                          <Feather
+                            name="download"
+                            size={14}
+                            color={isOwn ? 'rgba(255,255,255,0.7)' : COLORS.gray[400]}
+                          />
+                        )}
                       </Pressable>
                     ))}
                   </>
@@ -2335,11 +2375,11 @@ export default function RequestBoardMessengerScreen() {
 
                 return (
                   <View
-                    style={
-                      item.id === highlightedMessageId
-                        ? styles.anchorMessageHighlight
-                        : undefined
-                    }
+                    style={[
+                      item.id === highlightedMessageId ? styles.anchorMessageHighlight : undefined,
+                      item.id === deletingMessageId ? styles.messageDeleting : undefined,
+                    ]}
+                    accessibilityState={item.id === deletingMessageId ? { busy: true } : undefined}
                   >
                     {showDate && (
                       <View style={styles.dateSep}>
@@ -2515,9 +2555,18 @@ export default function RequestBoardMessengerScreen() {
                     {previewCopyState === 'copied' ? '복사됨' : previewCopyState === 'failed' ? '복사 실패' : '복사'}
                   </Text>
                 </Pressable>
-                <Pressable style={styles.previewActionBtn} onPress={handleDownloadPreviewImage}>
-                  <Feather name="download" size={14} color="#fff" />
-                  <Text style={styles.previewActionText}>다운로드</Text>
+                <Pressable
+                  style={styles.previewActionBtn}
+                  disabled={downloadingUrl !== null}
+                  accessibilityState={{ busy: downloadingUrl !== null }}
+                  onPress={handleDownloadPreviewImage}
+                >
+                  {downloadingUrl !== null ? (
+                    <BrandedLoadingSpinner size="sm" color="#fff" />
+                  ) : (
+                    <Feather name="download" size={14} color="#fff" />
+                  )}
+                  <Text style={styles.previewActionText}>{downloadingUrl !== null ? '저장 중...' : '다운로드'}</Text>
                 </Pressable>
               </View>
               <Pressable accessibilityLabel="사진 미리보기 닫기" accessibilityRole="button"
@@ -2617,8 +2666,8 @@ export default function RequestBoardMessengerScreen() {
         <View style={styles.anchorContextBanner} accessibilityRole="alert">
           <Feather name="info" size={16} color={COLORS.primary} />
           <Text style={styles.anchorContextBannerText}>{anchorContextError}</Text>
-          <Pressable accessibilityRole="button" onPress={retryAnchorContext} style={styles.anchorContextRetryButton}>
-            <Text style={styles.anchorContextRetryText}>다시 시도</Text>
+          <Pressable accessibilityRole="button" disabled={anchorContextLoading} accessibilityState={{ busy: anchorContextLoading }} onPress={retryAnchorContext} style={styles.anchorContextRetryButton}>
+            <Text style={styles.anchorContextRetryText}>{anchorContextLoading ? '불러오는 중...' : '다시 시도'}</Text>
           </Pressable>
         </View>
       ) : null}
@@ -3125,6 +3174,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF7D6', borderRadius: RADIUS.md,
     paddingHorizontal: 6,
   },
+  messageDeleting: { opacity: 0.45 },
 
   dateSep: { flexDirection: 'row', alignItems: 'center', marginVertical: SPACING.md, gap: SPACING.sm },
   dateLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: COLORS.border.light },

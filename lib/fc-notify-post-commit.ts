@@ -17,6 +17,9 @@ export type PresentPostCommitNotificationInput =
     retryNotification: () => Promise<FcNotifyDeliveryResult>;
     onDone?: () => void;
     canAct?: () => boolean;
+    /** Called when "알림 다시 등록" starts and ends, so the screen can show it is sending. */
+    onRetryStart?: () => void;
+    onRetryEnd?: () => void;
   };
 
 function presentDeliveryResult(
@@ -55,7 +58,13 @@ function presentDeliveryResult(
 
   const retry = async () => {
     if (input.canAct && !input.canAct()) return;
-    const retryDelivery = await input.retryNotification();
+    input.onRetryStart?.();
+    let retryDelivery: FcNotifyDeliveryResult;
+    try {
+      retryDelivery = await input.retryNotification();
+    } finally {
+      input.onRetryEnd?.();
+    }
     presentDeliveryResult(
       { ...input, delivery: retryDelivery },
       true,

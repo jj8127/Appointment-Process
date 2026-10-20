@@ -97,6 +97,7 @@ export default function RequestBoardFcCodesScreen() {
   const [formCodeValue, setFormCodeValue] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   // Inline autocomplete suggestions
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -253,7 +254,13 @@ export default function RequestBoardFcCodesScreen() {
     setShowSuggestions(false);
   };
 
+  const requestCloseEditModal = () => {
+    if (savingRef.current) return;
+    closeEditModal();
+  };
+
   const handleSave = async () => {
+    if (savingRef.current) return;
     if (!formInsurerName.trim()) {
       setFormError('회사명을 입력해주세요.');
       return;
@@ -263,6 +270,7 @@ export default function RequestBoardFcCodesScreen() {
       return;
     }
 
+    savingRef.current = true;
     setSaving(true);
     setFormError(null);
 
@@ -286,6 +294,7 @@ export default function RequestBoardFcCodesScreen() {
     } catch (err) {
       setFormError(toRequestBoardSessionErrorMessage(err, '저장에 실패했습니다.'));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -387,8 +396,8 @@ export default function RequestBoardFcCodesScreen() {
         <View style={styles.errorBanner}>
           <Feather name="alert-circle" size={14} color={COLORS.error} />
           <Text style={styles.errorBannerText}>{fetchError}</Text>
-          <Pressable accessibilityRole="button" disabled={loading || refreshing} onPress={handleRefresh}>
-            <Text style={styles.errorBannerText}>다시 시도</Text>
+          <Pressable accessibilityRole="button" disabled={loading || refreshing} accessibilityState={{ busy: loading || refreshing }} onPress={handleRefresh}>
+            <Text style={styles.errorBannerText}>{loading || refreshing ? '불러오는 중...' : '다시 시도'}</Text>
           </Pressable>
           {isRequestBoardSessionReauthError(fetchError) ? <Pressable accessibilityRole="button" onPress={() => resetTo(router, '/login?skipAuto=1')}><Text style={styles.errorBannerText}>다시 로그인</Text></Pressable> : null}
         </View>
@@ -489,8 +498,8 @@ export default function RequestBoardFcCodesScreen() {
               ? '검색어를 변경해보세요'
               : '"추가" 버튼을 눌러 코드를 등록해보세요'}
           </Text>
-          <Pressable accessibilityRole="button" disabled={refreshing} onPress={handleRefresh}>
-            <Text style={styles.emptySubText}>다시 불러오기</Text>
+          <Pressable accessibilityRole="button" disabled={refreshing} accessibilityState={{ busy: refreshing }} onPress={handleRefresh}>
+            <Text style={styles.emptySubText}>{refreshing ? '불러오는 중...' : '다시 불러오기'}</Text>
           </Pressable>
         </View>
       ) : (
@@ -519,20 +528,20 @@ export default function RequestBoardFcCodesScreen() {
         visible={editModalVisible}
         animationType="slide"
         transparent
-        onRequestClose={closeEditModal}
+        onRequestClose={requestCloseEditModal}
       >
         {(modalInsets) => <KeyboardAvoidingView
           style={styles.modalOverlay}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          <Pressable style={styles.modalBackdrop} onPress={closeEditModal} />
+          <Pressable style={styles.modalBackdrop} onPress={requestCloseEditModal} />
           <View style={[styles.modalSheet, { paddingBottom: modalInsets.bottom + 16 }]}>
             {/* Modal Header */}
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
                 {editingCode ? '설계코드 수정' : '설계코드 등록'}
               </Text>
-              <Pressable accessibilityLabel="설계코드 수정 닫기" accessibilityRole="button" onPress={closeEditModal} style={styles.modalCloseBtn}>
+              <Pressable accessibilityLabel="설계코드 수정 닫기" accessibilityRole="button" onPress={requestCloseEditModal} disabled={saving} style={styles.modalCloseBtn}>
                 <Feather name="x" size={20} color={COLORS.gray[500]} />
               </Pressable>
             </View>
@@ -632,8 +641,9 @@ export default function RequestBoardFcCodesScreen() {
             {/* Modal Footer */}
             <View style={styles.modalFooter}>
               <Pressable
-                style={[styles.modalBtn, styles.cancelBtn]}
-                onPress={closeEditModal}
+                style={[styles.modalBtn, styles.cancelBtn, saving && { opacity: 0.6 }]}
+                onPress={requestCloseEditModal}
+                disabled={saving}
               >
                 <Text style={styles.cancelBtnText}>취소</Text>
               </Pressable>

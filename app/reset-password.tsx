@@ -32,7 +32,7 @@ export default function ResetPasswordScreen() {
   const [phone, setPhone] = useState('');
   const [token, setToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<'otp' | 'reset' | null>(null);
   const [requested, setRequested] = useState(false);
   const keyboardPadding = useKeyboardPadding();
   const pending = useRef(false);
@@ -48,7 +48,7 @@ export default function ResetPasswordScreen() {
     }
     const digits = normalizePhone(phone);
     pending.current = true;
-    setLoading(true);
+    setLoading('otp');
     const isCurrent = beginAttempt();
     const ownsSession = captureAppSessionOwner();
     try {
@@ -91,7 +91,7 @@ export default function ResetPasswordScreen() {
       const message = err?.message || '비밀번호 변경 요청에 실패했습니다.';
       Alert.alert('오류', message);
     } finally {
-      if (isCurrent()) { pending.current = false; setLoading(false); }
+      if (isCurrent()) { pending.current = false; setLoading(null); }
     }
   };
 
@@ -116,7 +116,7 @@ export default function ResetPasswordScreen() {
     const trimmedNew = newPassword.trim();
 
     pending.current = true;
-    setLoading(true);
+    setLoading('reset');
     const isCurrent = beginAttempt();
     const ownsSession = captureAppSessionOwner();
     try {
@@ -146,7 +146,7 @@ export default function ResetPasswordScreen() {
     } catch (error) {
       if (isCurrent() && ownsSession()) Alert.alert('오류', isPlatform && error instanceof Error ? error.message : '비밀번호 변경에 실패했습니다.');
     } finally {
-      if (isCurrent()) { pending.current = false; setLoading(false); }
+      if (isCurrent()) { pending.current = false; setLoading(null); }
     }
   };
 
@@ -184,7 +184,8 @@ export default function ResetPasswordScreen() {
 
                   <Button
                     onPress={handleRequest}
-                    disabled={loading}
+                    disabled={!!loading}
+                    loading={loading === 'otp'}
                     variant="outline"
                     size="md"
                     fullWidth
@@ -219,8 +220,8 @@ export default function ResetPasswordScreen() {
 
                   <Button
                     onPress={handleReset}
-                    disabled={loading}
-                    loading={loading}
+                    disabled={!!loading}
+                    loading={loading === 'reset'}
                     variant="primary"
                     size="lg"
                     fullWidth

@@ -208,7 +208,8 @@ export default function DocumentsPage() {
     }) => {
         if (isReadOnly || statusSubmitting.current || updateStatusMutation.isPending) return;
         statusSubmitting.current = true;
-        updateStatusMutation.mutate(values);
+        // onError already notifies; the promise only tells the confirm dialog when to close.
+        return updateStatusMutation.mutateAsync(values).catch(() => undefined);
     };
 
     // Preview loads inline whenever the selected document changes.
@@ -251,19 +252,27 @@ export default function DocumentsPage() {
     const [confirmConfig, setConfirmConfig] = useState<{
         title: string;
         message: string;
-        onConfirm: () => void;
+        onConfirm: () => void | Promise<unknown>;
     } | null>(null);
 
-    const showConfirm = (config: { title: string; message: string; onConfirm: () => void }) => {
+    const showConfirm = (config: { title: string; message: string; onConfirm: () => void | Promise<unknown> }) => {
         setConfirmConfig(config);
         openConfirm();
     };
 
-    const handleConfirm = () => {
-        if (confirmConfig?.onConfirm) {
-            confirmConfig.onConfirm();
+    const [confirmSubmitting, setConfirmSubmitting] = useState(false);
+    const confirmSubmittingRef = useRef(false);
+    const handleConfirm = async () => {
+        if (!confirmConfig || confirmSubmittingRef.current) return;
+        confirmSubmittingRef.current = true;
+        setConfirmSubmitting(true);
+        try {
+            await confirmConfig.onConfirm();
+            closeConfirm();
+        } finally {
+            confirmSubmittingRef.current = false;
+            setConfirmSubmitting(false);
         }
-        closeConfirm();
     };
 
     const handleApprove = (doc: DocumentRow) => {
@@ -275,13 +284,11 @@ export default function DocumentsPage() {
         showConfirm({
             title: '서류 승인',
             message,
-            onConfirm: () => {
-                submitDocumentStatus({
-                    doc,
-                    status: 'approved',
-                    reason: noFileDoc ? NO_FILE_APPROVAL_NOTE : undefined,
-                });
-            },
+            onConfirm: () => submitDocumentStatus({
+                doc,
+                status: 'approved',
+                reason: noFileDoc ? NO_FILE_APPROVAL_NOTE : undefined,
+            }),
         });
     };
 
@@ -297,7 +304,7 @@ export default function DocumentsPage() {
             notifications.show({ title: '사유 입력', message: '반려 사유를 입력해주세요.', color: 'red' });
             return;
         }
-        submitDocumentStatus({
+        void submitDocumentStatus({
             doc: targetDocForReject,
             status: 'rejected',
             reason: rejectReason,
@@ -327,8 +334,8 @@ export default function DocumentsPage() {
                         classNames={{ input: styles.searchInput }}
                         w={260}
                     />
-                    <button type="button" className={styles.softButton} onClick={() => queryClient.invalidateQueries({ queryKey: ['documents-list'] })}>
-                        <IconRefresh size={16} stroke={1.8} /> 새로고침
+                    <button type="button" className={styles.softButton} disabled={isFetching} aria-busy={isFetching || undefined} onClick={() => queryClient.invalidateQueries({ queryKey: ['documents-list'] })}>
+                        {isFetching ? <Loader size={14} /> : <IconRefresh size={16} stroke={1.8} />} 새로고침
                     </button>
                 </div>
             </div>
@@ -575,9 +582,10 @@ export default function DocumentsPage() {
             <ConfirmModal
                 opened={confirmOpened}
                 onClose={closeConfirm}
-                onConfirm={handleConfirm}
+                onConfirm={() => void handleConfirm()}
                 title={confirmConfig?.title}
                 message={confirmConfig?.message}
+                submitting={confirmSubmitting}
             />
         </div>
     );

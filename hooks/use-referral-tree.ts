@@ -228,6 +228,7 @@ export function useReferralTree(opts: { fcId?: string; depth?: number }) {
     data: query.data,
     isLoading: query.isLoading,
     isError: query.isError,
+    isFetching: query.isFetching,
     error: query.error,
     refetch,
     loadChildrenOf,

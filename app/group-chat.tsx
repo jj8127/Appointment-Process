@@ -159,11 +159,21 @@ function showGroupChatDeliveryWarning(retryNotification?: () => void) {
   );
 }
 
+type GroupChatNotificationRetryPending = {
+  pendingRef: { current: boolean };
+  setPending: (pending: boolean) => void;
+};
+
 async function retryGroupChatNotificationOnly(
   retry: GroupChatNotificationRetry,
   isCurrentSend: () => boolean = () => true,
+  pending?: GroupChatNotificationRetryPending,
 ) {
-  if (!isCurrentSend()) return;
+  if (!isCurrentSend() || pending?.pendingRef.current) return;
+  if (pending) {
+    pending.pendingRef.current = true;
+    pending.setPending(true);
+  }
   try {
     const result = await groupChatRetryNotification(retry);
     if (!isCurrentSend()) return;
@@ -172,7 +182,7 @@ async function retryGroupChatNotificationOnly(
       showGroupChatDeliveryWarning(
         nextRetry
           ? () => {
-              void retryGroupChatNotificationOnly(nextRetry, isCurrentSend);
+              void retryGroupChatNotificationOnly(nextRetry, isCurrentSend, pending);
             }
           : undefined,
       );
@@ -183,6 +193,11 @@ async function retryGroupChatNotificationOnly(
     if (!isCurrentSend()) return;
     logger.warn('[group-chat] notification-only retry failed', error);
     showGroupChatErrorAlert(error);
+  } finally {
+    if (pending) {
+      pending.pendingRef.current = false;
+      pending.setPending(false);
+    }
   }
 }
 type OptimisticMessageInput = {
@@ -369,6 +384,13 @@ export default function GroupChatScreen() {
   const [actionMessage, setActionMessage] = useState<GroupChatMessage | null>(null);
   const [selectCopyMessage, setSelectCopyMessage] = useState<GroupChatMessage | null>(null);
   const [noticeUpdating, setNoticeUpdating] = useState(false);
+  const noticeUpdatingRef = useRef(false);
+  const [notificationRetrying, setNotificationRetrying] = useState(false);
+  const notificationRetryingRef = useRef(false);
+  const [deletingMessageIds, setDeletingMessageIds] = useState<Set<string>>(() => new Set());
+  const deletingMessageIdsRef = useRef(new Set<string>());
+  const [reactingMessageIds, setReactingMessageIds] = useState<Set<string>>(() => new Set());
+  const reactingMessageIdsRef = useRef(new Set<string>());
   const [permissionUpdatingIds, setPermissionUpdatingIds] = useState<Set<string>>(() => new Set());
   const [roomLoadFailed, setRoomLoadFailed] = useState(false);
   const [roomLoadError, setRoomLoadError] = useState<ReturnType<typeof classifyGroupChatError> | null>(null);
@@ -881,6 +903,7 @@ export default function GroupChatScreen() {
   }, []);
 
   const openMessageActions = useCallback((message: GroupChatMessage) => {
+    if (deletingMessageIdsRef.current.has(message.id)) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch((error) => {
       logger.debug('[group-chat] haptic feedback failed', error);
     });
@@ -933,6 +956,8 @@ export default function GroupChatScreen() {
     const shouldClear = notice?.message_id === message.id;
     setActionMessage(null);
     const apply = async () => {
+      if (noticeUpdatingRef.current) return;
+      noticeUpdatingRef.current = true;
       setNoticeUpdating(true);
       try {
         if (shouldClear) {
@@ -946,6 +971,7 @@ export default function GroupChatScreen() {
         logger.warn('[group-chat] notice update failed', error);
         showGroupChatErrorAlert(error);
       } finally {
+        noticeUpdatingRef.current = false;
         setNoticeUpdating(false);
       }
     };
@@ -967,6 +993,8 @@ export default function GroupChatScreen() {
       {
         text: '내리기',
         onPress: () => {
+          if (noticeUpdatingRef.current) return;
+          noticeUpdatingRef.current = true;
           void (async () => {
             setNoticeUpdating(true);
             try {
@@ -976,6 +1004,7 @@ export default function GroupChatScreen() {
               logger.warn('[group-chat] notice clear failed', error);
               showGroupChatErrorAlert(error);
             } finally {
+              noticeUpdatingRef.current = false;
               setNoticeUpdating(false);
             }
           })();
@@ -986,6 +1015,9 @@ export default function GroupChatScreen() {
 
   const handleReactionAction = useCallback(async (message: GroupChatMessage, reaction: string) => {
     setActionMessage(null);
+    if (reactingMessageIdsRef.current.has(message.id)) return;
+    reactingMessageIdsRef.current.add(message.id);
+    setReactingMessageIds(new Set(reactingMessageIdsRef.current));
     try {
       const alreadyReacted = message.reactions?.some((row) => row.reaction === reaction && row.reacted_by_me);
       const result = await groupChatSetReaction(message.id, alreadyReacted ? null : reaction);
@@ -993,6 +1025,9 @@ export default function GroupChatScreen() {
     } catch (error) {
       logger.warn('[group-chat] reaction failed', error);
       showGroupChatErrorAlert(error);
+    } finally {
+      reactingMessageIdsRef.current.delete(message.id);
+      setReactingMessageIds(new Set(reactingMessageIdsRef.current));
     }
   }, [updateMessage]);
 
@@ -1000,9 +1035,17 @@ export default function GroupChatScreen() {
     const message = actionMessage;
     if (!message || !canDeleteMessage(message)) return;
     setActionMessage(null);
+    if (deletingMessageIdsRef.current.has(message.id)) return;
+    const setDeleting = (deleting: boolean) => {
+      if (deleting) deletingMessageIdsRef.current.add(message.id);
+      else deletingMessageIdsRef.current.delete(message.id);
+      setDeletingMessageIds(new Set(deletingMessageIdsRef.current));
+    };
     confirmMessengerDelete({
       logScope: 'group-chat',
       formatFailure: classifyGroupChatError,
+      onStart: () => setDeleting(true),
+      onSettled: () => setDeleting(false),
       onDelete: async () => {
         const result = await groupChatDeleteMessage(message.id);
         updateMessage(message.id, result.message);
@@ -1165,7 +1208,10 @@ export default function GroupChatScreen() {
       showGroupChatDeliveryWarning(
         notificationRetry
           ? () => {
-              void retryGroupChatNotificationOnly(notificationRetry, isCurrentSend);
+              void retryGroupChatNotificationOnly(notificationRetry, isCurrentSend, {
+                pendingRef: notificationRetryingRef,
+                setPending: setNotificationRetrying,
+              });
             }
           : undefined,
       );
@@ -1675,6 +1721,8 @@ export default function GroupChatScreen() {
     const unreadCount = Math.max(0, Number(item.unread_count ?? 0));
     const showUnreadCount = unreadCount > 0;
     const reactions = item.reactions ?? [];
+    const isDeleting = deletingMessageIds.has(item.id);
+    const isReacting = reactingMessageIds.has(item.id);
     // One sender's messages in the same minute form a run: name and avatar on
     // the first bubble, time on the last (KakaoTalk style).
     const run = messengerRunPosition(messages, index, (message) => message.sender_actor_id, (message) => message.created_at);
@@ -1731,7 +1779,9 @@ export default function GroupChatScreen() {
           )}
           <View style={[styles.messageBubbleLine, isMe ? styles.messageBubbleLineMe : styles.messageBubbleLineOther]}>
             {isMe && messageMeta}
+            {isDeleting ? <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} /> : null}
             <Pressable
+              accessibilityState={{ busy: isDeleting }}
               onPress={() => handleMessagePress(item)}
               onLongPress={() => openMessageActions(item)}
               delayLongPress={MESSENGER_MESSAGE_LONG_PRESS_MS}
@@ -1742,6 +1792,7 @@ export default function GroupChatScreen() {
                 item.message_type === 'image' && !item.deleted_at && styles.bubbleImage,
                 item.message_type === 'file' && !item.deleted_at && styles.bubbleFile,
                 isHighlighted && styles.anchorMessageBubble,
+                isDeleting && { opacity: 0.45 },
               ]}
             >
               {renderReplyPreview(item, isMe)}
@@ -1757,8 +1808,10 @@ export default function GroupChatScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`${row.reaction} ${row.count}명${row.reacted_by_me ? ', 내 반응 취소' : ', 같은 반응 남기기'}`}
                   hitSlop={6}
+                  accessibilityState={{ busy: isReacting, disabled: isReacting }}
+                  disabled={isReacting}
                   onPress={() => void handleReactionAction(item, row.reaction)}
-                  style={[styles.reactionChip, row.reacted_by_me && styles.reactionChipMine]}
+                  style={[styles.reactionChip, row.reacted_by_me && styles.reactionChipMine, isReacting && { opacity: 0.5 }]}
                 >
                   <Text style={styles.reactionText}>{row.reaction} {row.count}</Text>
                 </Pressable>
@@ -1769,7 +1822,7 @@ export default function GroupChatScreen() {
       </View>
       </>
     );
-  }, [actor?.id, handleFailedMessagePress, handleMessagePress, handleReactionAction, highlightedMessageId, memberCount, messages, openMessageActions, readLineMessageId, renderMessageContent, renderReplyPreview]);
+  }, [actor?.id, deletingMessageIds, handleFailedMessagePress, handleMessagePress, handleReactionAction, highlightedMessageId, memberCount, messages, openMessageActions, reactingMessageIds, readLineMessageId, renderMessageContent, renderReplyPreview]);
 
   const isOwnGroupMessage = useCallback((message: GroupChatMessage) => message.sender_actor_id === actor?.id, [actor?.id]);
   const latestJump = useLatestMessageJump(messages, isOwnGroupMessage, flatListRef);
@@ -1833,7 +1886,7 @@ export default function GroupChatScreen() {
             <Text style={styles.noticeText} numberOfLines={2}>{getGroupChatReplyLabel(notice.message)}</Text>
           </View>
           {canManageNotice && (
-            <Pressable accessibilityLabel="대화방 공지 해제" accessibilityRole="button" accessibilityState={{ disabled: noticeUpdating }}
+            <Pressable accessibilityLabel="대화방 공지 해제" accessibilityRole="button" accessibilityState={{ busy: noticeUpdating, disabled: noticeUpdating }}
               style={styles.noticeClearButton}
               disabled={noticeUpdating}
               onPress={(event) => {
@@ -1841,11 +1894,27 @@ export default function GroupChatScreen() {
                 handleNoticeClear();
               }}
             >
-              <Feather name="x" size={18} color={MUTED} />
+              {noticeUpdating ? (
+                <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />
+              ) : (
+                <Feather name="x" size={18} color={MUTED} />
+              )}
             </Pressable>
           )}
         </Pressable>
       )}
+      {!notice && noticeUpdating ? (
+        <View style={styles.noticeBanner} accessibilityState={{ busy: true }}>
+          <View style={styles.noticeIconBox}>
+            <Feather name="volume-2" size={16} color={HANWHA_ORANGE} />
+          </View>
+          <View style={styles.noticeBody}>
+            <Text style={styles.noticeLabel}>공지</Text>
+            <Text style={styles.noticeText} numberOfLines={1}>등록 중...</Text>
+          </View>
+          <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />
+        </View>
+      ) : null}
 
       {(hasInvalidAnchorRoute || anchorLoadFailed) && (
         <View style={styles.anchorUnavailableBanner}>
@@ -1878,8 +1947,8 @@ export default function GroupChatScreen() {
       {roomLoadError ? (
         <View style={styles.anchorUnavailableBanner} accessibilityRole="alert">
           <Text style={styles.anchorUnavailableText}>{roomLoadError.message}</Text>
-          <Pressable accessibilityRole="button" disabled={refreshing} onPress={handleRefresh} style={styles.anchorLatestButton}>
-            <Text style={styles.anchorLatestButtonText}>다시 시도</Text>
+          <Pressable accessibilityRole="button" accessibilityState={{ busy: refreshing, disabled: refreshing }} disabled={refreshing} onPress={handleRefresh} style={styles.anchorLatestButton}>
+            <Text style={styles.anchorLatestButtonText}>{refreshing ? '불러오는 중...' : '다시 시도'}</Text>
           </Pressable>
           {roomLoadError.title === '단톡방 세션 확인 필요' ? <Pressable accessibilityRole="button" onPress={() => resetTo(router, '/login?skipAuto=1')}><Text style={styles.anchorLatestButtonText}>다시 로그인</Text></Pressable> : null}
         </View>
@@ -1961,7 +2030,7 @@ export default function GroupChatScreen() {
                 <Text style={styles.readOnlyComposerText}>발언은 총무와 본부장만 할 수 있어요. 필요하면 총무에게 권한을 요청해 주세요.</Text>
               </View>
             ) : null}
-            {actor && !canSendMessages ? null : uploading && (
+            {actor && !canSendMessages ? null : (uploading || notificationRetrying) && (
               <View
                 style={[
                   styles.uploadingOverlay,
@@ -1969,7 +2038,7 @@ export default function GroupChatScreen() {
                 ]}
               >
                 <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />
-                <Text style={styles.uploadingText}>메시지 전송 중...</Text>
+                <Text style={styles.uploadingText}>{uploading ? '메시지 전송 중...' : '알림 등록 중...'}</Text>
               </View>
             )}
               <View
@@ -2175,7 +2244,7 @@ export default function GroupChatScreen() {
                 <View style={styles.memberEmpty}>
                   <Feather name="search" size={24} color="#D1D5DB" />
                   <Text style={styles.memberEmptyText}>{roomLoadFailed ? '참여자 정보를 불러오지 못했습니다.' : '검색 결과가 없습니다.'}</Text>
-                  {roomLoadFailed ? <Pressable accessibilityRole="button" disabled={refreshing} onPress={handleRefresh}><Text style={styles.anchorLatestButtonText}>다시 시도</Text></Pressable> : null}
+                  {roomLoadFailed ? <Pressable accessibilityRole="button" accessibilityState={{ busy: refreshing, disabled: refreshing }} disabled={refreshing} onPress={handleRefresh}><Text style={styles.anchorLatestButtonText}>{refreshing ? '불러오는 중...' : '다시 시도'}</Text></Pressable> : null}
                 </View>
               }
             />

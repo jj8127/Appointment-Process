@@ -43,6 +43,71 @@
   }
 }
 
+/* Keeps the cards clear of the fixed side buttons (56px button + its offset from the content edge). */
+.sideNavigationGutter {
+  padding-inline: 72px;
+}
+
+@media (max-width: 768px) {
+  .sideNavigationGutter {
+    padding-inline: 0;
+    padding-bottom: 88px;
+  }
+
+  .sideNavigationButton,
+  .sideNavigationButton:hover:not(:disabled) {
+    top: auto;
+    bottom: 16px;
+    transform: none;
+  }
+
+  .sideNavigationPrevious {
+    left: 16px;
+  }
+
+  .sideNavigationNext {
+    right: 16px;
+  }
+}
+
+/* Moving to the next/previous applicant slides the details in from that side. */
+.slideInFromRight {
+  animation: applicantSlideInFromRight 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.slideInFromLeft {
+  animation: applicantSlideInFromLeft 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes applicantSlideInFromRight {
+  from {
+    opacity: 0;
+    transform: translateX(48px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes applicantSlideInFromLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-48px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slideInFromRight,
+  .slideInFromLeft {
+    animation: none;
+  }
+}
+
 .heroAvatar {
   width: 72px;
   height: 72px;

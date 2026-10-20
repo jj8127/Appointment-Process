@@ -927,7 +927,7 @@ export default function ExamApplicantsPage() {
                             {isExporting ? <Loader size={14} color="dark" /> : <IconDownload size={16} stroke={1.8} />} 엑셀 다운로드
                         </button>
                         <Tooltip label="데이터 새로고침">
-                            <ActionIcon aria-label="시험 신청자 새로고침" variant="white" color="dark" radius="xl" size={44} onClick={() => refetch()} loading={isLoading}>
+                            <ActionIcon aria-label="시험 신청자 새로고침" variant="white" color="dark" radius="xl" size={44} onClick={() => refetch()} loading={isFetching}>
                                 <IconRefresh size={18} stroke={1.8} />
                             </ActionIcon>
                         </Tooltip>

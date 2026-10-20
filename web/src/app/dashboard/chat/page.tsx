@@ -161,6 +161,7 @@ function ChatAccountPage() {
     const [keyword, setKeyword] = useState('');
     const [presenceByPhone, setPresenceByPhone] = useState<Record<string, WebPresenceSnapshot>>({});
     const [presenceError, setPresenceError] = useState(false);
+    const [presenceRetrying, setPresenceRetrying] = useState(false);
     const searchParams = useSearchParams();
     const myChatId = useMemo(
         () => getWebStaffChatActorId({ role, residentId, staffType }),
@@ -311,7 +312,16 @@ function ChatAccountPage() {
                         {presenceError ? (
                             <Group gap="xs" mt="xs" justify="space-between" wrap="nowrap" role="alert">
                                 <Text size="xs" c="dimmed">활동 상태를 갱신하지 못했습니다.</Text>
-                                <Button size="compact-xs" variant="subtle" onClick={() => { void loadPresence(); }}>
+                                <Button
+                                    size="compact-xs"
+                                    variant="subtle"
+                                    loading={presenceRetrying}
+                                    onClick={() => {
+                                        if (presenceRetrying) return;
+                                        setPresenceRetrying(true);
+                                        void loadPresence().finally(() => setPresenceRetrying(false));
+                                    }}
+                                >
                                     다시 시도
                                 </Button>
                             </Group>
@@ -474,6 +484,10 @@ function ChatRoom({
     const [loadError, setLoadError] = useState<string | null>(null);
     const [sending, setSending] = useState(false);
     const sendingRef = useRef(false);
+    const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
+    const deletingMessageRef = useRef(false);
+    const [retryingNotificationMessageId, setRetryingNotificationMessageId] = useState<string | null>(null);
+    const retryingNotificationRef = useRef(false);
     const resolvingRef = useRef<Promise<string> | null>(null);
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
     const viewport = useRef<HTMLDivElement>(null);
@@ -823,7 +837,9 @@ function ChatRoom({
     const handleRetryNotification = async (message: Message) => {
         const ticket = requestGuard.snapshot();
         if (isReadOnly || !requestGuard.isCurrent(ticket)) return;
-        if (!message.client_message_id) return;
+        if (!message.client_message_id || retryingNotificationRef.current) return;
+        retryingNotificationRef.current = true;
+        setRetryingNotificationMessageId(message.id);
         try {
             const activeConversationId = await ensureConversationId();
             if (!requestGuard.isCurrent(ticket)) return;
@@ -897,13 +913,18 @@ function ChatRoom({
                 message: '메시지는 이미 전송됐습니다. 알림 등록만 다시 시도해 주세요.',
                 color: 'yellow',
             });
+        } finally {
+            retryingNotificationRef.current = false;
+            setRetryingNotificationMessageId(null);
         }
     };
 
     const handleDeleteMessage = async (messageId: string) => {
         const ticket = requestGuard.snapshot();
-        if (isReadOnly) return;
+        if (isReadOnly || deletingMessageRef.current) return;
         if (!window.confirm('메시지를 삭제할까요? 삭제한 메시지는 되돌릴 수 없습니다.')) return;
+        deletingMessageRef.current = true;
+        setDeletingMessageId(messageId);
         try {
             const activeConversationId = await ensureConversationId();
             if (!requestGuard.isCurrent(ticket)) return;
@@ -932,6 +953,9 @@ function ChatRoom({
                 message: '메시지를 삭제하지 못했습니다.',
                 color: 'red',
             });
+        } finally {
+            deletingMessageRef.current = false;
+            setDeletingMessageId(null);
         }
     };
 
@@ -1065,6 +1089,8 @@ function ChatRoom({
                                                     size="sm"
                                                     variant="subtle"
                                                     color="gray.0"
+                                                    loading={retryingNotificationMessageId === msg.id}
+                                                    disabled={retryingNotificationMessageId !== null}
                                                     onClick={() => void handleRetryNotification(msg)}
                                                     aria-label="알림만 재시도"
                                                 >
@@ -1089,6 +1115,8 @@ function ChatRoom({
                                             variant="subtle"
                                             color="gray"
                                             aria-label="메시지 삭제"
+                                            loading={deletingMessageId === msg.id}
+                                            disabled={deletingMessageId !== null}
                                             onClick={() => void handleDeleteMessage(msg.id)}
                                         >
                                             <IconTrash size={13} />

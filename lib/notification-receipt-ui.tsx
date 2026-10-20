@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { NotificationReceiptCompletionState } from './use-notification-receipt';
@@ -6,11 +7,27 @@ export function NotificationReceiptStatusBanner(props: {
   state: NotificationReceiptCompletionState;
   onRetry: () => void;
 }) {
-  if (props.state !== 'mark_failed' && props.state !== 'target_unavailable') {
+  const [retrying, setRetrying] = useState(false);
+  const isRetryMarking = retrying && props.state === 'marking';
+
+  useEffect(() => {
+    if (props.state !== 'marking') setRetrying(false);
+  }, [props.state]);
+
+  if (
+    props.state !== 'mark_failed'
+    && props.state !== 'target_unavailable'
+    && !isRetryMarking
+  ) {
     return null;
   }
 
-  const canRetry = props.state === 'mark_failed';
+  const canRetry = props.state === 'mark_failed' || isRetryMarking;
+  const handleRetry = () => {
+    if (isRetryMarking) return;
+    setRetrying(true);
+    props.onRetry();
+  };
   return (
     <View style={styles.banner}>
       <Text style={styles.text}>
@@ -19,14 +36,18 @@ export function NotificationReceiptStatusBanner(props: {
           : '알림의 정확한 대상과 현재 페이지를 확인할 수 없습니다.'}
       </Text>
       {canRetry ? (
-        <Pressable style={styles.button} onPress={props.onRetry}>
-          <Text style={styles.buttonText}>다시 시도</Text>
+        <Pressable
+          style={[styles.button, isRetryMarking && styles.buttonDisabled]}
+          onPress={handleRetry}
+          disabled={isRetryMarking}
+          accessibilityState={{ disabled: isRetryMarking, busy: isRetryMarking }}
+        >
+          <Text style={styles.buttonText}>{isRetryMarking ? '처리 중...' : '다시 시도'}</Text>
         </Pressable>
       ) : null}
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   banner: {
     marginHorizontal: 16,
@@ -51,6 +72,9 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 8,
     backgroundColor: '#B91C1C',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
   buttonText: {
     color: '#fff',

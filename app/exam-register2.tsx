@@ -412,6 +412,8 @@ export default function ExamRegisterScreen() {
     setExamMonth(toExamMonthStart(date));
   };
 
+  const notifyRetryingRef = useRef(false);
+  const [isRetryingNotify, setIsRetryingNotify] = useState(false);
   const saveRound = useMutation({
     mutationFn: async (mode: 'create' | 'update') => {
       assertCanEdit();
@@ -457,15 +459,6 @@ export default function ExamRegisterScreen() {
       return { id: savedId };
     },
     onSuccess: async (res, mode) => {
-      closeFormWithAnim();
-      refetch();
-      if (res?.id) {
-        setSelectedRoundId(res.id);
-      }
-      setDraftLocations([]);
-      setLocationInput('');
-      setLocationOrder('0');
-
       const examTitle = `${formatDate(toYmd(examDate) || '')}${roundForm.roundLabel ? ` (${roundForm.roundLabel})` : ''}`;
       const actionLabel = mode === 'create' ? '등록' : '수정';
       const notificationPayload = buildExamRoundNotificationPayload({
@@ -477,9 +470,21 @@ export default function ExamRegisterScreen() {
       const savedMessage = mode === 'create'
         ? '새 시험 일정이 등록되었습니다.'
         : '시험 일정이 업데이트되었습니다.';
+      let notificationError: unknown = null;
       try {
         await notifyExamFlow(notificationPayload);
-      } catch (notificationError) {
+      } catch (error) {
+        notificationError = error;
+      }
+      closeFormWithAnim();
+      refetch();
+      if (res?.id) {
+        setSelectedRoundId(res.id);
+      }
+      setDraftLocations([]);
+      setLocationInput('');
+      setLocationOrder('0');
+      if (notificationError) {
         logger.warn('[exam-register2] round saved but notification delivery was incomplete', {
           examType: examFlowType,
           examRoundId: res.id,
@@ -499,6 +504,9 @@ export default function ExamRegisterScreen() {
           return;
         }
         const retryNotificationDelivery = async () => {
+          if (notifyRetryingRef.current) return;
+          notifyRetryingRef.current = true;
+          setIsRetryingNotify(true);
           try {
             await notifyExamFlow(notificationPayload);
             Alert.alert(
@@ -527,6 +535,9 @@ export default function ExamRegisterScreen() {
                 },
               ],
             );
+          } finally {
+            notifyRetryingRef.current = false;
+            setIsRetryingNotify(false);
           }
         };
         Alert.alert(
@@ -646,6 +657,9 @@ export default function ExamRegisterScreen() {
             <RefreshButton onPress={() => { refetch() }} />
             <Text style={styles.headerTitle}>손해보험 시험 일정 관리</Text>
           </View>
+          {isRetryingNotify ? (
+            <Text accessibilityRole="alert" style={styles.caption}>알림 등록 중...</Text>
+          ) : null}
           <Text style={styles.caption}>
             시험 일자, 신청 마감일, 차수/메모, 비고와 응시 지역을 한 번에 입력해 저장합니다.
           </Text>

@@ -10,6 +10,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconDownload, IconPaperclip, IconX } from '@tabler/icons-react';
+import { useRef, useState } from 'react';
 
 import {
   openMessengerAttachment,
@@ -97,7 +98,24 @@ export function MessengerAttachmentList({
   attachments?: MessengerAttachmentMetadata[] | null;
   ownMessage?: boolean;
 }) {
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  const openingRef = useRef(false);
   if (!attachments?.length) return null;
+  const openAttachment = (attachmentId: string) => {
+    if (openingRef.current) return;
+    openingRef.current = true;
+    setOpeningId(attachmentId);
+    void openMessengerAttachment(attachmentId).catch(() => {
+      notifications.show({
+        title: '파일 열기 실패',
+        message: MESSENGER_ATTACHMENT_ERROR_COPY.downloadFailed,
+        color: 'red',
+      });
+    }).finally(() => {
+      openingRef.current = false;
+      setOpeningId(null);
+    });
+  };
   return (
     <Stack gap={4} mt={6}>
       {attachments.map((attachment) => (
@@ -107,13 +125,9 @@ export function MessengerAttachmentList({
           variant="light"
           color={ownMessage ? 'gray' : 'blue'}
           leftSection={<IconDownload size={14} />}
-          onClick={() => void openMessengerAttachment(attachment.id).catch(() => {
-            notifications.show({
-              title: '파일 열기 실패',
-              message: MESSENGER_ATTACHMENT_ERROR_COPY.downloadFailed,
-              color: 'red',
-            });
-          })}
+          loading={openingId === attachment.id}
+          disabled={openingId !== null && openingId !== attachment.id}
+          onClick={() => openAttachment(attachment.id)}
         >
           {attachment.name} · {formatMessengerAttachmentSize(attachment.size)}
         </Button>

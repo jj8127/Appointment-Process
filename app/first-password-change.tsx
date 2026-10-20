@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Keyboard, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -34,6 +34,7 @@ export default function FirstPasswordChangeScreen() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const pending = useRef(false);
   const keyboardPadding = useKeyboardPadding();
 
   useEffect(() => {
@@ -45,7 +46,7 @@ export default function FirstPasswordChangeScreen() {
 
   const handleSubmit = async () => {
     Keyboard.dismiss();
-    if (!challenge?.token || loading) return;
+    if (!challenge?.token || pending.current) return;
 
     const passwordValidation = validatePassword(newPassword);
     if (!passwordValidation.isValid) {
@@ -57,6 +58,7 @@ export default function FirstPasswordChangeScreen() {
       return;
     }
 
+    pending.current = true;
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke<CompletionResponse>(
@@ -93,6 +95,7 @@ export default function FirstPasswordChangeScreen() {
     } catch {
       Alert.alert('변경 실패', '새 비밀번호를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.');
     } finally {
+      pending.current = false;
       setLoading(false);
     }
   };

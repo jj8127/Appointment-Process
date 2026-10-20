@@ -9,6 +9,7 @@ import {
   Checkbox,
   Divider,
   Group,
+  Loader,
   LoadingOverlay,
   Popover,
   ScrollArea,
@@ -616,8 +617,8 @@ export default function AppointmentPage() {
               allowDeselect={false}
               classNames={{ input: styles.selectInput }}
             />
-            <button type="button" className={styles.softButton} onClick={() => refetch()}>
-              <IconRefresh size={16} stroke={1.8} /> 새로고침
+            <button type="button" className={styles.softButton} disabled={isFetching} aria-busy={isFetching || undefined} onClick={() => refetch()}>
+              {isFetching ? <Loader size={14} /> : <IconRefresh size={16} stroke={1.8} />} 새로고침
             </button>
           </Group>
         </div>

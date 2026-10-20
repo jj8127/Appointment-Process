@@ -34,8 +34,8 @@ describe('login mobile keyboard behavior', () => {
     expect(source).toContain("import { Button } from '@/components/Button';");
     expect(loginButtonBlock).toContain('<Button');
     expect(loginButtonBlock).toContain('onPress={login}');
-    expect(loginButtonBlock).toContain('loading={loading}');
-    expect(loginButtonBlock).toContain('disabled={loading || !hydrated}');
+    expect(loginButtonBlock).toContain('loading={busy}');
+    expect(loginButtonBlock).toContain('disabled={busy || !hydrated}');
     expect(loginButtonBlock).not.toContain('<Pressable');
   });
 

@@ -96,36 +96,37 @@ export function StackSheetOption({ label, selected, onPress, multiple = false }:
 }
 
 /** 다음 button riding on the keyboard, shown once the current answer is not empty. */
-export function StackDockedNext({ label = '다음', disabled = false, onPress }: { label?: string; disabled?: boolean; onPress: () => void }) {
+export function StackDockedNext({ label = '다음', disabled = false, loading = false, onPress }: { label?: string; disabled?: boolean; loading?: boolean; onPress: () => void }) {
   return (
     <KeyboardSafeBottomBar>
       <Animated.View entering={FadeIn.duration(SIGNUP_MOTION.nextBar)} style={styles.docked}>
         {/* Pressed while the keyboard is open: fire on press-in so the first tap is not spent closing it. */}
-        <StackButton label={label} disabled={disabled} onPress={onPress} submitOnPressIn />
+        <StackButton label={label} disabled={disabled} loading={loading} onPress={onPress} submitOnPressIn />
       </Animated.View>
     </KeyboardSafeBottomBar>
   );
 }
 
 /** Rounded bottom button for the final step when the keyboard is down. */
-export function StackSubmit({ label, disabled = false, onPress }: { label: string; disabled?: boolean; onPress: () => void }) {
+export function StackSubmit({ label, disabled = false, loading = false, onPress }: { label: string; disabled?: boolean; loading?: boolean; onPress: () => void }) {
   // Screens leave the bottom edge to these buttons so nothing pads the gap above the keyboard.
   const insets = useSafeAreaInsets();
   return (
     <Animated.View entering={FadeIn.duration(SIGNUP_MOTION.insert)} style={[styles.submitWrap, { paddingBottom: SPACING.base + insets.bottom }]}>
-      <StackButton label={label} disabled={disabled} onPress={onPress} />
+      <StackButton label={label} disabled={disabled} loading={loading} onPress={onPress} />
     </Animated.View>
   );
 }
 
-export function StackButton({ label, disabled = false, onPress, submitOnPressIn = false }: {
+export function StackButton({ label, disabled = false, loading = false, onPress, submitOnPressIn = false }: {
   label: string;
   disabled?: boolean;
+  loading?: boolean;
   onPress: () => void;
   submitOnPressIn?: boolean;
 }) {
   return (
-    <Button onPress={onPress} disabled={disabled} submitOnPressIn={submitOnPressIn} size="lg" fullWidth style={styles.button}>
+    <Button onPress={onPress} disabled={disabled} loading={loading} submitOnPressIn={submitOnPressIn} size="lg" fullWidth style={styles.button}>
       {label}
     </Button>
   );

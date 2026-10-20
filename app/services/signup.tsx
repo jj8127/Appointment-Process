@@ -22,7 +22,7 @@ import { advanceStackReveal, getStackOrder, PLATFORM_SIGNUP_STEPS, SIGNUP_MOTION
 import { useReadAttempt } from '@/lib/use-read-attempt';
 import { isValidMobilePhone, normalizePhone, validatePassword, validatePhone, validateRequired } from '@/lib/validation';
 
-type DockedAction = { label: string; ready: boolean; disabled?: boolean; onPress: () => void };
+type DockedAction = { label: string; ready: boolean; disabled?: boolean; loading?: boolean; onPress: () => void };
 
 export default function PlatformSignup() {
   const { service, code: invitationCode, referralNonce } = useLocalSearchParams<{ service?: string; code?: string; referralNonce?: string }>();
@@ -210,9 +210,10 @@ export default function PlatformSignup() {
         return { label: '다음', ready: Boolean(name.trim()), onPress: () => advance('name') };
       case 'phone':
         return {
-          label: cooldown ? `${cooldown}초 후 다시 받기` : '인증 코드 받기',
+          label: loading === 'otp' ? '요청 중...' : cooldown ? `${cooldown}초 후 다시 받기` : '인증 코드 받기',
           ready: isValidMobilePhone(phone),
           disabled: cooldown > 0 || Boolean(loading) || !hydrated,
+          loading: loading === 'otp',
           onPress: () => { void submit('otp'); },
         };
       case 'code':
@@ -274,7 +275,7 @@ export default function PlatformSignup() {
         );
       case 'phone':
         return (
-          <StackField label="휴대폰 번호" active={isTyping('phone')} message={notice} error={otpError}>
+          <StackField label="휴대폰 번호" active={isTyping('phone')} message={loading === 'otp' ? '인증 문자 요청 중...' : notice} error={otpError}>
             <TextInput {...inputProps('phone')} accessibilityLabel="휴대폰 번호" value={phone}
               onChangeText={value => { setPhone(value.replace(/\D/g, '').slice(0, 11)); handleCodeChange(''); setCooldown(0); setNotice(''); setOtpError(''); }}
               keyboardType="number-pad" autoComplete="tel" placeholder="010으로 시작하는 11자리" />
@@ -331,7 +332,7 @@ export default function PlatformSignup() {
           <Text style={styles.linkText}>이미 계정이 있어요</Text>
         </Pressable>
       </KeyboardAwareWrapper>
-      {docked?.ready ? <StackDockedNext label={docked.label} disabled={docked.disabled} onPress={docked.onPress} /> : null}
+      {docked?.ready ? <StackDockedNext label={docked.label} disabled={docked.disabled} loading={docked.loading} onPress={docked.onPress} /> : null}
       {showFinal ? <StackSubmit label="가입하기" onPress={openTerms} /> : null}
 
       <StackSheet
@@ -343,6 +344,7 @@ export default function PlatformSignup() {
           <StackButton
             label={loading === 'signup' ? '가입하는 중...' : '동의하고 가입하기'}
             disabled={!termsAccepted || Boolean(loading) || !hydrated}
+            loading={loading === 'signup'}
             onPress={() => { void submit('signup'); }}
             submitOnPressIn
           />

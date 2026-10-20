@@ -5,7 +5,7 @@ import { parseCalendarDate } from '@/lib/calendar-date';
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { Stack, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -134,6 +134,7 @@ function HanwhaCommissionScreenContent() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [openingPdf, setOpeningPdf] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
@@ -253,6 +254,7 @@ function HanwhaCommissionScreenContent() {
   }, []);
 
   const submitDate = useCallback(async () => {
+    if (savingRef.current) return;
     if (!residentId || !appSessionToken) {
       Alert.alert('로그인 정보 없음', '로그인 정보를 확인할 수 없습니다. 다시 로그인해주세요.');
       return;
@@ -272,6 +274,7 @@ function HanwhaCommissionScreenContent() {
       return;
     }
 
+    savingRef.current = true;
     setSaving(true);
     const ymd = toYMD(displayDate);
 
@@ -326,6 +329,7 @@ function HanwhaCommissionScreenContent() {
     } catch (error: any) {
       Alert.alert('저장 실패', error?.message ?? '다위촉 URL 정보를 저장하지 못했습니다.');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }, [appSessionToken, displayDate, load, profile?.id, residentId]);
@@ -464,7 +468,8 @@ function HanwhaCommissionScreenContent() {
                   </View>
                 ) : (
                   <Pressable
-                    style={styles.dateInput}
+                    style={[styles.dateInput, saving && { opacity: 0.5 }]}
+                    disabled={saving}
                     onPress={() => {
                       setTempDate(displayDate ?? new Date());
                       setShowPicker(true);

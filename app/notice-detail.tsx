@@ -48,7 +48,7 @@ export default function NoticeDetailScreen() {
   const hasInvalidNoticeRoute =
     hasPresentRouteParam(id) && !noticeId;
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ['notice', 'detail', noticeId, role],
     queryFn: () => fetchNoticeDetail(noticeId, role),
     enabled: Boolean(isNotificationUuid(noticeId) && role),
@@ -97,8 +97,14 @@ export default function NoticeDetailScreen() {
         <View style={styles.center}>
           <Feather name="alert-circle" size={26} color="#EF4444" />
           <Text style={styles.message}>공지를 불러오지 못했습니다.</Text>
-          <Pressable style={styles.retryButton} onPress={() => refetch()}>
-            <Text style={styles.retryText}>다시 시도</Text>
+          <Pressable
+            style={[styles.retryButton, isFetching && { opacity: 0.6 }]}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: isFetching, busy: isFetching }}
+            disabled={isFetching}
+            onPress={() => void refetch()}
+          >
+            <Text style={styles.retryText}>{isFetching ? '다시 불러오는 중...' : '다시 시도'}</Text>
           </Pressable>
         </View>
       </SafeAreaView>

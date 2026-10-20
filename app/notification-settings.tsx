@@ -269,8 +269,14 @@ export default function NotificationSettingsScreen() {
             <View accessibilityRole="alert" style={styles.errorCard}>
               <Feather name="alert-circle" size={18} color="#B42318" />
               <Text style={styles.errorText}>{error}</Text>
-              <Pressable accessibilityRole="button" onPress={() => void load()} style={styles.inlineRetry}>
-                <Text style={styles.inlineRetryText}>다시 시도</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ disabled: loading, busy: loading }}
+                disabled={loading}
+                onPress={() => void load()}
+                style={[styles.inlineRetry, loading && styles.inlineRetryDisabled]}
+              >
+                <Text style={styles.inlineRetryText}>{loading ? '불러오는 중...' : '다시 시도'}</Text>
               </Pressable>
             </View>
           ) : null}
@@ -447,6 +453,7 @@ const styles = StyleSheet.create({
   errorCard: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: 12, backgroundColor: '#FEF3F2', borderWidth: 1, borderColor: '#FECDCA' },
   errorText: { flex: 1, color: '#912018', fontSize: 12, lineHeight: 17 },
   inlineRetry: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
+  inlineRetryDisabled: { opacity: 0.5 },
   inlineRetryText: { color: '#912018', fontSize: 12, fontWeight: '800' },
   infoCard: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: 12, backgroundColor: '#FFF7ED' },
   infoText: { flex: 1, color: '#7C3F13', fontSize: 12, lineHeight: 17 },
