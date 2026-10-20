@@ -321,6 +321,28 @@ describe('standalone allowance page interactions', () => {
     expect(texts().join(' ')).not.toContain('수당 명세가 없습니다');
   });
 
+  it('keeps 다시 확인 busy and untappable while the empty month is being re-read', async () => {
+    await mount();
+    await press('2026년 7월');
+    delete statements['2026-07'];
+    query.availableMonths = ['2026-08'];
+    query.isRefreshing = true;
+    await update();
+
+    const busyButton = pressable('다시 확인');
+    expect(busyButton.props.disabled).toBe(true);
+    expect(busyButton.props.accessibilityState).toMatchObject({ busy: true, disabled: true });
+    expect(busyButton.findAllByType('ActivityIndicator')).toHaveLength(1);
+
+    query.isRefreshing = false;
+    await update();
+    const idleButton = pressable('다시 확인');
+    expect(idleButton.props.disabled).toBe(false);
+    expect(idleButton.findAllByType('ActivityIndicator')).toHaveLength(0);
+    await press('다시 확인');
+    expect(statementRetry).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps June, July and August selectable for a June-only recipient', async () => {
     statements = { '2026-06': statement('2026-06') };
     access.data = { enabled: true, availableMonths: ['2026-06'] };

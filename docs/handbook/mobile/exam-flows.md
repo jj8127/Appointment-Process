@@ -230,3 +230,9 @@ For TBD rounds, administrators see the saved `exam_month` and an explicit unset 
 ## 2026-10-15 응시료 계좌 복사 피드백
 
 - `exam-apply.tsx`/`exam-apply2.tsx`의 응시료 납입 계좌 복사는 `copyTextWithFeedback`을 사용하고 결과를 토스트로 알린다. selection 햅틱은 복사 성공 시에만 낸다. 신청·결제 증빙·취소 흐름은 바뀌지 않는다. 규칙은 `docs/handbook/shared-ui-action-contracts.md`의 피드백 등급을 따른다.
+
+## 2026-10-20 시험 화면 처리 중 표시
+
+- 시험 신청은 이력 재확인 단계부터 ref로 잠가 두 번 제출되지 않는다. 신청 취소는 '취소 중...'을 보인다. 입금 증빙 필드는 `busy` 동안 잠긴다.
+- 관리자 취소·접수 토글·반려는 목록 갱신을 기다린 뒤 끝나므로, 갱신 전 같은 카드를 다시 처리하지 못한다.
+- 관리자 웹 시험 신청자 상세의 이전/다음 버튼은 본문과 겹치지 않고, 이동 시 해당 방향에서 슬라이드로 들어온다.

@@ -324,3 +324,8 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/grou
 ## 2026-10-09 Local preference and unread confirmation
 
 A preference write followed by a failed bootstrap returns explicit `saved:true` with an unsuccessful read code. Mobile keeps the committed local selection, offers confirmation retry and never claims the server rolled back. Global OFF token cleanup failure has the same committed-write distinction. Failed unread queries retain unknown state and cannot call native badge clearing. Inbox-first and terminal provider/no-device policies remain unchanged; no real notifications or SMS were sent.
+
+## 2026-10-20 알림 화면·재등록 처리 중 표시
+
+- 알림 센터 삭제는 실행 중 삭제·모두 선택·취소를 잠그고 '삭제 중...'을 보인다. 알림 줄 탭은 이동 준비가 끝날 때까지 같은 줄을 잠그고 스피너를 보인다.
+- 저장 뒤 "알림 다시 등록"은 `presentPostCommitNotificationDelivery`의 `onRetryStart`/`onRetryEnd`로 화면이 처리 중을 보인다. 관리자 웹 공지 삭제 확인창은 요청이 끝날 때까지 열려 있다.

@@ -291,3 +291,9 @@ Identity query errors stop the apply/home gate and offer retry; they are not use
 
 - 설정의 추천 코드 복사는 `copyTextWithFeedback` 토스트를 사용한다.
 - 로그인 CTA의 `submitOnPressIn`은 2026-06-16 Android 키보드 회귀를 막는 문서화된 예외로 유지한다. 다른 이동·탭 컨트롤은 `onPress`를 사용한다. 규칙은 `docs/handbook/shared-ui-action-contracts.md`의 피드백 등급을 따른다.
+
+## 2026-10-20 로그인·인증 버튼 처리 중 표시
+
+- 모두온 로그인은 성공 뒤 화면 이동이 끝날 때까지 버튼 로딩과 입력 잠금을 유지한다(`busy = loading || manualLoginSucceeded`).
+- 인증 코드 요청과 비밀번호 변경은 각자 버튼에만 스피너를 보이고(`loading: 'otp' | 'reset' | null`), 첫 비밀번호 변경은 ref로 중복 제출을 막는다.
+- 헤더 로그아웃 아이콘은 ref로 한 번만 실행한다.
