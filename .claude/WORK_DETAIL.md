@@ -1,5 +1,12 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261020-admin-recommender-delete"></a>
+## 2026-10-20 관리자 웹 추천인 검색 순서와 FC 삭제
+
+- 추천인 검색: `rankRecommenderCandidatesByQuery`가 같은 검색 결과를 이름 일치 → 이름 시작 → 이름 포함 → 소속·코드·전화 뒷자리만 일치 순으로 정렬한다. 같은 순위는 기존 순서를 유지한다. 사용자 사례: '서선미' 검색 시 소속명이 '1본부 서선미'인 FC들이 이름 '서선미'보다 먼저 보였다.
+- FC 삭제: 삭제 요청을 `web/src/lib/fc-delete-client.ts`의 `requestFcDelete`로 모았다. 대시보드 확인창은 `mutateAsync`를 기다려 처리 중 표시를 유지하고(실패 알림은 onError 한 번), 삭제 아이콘도 처리 중 상태를 보인다. FC 프로필 페이지 상단에 같은 삭제 버튼과 확인창을 더했고, 성공하면 대시보드로 이동한다. 본부장 계정은 버튼이 비활성이다.
+- 검증: web node 817/817, 웹 tsc, 변경 파일 eslint.
+
 <a id="20261019-push-review-remaining"></a>
 ## 2026-10-19 푸시 검토 남은 항목과 관리자 웹 개편 병합
 

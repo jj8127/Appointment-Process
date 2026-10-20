@@ -193,3 +193,10 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 
 ## 2026-10-04 전체 배포 정합성
 가람in 4.2.15(Android/iOS), 관리자 웹, 가람Link, DB/Edge를 사용자 승인 범위에서 최신 소스로 맞춘다. 운영0497367의 서류·위촉 조회 경로와 파일 소유권 검증을 최신 관리자 웹에 통합하고 기존 canonical 알림·첨부 계약을 유지한다. 서류 저장 뒤 진행 상태 실패는 warning으로 반환한다. Supabase plugin이 발급한 실제 마이그레이션 버전과 로컬 파일/테스트 참조를 맞추며 세션 세대 활성화는 모든 호출자 준비 뒤 적용한다. exact Git source·빌드 입력 해시·플랫폼 완료·운영 alias·경로 응답·배포 후 오류를 확인하기 전 완료로 보고하지 않는다.
+
+## 2026-10-20 FC 삭제 진입점과 처리 중 표시
+
+- FC 삭제는 대시보드 FC 상세 모달과 FC 프로필 페이지(`/dashboard/profile/[id]`) 두 곳에서 시작한다. 두 곳 모두 `web/src/lib/fc-delete-client.ts`의 `requestFcDelete`로 `/api/fc-delete`를 부르고, 서버는 `admin-action` deleteFc(가람Link 은퇴 선행)에 위임한다.
+- 확인창의 삭제 버튼은 요청이 끝날 때까지 처리 중 표시를 유지하고, 그동안 닫히지 않는다. 실패 알림은 mutation `onError`에서 한 번만 보여 준다.
+- 프로필 페이지에서 삭제가 성공하면 해당 FC 캐시를 지우고 `/dashboard`로 이동한다. 본부장(읽기 전용) 계정은 두 곳 모두 삭제 버튼이 비활성이다.
+- 추천인 후보 검색은 같은 결과 안에서 이름 일치 → 이름 시작 → 이름 포함 → 소속·코드만 일치 순으로 보여 준다(`rankRecommenderCandidatesByQuery`).
