@@ -61,7 +61,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useParams, useRouter } from 'next/navigation';
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 
 import styles from './page.module.css';
 import surface from '../../../surface.module.css';
@@ -209,9 +209,13 @@ export default function ExamApplicantDetailPage() {
     direction: null,
   });
   if (applicantId && applicantId !== slide.id) {
-    // The first applicant shown appears without a slide; later ones come in from the side that was pressed.
-    setSlide({ id: applicantId, direction: slide.id ? pendingApplicantSlideDirection : null });
+    // The route remounts this page, so the pressed side is read from the module value set by the button.
+    // Opening an applicant from the list leaves it null, so that view appears without a slide.
+    setSlide({ id: applicantId, direction: pendingApplicantSlideDirection });
   }
+  useEffect(() => {
+    if (slide.id) pendingApplicantSlideDirection = null;
+  }, [slide.id]);
   if (navigatingToId && applicantId === navigatingToId) {
     setNavigatingToId(null);
   }
