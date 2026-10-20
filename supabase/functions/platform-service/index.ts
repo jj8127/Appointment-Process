@@ -10,6 +10,9 @@ import { resolveManagerAffiliation } from '../_shared/manager-affiliation.ts';
 import { retireRequestBoardFcAccount } from '../_shared/request-board-fc-retirement.ts';
 import { drainAccountDeletionCleanup } from '../_shared/account-deletion-cleanup.ts';
 import { drainMessengerAttachmentCleanup } from '../_shared/messenger-attachment-service.ts';
+import { NEW_CARE_REQUEST_MESSAGE, careAnswerMessage, overdueCareMessage, sendCarePush, type HospitalCarePushMessage } from '../_shared/hospital-care-push.ts';
+import { isGeneralExpoPushEnabled } from '../_shared/general-push-preference-policy.ts';
+import { runAfterResponse } from '../_shared/run-after-response.ts';
 
 const supabaseUrl = getEnv('SUPABASE_URL') ?? '';
 const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -28,6 +31,10 @@ const fail = (code:string,message:string,status=400) => json({ok:false,code,mess
 const hospitalProvinces:Record<string,string>={'11':'서울','26':'부산','27':'대구','28':'인천','29':'광주','30':'대전','31':'울산','36':'세종','41':'경기','43':'충북','44':'충남','46':'전남','47':'경북','48':'경남','50':'제주','51':'강원','52':'전북'};
 const hospitalEventTypes=['impression','detail','phone','directions'];
 const hospitalPlacements=['regional_list','regional_featured'];
+// Partner hospitals that accept care reservation requests. Keep ids in sync with data/hospital-demo.ts.
+const careHospitals:Record<string,string>={'20000000-0000-4000-8000-000000000001':'굿모닝한방병원 청주'};
+const careRequestColumns='id,hospital_id,hospital_name,desired_start,care_type,contact_time,status,staff_note,responded_at,created_at';
+const adminCareRequestColumns=`${careRequestColumns},first_contact_due_at,first_contact_at,decided_at,care_started_at`;
 const ymd=(value:unknown):value is string=>typeof value==='string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0,10)===value;
 
 // Short-lived receipts authorize only anonymous measurement admission. They do
@@ -58,13 +65,48 @@ async function verifyHospitalReceipt(token:unknown,id:string) {
 
 // Privileged database reach ends here: callers never receive service-role keys,
 // credential columns, raw graph descendants, or another member's applications.
+const expoPushToken=(value:unknown):value is string=>typeof value==='string' && value.length<=200 && /^Expo(nent)?PushToken\[[^\]]+\]$/.test(value);
+async function pushCare(tokens:string[],message:HospitalCarePushMessage,table:'platform_member_push_tokens'|'device_tokens') {
+  if(!tokens.length) return;
+  const gone=await sendCarePush(tokens,message);
+  if(gone.length) await db.from(table).delete().in('expo_push_token',gone);
+}
+// Active platform admins who have not turned off operations push.
+async function notifyAdminsOfCareRequest(message:HospitalCarePushMessage=NEW_CARE_REQUEST_MESSAGE) {
+  const {data:admins,error}=await db.from('admin_accounts').select('id,phone').eq('active',true).eq('staff_type','admin');
+  if(error || !admins?.length) return;
+  const ids=admins.map(admin=>admin.id);
+  const [global,category]=await Promise.all([
+    db.from('app_push_preferences').select('actor_id,actor_role,enabled').in('actor_id',ids),
+    db.from('app_push_category_preferences').select('actor_id,actor_role,category,enabled').in('actor_id',ids).eq('category','operations'),
+  ]);
+  const lookupFailed=Boolean(global.error || category.error);
+  const phones=admins.filter(admin=>isGeneralExpoPushEnabled({actor:{id:admin.id,role:'admin'},category:'operations',lookupFailed,
+    globalRows:global.data,categoryRows:category.data})).map(admin=>admin.phone);
+  if(!phones.length) return;
+  const {data:tokens,error:tokenError}=await db.from('device_tokens').select('expo_push_token').eq('role','admin').in('resident_id',phones);
+  if(tokenError) return;
+  await pushCare((tokens ?? []).map(row=>row.expo_push_token),message,'device_tokens');
+}
+async function notifyMemberOfCareAnswer(memberId:string,status:string) {
+  const message=careAnswerMessage(status);
+  if(!message) return;
+  const {data:tokens,error}=await db.from('platform_member_push_tokens').select('expo_push_token').eq('member_id',memberId);
+  if(error) return;
+  await pushCare((tokens ?? []).map(row=>row.expo_push_token),message,'platform_member_push_tokens');
+}
+const reportPushFailure=()=>console.warn('[platform-service] care push failed');
+function careRequest(row:Record<string,any>) {
+  return {id:row.id,hospitalId:row.hospital_id,hospitalName:row.hospital_name,desiredStart:row.desired_start,careType:row.care_type,
+    contactTime:row.contact_time,status:row.status,staffNote:row.staff_note ?? null,respondedAt:row.responded_at ?? null,createdAt:row.created_at};
+}
 async function rpc(name:string,args:Record<string,unknown>) {
   const {data,error} = await db.rpc(name,args);
   if (error) throw new Error(error.code === '23505' ? 'already_exists' :
     error.code?.startsWith('22') || error.code==='23514' ? 'invalid_input' :
     ['revision_conflict','idempotency_conflict','settled_cancellation_requires_reconciliation','invalid_details',
        'invalid_settlement','application_unavailable','partner_unavailable','partner_service_conflict','forbidden','invalid_transfer','invalid_partner','report_range_too_large',
-       'invalid_referral','consent_required','common_membership_withdrawn','referral_already_bound']
+       'invalid_referral','consent_required','common_membership_withdrawn','referral_already_bound','care_request_limit']
       .includes(error.message) ? error.message : 'database_error');
   return data;
 }
@@ -626,6 +668,14 @@ serveWithConfiguredCors(async request => {
     if(action==='withdraw_member') return await withdrawMember(request,body);
     if(action==='get_withdrawal') return await getWithdrawal(request);
     if(action==='withdrawal_cleanup_drain') return await drainWithdrawals(request);
+    if(action==='hospital_care_sla_sweep') {
+      // Scheduled caller only: the same two service-key headers as the withdrawal drain.
+      if(!serviceKey || request.headers.get('apikey')!==serviceKey || request.headers.get('Authorization')!==`Bearer ${serviceKey}`)
+        return fail('forbidden','허용되지 않은 요청입니다.',403);
+      const overdue=await rpc('claim_overdue_hospital_care_v1',{});
+      if(Number(overdue)>0) await notifyAdminsOfCareRequest(overdueCareMessage(Number(overdue))).catch(reportPushFailure);
+      return json({ok:true,overdue:Number(overdue)});
+    }
     const signed = await actor(request);
     if(action==='apply') {
       if(!uuid.test(body.idempotencyKey ?? '')) return fail('invalid_input','신청 정보를 확인해 주세요.');
@@ -635,6 +685,39 @@ serveWithConfiguredCors(async request => {
     if(action==='cancel_application') {
       if(!uuid.test(body.applicationId ?? '')) return fail('invalid_input','신청 정보를 확인해 주세요.');
       return json(await rpc('cancel_platform_application',{p_member_id:signed.member.id,p_application_id:body.applicationId}));
+    }
+    if(action==='request_hospital_care') {
+      const hospitalName=careHospitals[String(body.hospitalId ?? '').toLowerCase()];
+      if(!hospitalName || !uuid.test(body.idempotencyKey ?? '') || !ymd(body.desiredStart)
+        || !['full_day','day_time'].includes(body.careType) || !['morning','afternoon','evening','anytime'].includes(body.contactTime))
+        return fail('invalid_input','예약 정보를 확인해 주세요.');
+      const created=await rpc('create_hospital_care_request_v1',{p_member_id:signed.member.id,p_request:{hospitalId:body.hospitalId.toLowerCase(),
+        hospitalName,desiredStart:body.desiredStart,careType:body.careType,contactTime:body.contactTime},p_idempotency_key:body.idempotencyKey});
+      if(created.created===true) runAfterResponse(()=>notifyAdminsOfCareRequest(),reportPushFailure);
+      return json({ok:true,requestId:created.requestId,status:created.status});
+    }
+    if(action==='register_push_token') {
+      if(!expoPushToken(body.expoPushToken) || !['ios','android'].includes(body.platform)) return fail('invalid_input','알림 설정을 확인해 주세요.');
+      const {error}=await db.from('platform_member_push_tokens').upsert({expo_push_token:body.expoPushToken,member_id:signed.member.id,
+        platform:body.platform,updated_at:new Date().toISOString()},{onConflict:'expo_push_token'});
+      if(error) throw new Error('database_error');
+      return json({ok:true});
+    }
+    if(action==='unregister_push_token') {
+      if(!expoPushToken(body.expoPushToken)) return fail('invalid_input','알림 설정을 확인해 주세요.');
+      const {error}=await db.from('platform_member_push_tokens').delete().eq('expo_push_token',body.expoPushToken).eq('member_id',signed.member.id);
+      if(error) throw new Error('database_error');
+      return json({ok:true});
+    }
+    if(action==='cancel_hospital_care') {
+      if(!uuid.test(body.requestId ?? '')) return fail('invalid_input','예약 정보를 확인해 주세요.');
+      return json(await rpc('cancel_hospital_care_request_v1',{p_member_id:signed.member.id,p_request_id:body.requestId}));
+    }
+    if(action==='list_hospital_care') {
+      const {data,error}=await db.from('platform_hospital_care_requests').select(careRequestColumns)
+        .eq('member_id',signed.member.id).order('created_at',{ascending:false}).limit(20);
+      if(error) throw new Error('database_error');
+      return json({ok:true,requests:(data ?? []).map(careRequest)});
     }
     if(['get_service_referral','preview_service_referral','bind_service_referral'].includes(action)) {
       if(!referralServices.includes(body.serviceKey)) return fail('invalid_input','서비스를 확인해 주세요.');
@@ -684,9 +767,28 @@ serveWithConfiguredCors(async request => {
         db.from('platform_service_applications').select('*').order('created_at',{ascending:false}).limit(100),
         db.from('platform_partner_settlements').select('*').order('created_at',{ascending:false}).limit(100),
         db.from('platform_member_benefits').select('*').order('due_at',{ascending:false}).limit(100),
+        db.from('platform_hospital_care_requests').select(`${adminCareRequestColumns},platform_members(name,phone)`)
+          .order('created_at',{ascending:false}).limit(100),
       ]);
+      const careMetrics=await rpc('get_hospital_care_metrics_v1',{p_admin_id:signed.adminId,
+        p_since:new Date(Date.now()-30*86400000).toISOString()});
       if(results.some(result=>result.error)) throw new Error('database_error');
-      return json({ok:true,partners:results[0].data,applications:results[1].data,settlements:results[2].data,benefits:results[3].data});
+      return json({ok:true,partners:results[0].data,applications:results[1].data,settlements:results[2].data,benefits:results[3].data,
+        careRequests:(results[4].data ?? []).map((row:any)=>({...careRequest(row),memberName:row.platform_members?.name ?? null,
+          memberPhone:row.platform_members?.phone ?? null,firstContactDueAt:row.first_contact_due_at,firstContactAt:row.first_contact_at ?? null,
+          decidedAt:row.decided_at ?? null,careStartedAt:row.care_started_at ?? null})),careMetrics});
+    }
+    if(action==='mark_hospital_care') {
+      if(!uuid.test(body.requestId ?? '') || !['first_contact','care_started'].includes(body.milestone)) return fail('invalid_input','처리 상태를 확인해 주세요.');
+      return json(await rpc('mark_hospital_care_milestone_v1',{p_admin_id:signed.adminId,p_request_id:body.requestId,p_milestone:body.milestone}));
+    }
+    if(action==='respond_hospital_care') {
+      if(!uuid.test(body.requestId ?? '') || !['reviewing','confirmed','adjusted','declined'].includes(body.status)
+        || (body.note!=null && (typeof body.note!=='string' || body.note.length>500))) return fail('invalid_input','처리 상태와 안내 문구를 확인해 주세요.');
+      const answered=await rpc('respond_hospital_care_request_v1',{p_admin_id:signed.adminId,p_request_id:body.requestId,
+        p_status:body.status,p_note:body.note ?? null});
+      if(answered.changed===true) runAfterResponse(()=>notifyMemberOfCareAnswer(answered.memberId,answered.status),reportPushFailure);
+      return json({ok:true,requestId:answered.requestId,status:answered.status,changed:answered.changed});
     }
     if(action==='save_partner') {
       if(!keys.includes(body.serviceKey) || typeof body.name!=='string' || !body.name.trim() || body.name.length>100
@@ -762,6 +864,7 @@ serveWithConfiguredCors(async request => {
     if(message==='settled_cancellation_requires_reconciliation') return fail(message,'정산된 거래는 별도 환불 정산이 필요합니다.',409);
     if(message==='report_range_too_large') return fail(message,'조회 기간을 줄이거나 특정 병원을 선택해 주세요.');
     if(message==='forbidden') return fail(message,'관리자만 처리할 수 있습니다.',403);
+    if(message==='care_request_limit') return fail(message,'확인 중인 예약 요청이 3건 있습니다. 답변을 받은 뒤 다시 요청해 주세요.',409);
     if(['invalid_input','invalid_details','invalid_partner','invalid_settlement','application_unavailable','partner_unavailable','partner_service_conflict','invalid_transfer'].includes(message))
       return fail(message,'입력 정보와 현재 처리 상태를 확인해 주세요.');
     return fail('request_failed','요청을 처리하지 못했습니다. 입력을 확인한 뒤 다시 시도해 주세요.',503);

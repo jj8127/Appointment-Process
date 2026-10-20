@@ -10,7 +10,7 @@ import { DepartmentIcon } from '@/components/hospitals/DepartmentIcon';
 import HospitalScreen, { hospitalStyles as styles } from '@/components/hospitals/HospitalScreen';
 import { useHospitalExposure } from '@/hooks/use-hospital-exposure';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
-import { HOSPITAL_DIRECTORY_SPECIALTIES, platformRequest, type PlatformHospital, type PlatformHospitalList, type PlatformHospitalRegions } from '@/lib/platform-api';
+import { HOSPITAL_DIRECTORY_SPECIALTIES, isSampleHospital, platformRequest, type PlatformHospital, type PlatformHospitalList, type PlatformHospitalRegions } from '@/lib/platform-api';
 import { COLORS } from '@/lib/theme';
 import { useReadAttempt } from '@/lib/use-read-attempt';
 
@@ -133,7 +133,7 @@ export default function ServiceHospitals() {
         {!!featured.length && <View style={local.carousel} onLayout={({ nativeEvent }) => setCarouselFrame({ y: nativeEvent.layout.y, height: nativeEvent.layout.height })}>
           <ScrollView ref={carousel} horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={local.carouselContent} onScroll={({ nativeEvent }) => setScrollX(nativeEvent.contentOffset.x)} scrollEventThrottle={32}>
             {featured.map((hospital) => <Pressable key={`featured:${hospital.id}`} accessibilityRole="button" accessibilityLabel={`${hospital.name} 병원 상세 보기, 광고`} onPress={() => openDetail(hospital)} style={({ pressed }) => [local.featured, { width: cardWidth }, pressed && { opacity: 0.7 }]}>
-              <View>{hospital.photoUrl ? <Image source={{ uri: hospital.photoUrl }} accessibilityLabel={`${hospital.name} 병원 사진`} style={local.featuredPhoto} /> : <View style={local.featuredFallback}><Feather name="image" size={32} color={COLORS.gray[400]} accessible={false} /><Text style={styles.caption}>병원 사진</Text></View>}<Text style={[styles.ad, local.photoAd]}>광고</Text></View>
+              <View>{hospital.photoUrl ? <Image source={{ uri: hospital.photoUrl }} accessibilityLabel={`${hospital.name} 병원 사진`} style={local.featuredPhoto} /> : <View style={local.featuredFallback}><Feather name="image" size={32} color={COLORS.gray[400]} accessible={false} /><Text style={styles.caption}>병원 사진</Text></View>}<Text style={[styles.ad, local.photoAd]}>{isSampleHospital(hospital.id) ? '샘플' : '광고'}</Text></View>
               <View style={local.featuredCopy}><Text style={local.cardName} numberOfLines={2}>{hospital.name}</Text><Text style={local.metadata}>{hospital.region}{hospital.specialties.length ? ` · ${hospital.specialties.join(' · ')}` : ''}</Text>{!!hospital.description?.trim() && <Text style={local.description} numberOfLines={2}>{hospital.description.trim()}</Text>}<Text style={local.cardLink}>병원 알아보기 →</Text></View>
             </Pressable>)}
           </ScrollView>
@@ -144,7 +144,7 @@ export default function ServiceHospitals() {
           <Pressable accessibilityRole="button" accessibilityLabel={`${item.name} 병원 상세 보기, 광고`} onPress={() => openDetail(item)} style={({ pressed }) => [local.listRow, pressed && { opacity: 0.7 }]}>
             {item.photoUrl ? <Image source={{ uri: item.photoUrl }} accessibilityLabel={`${item.name} 병원 사진`} style={local.thumbnail} /> : <View style={local.thumbnail}><Feather name="image" size={26} color={COLORS.gray[400]} accessible={false} /></View>}
             <View style={[styles.flexible, { gap: 6 }]}>
-              <View style={styles.row}><Text style={[local.listName, styles.flexible]}>{item.name}</Text><Text style={styles.ad}>광고</Text></View>
+              <View style={styles.row}><Text style={[local.listName, styles.flexible]}>{item.name}</Text><Text style={styles.ad}>{isSampleHospital(item.id) ? '샘플' : '광고'}</Text></View>
               {!!item.specialties.length && <Text style={local.metadata}>{item.specialties.join(' · ')}</Text>}
               <Text style={local.metadata}>{item.address || item.region}</Text>
             </View>

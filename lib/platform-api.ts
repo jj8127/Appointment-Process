@@ -51,6 +51,10 @@ export const HOSPITAL_DIRECTORY_SPECIALTIES = [
   '한방병원', '정형외과', '안과', '치과', '성형외과', '건강검진센터',
 ] as const;
 export const HOSPITAL_DEMO_ENABLED = process.env.EXPO_PUBLIC_HOSPITAL_DEMO === 'true';
+/** The partner hospital that takes care reservations; must match the platform-service allowlist. */
+export const CARE_HOSPITAL_ID = '20000000-0000-4000-8000-000000000001';
+export const acceptsCareRequests = (hospitalId: string) => hospitalId === CARE_HOSPITAL_ID;
+export const isSampleHospital = (hospitalId: string) => HOSPITAL_DEMO_ENABLED && !acceptsCareRequests(hospitalId);
 export type PlatformHospital = {
   id: string; name: string; region: string; provinceCode: string; provinceName: string; district: string;
   address: string | null; phone: string | null; websiteUrl: string | null; specialties: string[];
@@ -65,6 +69,13 @@ export type PlatformHospitalReport = {
   totals: HospitalMetrics;
 };
 type HospitalMetrics = { impressions: number; detailViews: number; phoneClicks: number; directionsClicks: number };
+export const CARE_REQUEST_STATUSES = { requested: '접수됨', reviewing: '확인 중', confirmed: '확정', adjusted: '일정 조정', declined: '진행 어려움', cancelled: '취소함' } as const;
+export const CARE_TYPES = { full_day: '24시간 간병', day_time: '주간 간병' } as const;
+export const CONTACT_TIMES = { morning: '오전', afternoon: '오후', evening: '저녁', anytime: '언제든' } as const;
+export type HospitalCareRequest = {
+  id: string; hospitalId: string; hospitalName: string; desiredStart: string; careType: keyof typeof CARE_TYPES;
+  contactTime: keyof typeof CONTACT_TIMES; status: keyof typeof CARE_REQUEST_STATUSES; staffNote: string | null; respondedAt: string | null; createdAt: string;
+};
 
 export class PlatformApiError extends Error {
   constructor(message: string, public readonly code: string, public readonly status?: number,
@@ -103,6 +114,20 @@ const hospitalSchema = z.object({
   description: z.string().nullable(), photoUrl: z.string().nullable(), openingHours: z.string().nullable(), verifiedAt: z.iso.date().nullable(),
   adPlacement: z.enum(['regional_list', 'regional_featured']), revision: z.number().int().nonnegative().safe(), measurementToken: z.string().min(1),
 });
+const careRequestSchema = z.object({
+  id: z.uuid(), hospitalId: z.uuid(), hospitalName: z.string().min(1), desiredStart: z.iso.date(), careType: z.enum(['full_day', 'day_time']),
+  contactTime: z.enum(['morning', 'afternoon', 'evening', 'anytime']), status: z.enum(['requested', 'reviewing', 'confirmed', 'adjusted', 'declined', 'cancelled']),
+  staffNote: z.string().nullable(), respondedAt: z.string().nullable(), createdAt: z.string(),
+});
+const careRequestResponseSchemas = {
+  request_hospital_care: z.object({ ok: z.literal(true), requestId: z.uuid(), status: careRequestSchema.shape.status }),
+  cancel_hospital_care: z.object({ ok: z.literal(true), requestId: z.uuid(), status: careRequestSchema.shape.status }),
+  list_hospital_care: z.object({ ok: z.literal(true), requests: z.array(careRequestSchema) }),
+  respond_hospital_care: z.object({ ok: z.literal(true), requestId: z.uuid(), status: careRequestSchema.shape.status, changed: z.boolean() }),
+  mark_hospital_care: z.object({ ok: z.literal(true), requestId: z.uuid(), changed: z.boolean() }),
+  register_push_token: z.object({ ok: z.literal(true) }),
+  unregister_push_token: z.object({ ok: z.literal(true) }),
+};
 const metricSchema = z.object({ impressions: z.number().int().nonnegative().safe(), detailViews: z.number().int().nonnegative().safe(), phoneClicks: z.number().int().nonnegative().safe(), directionsClicks: z.number().int().nonnegative().safe() });
 const hospitalResponseSchemas = {
   get_hospital_regions: z.object({ ok: z.literal(true), regions: z.array(z.object({ provinceCode: z.string(), provinceName: z.string(), districts: z.array(z.string()) })), specialties: z.array(z.string()) }),
@@ -171,6 +196,8 @@ const messages: Record<string, string> = {
   db_error: '요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.',
   rate_limited: '잠시 후 다시 시도해 주세요.',
   conflict: '이미 처리되었거나 내용이 변경되었습니다. 최신 내역을 확인해 주세요.',
+  care_request_limit: '확인 중인 예약 요청이 3건 있습니다. 답변을 받은 뒤 다시 요청해 주세요.',
+  application_unavailable: '이미 처리된 요청입니다. 최신 내역을 확인해 주세요.',
 };
 
 /** Consumer tokens are sent only to this endpoint; FC APIs keep their existing transport. */
@@ -226,7 +253,8 @@ export async function platformRequest<T>(action: string, payload: Record<string,
         ...(typeof response?.passwordChangeExpiresAt === 'string' ? { passwordChangeExpiresAt: response.passwordChangeExpiresAt } : {}),
       } : undefined;
       const message = action === 'enroll_insurance' && ['consent_required', 'invalid_terms'].includes(code)
-        ? messages.insurance_consent_required : messages[code];
+        ? messages.insurance_consent_required
+        : action.endsWith('_hospital_care') && ['invalid_details', 'invalid_input'].includes(code) ? '예약 정보를 확인해 주세요.' : messages[code];
       throw new PlatformApiError(message ?? (status === 401 ? messages.invalid_session : '연결하지 못했습니다. 입력 내용을 유지한 채 다시 시도해 주세요.'), code, status, loginRejection);
     }
   }
@@ -243,6 +271,7 @@ export async function platformRequest<T>(action: string, payload: Record<string,
           : action === 'get_service_referral' ? serviceReferralSchema
           : action === 'preview_service_referral' ? serviceReferralPreviewSchema
           : action === 'bind_service_referral' ? serviceReferralBindingSchema
+          : action in careRequestResponseSchemas ? careRequestResponseSchemas[action as keyof typeof careRequestResponseSchemas]
           : hospitalResponseSchemas[action as keyof typeof hospitalResponseSchemas];
   if (schema && !schema.safeParse(response).success) throw new PlatformApiError('응답을 확인하지 못했습니다. 기존 내용을 유지한 채 다시 확인해 주세요.', 'invalid_response');
   if (action === 'withdraw_member' && response.operationId.toLowerCase() !== String(payload.idempotencyKey).toLowerCase()) {

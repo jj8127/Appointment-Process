@@ -4,6 +4,7 @@ import { Pressable, Text, View } from 'react-native';
 
 import { Button } from '@/components/Button';
 import { FormInput } from '@/components/FormInput';
+import CareRequestAdmin, { type AdminCareRequest, type CareMetrics } from '@/components/hospitals/CareRequestAdmin';
 import HospitalContractFields, { EMPTY_HOSPITAL_DRAFT, type HospitalDraft } from '@/components/hospitals/HospitalContractFields';
 import HospitalPerformanceReport from '@/components/hospitals/HospitalPerformanceReport';
 import ServiceInformation, { ServiceAction, informationStyles as styles } from '@/components/ServiceInformation';
@@ -20,7 +21,7 @@ type Partner = { id: string; service_key: PlatformService; name: string; region:
 type Application = { id: string; service_key: Exclude<PlatformService, 'hospital'>; status: string; created_at: string };
 type Settlement = { id: string; application_id: string; commission_amount: number; due_at: string };
 type Benefit = { id: string; service_key: PlatformService; amount: number; status: 'pending' | 'paid' };
-type AdminData = { partners: Partner[]; applications: Application[]; settlements: Settlement[]; benefits: Benefit[] };
+type AdminData = { partners: Partner[]; applications: Application[]; settlements: Settlement[]; benefits: Benefit[]; careRequests?: AdminCareRequest[]; careMetrics?: CareMetrics };
 const EMPTY_PARTNER = { name: '', region: '', address: '', websiteUrl: '', phone: '', consumerRate: '', referrerRate: '', adPeriodStart: '', adPeriodEnd: '', adPlacement: '', adFee: '' };
 const EMPTY_SETTLEMENT = { commissionAmount: '', settledAt: '', transactionReference: '', settlementEvidenceReference: '' };
 
@@ -135,6 +136,9 @@ export default function ServiceManage() {
       {error && <Text accessibilityRole="alert" style={styles.body}>{error}</Text>}
       {message && <Text accessibilityLiveRegion="polite" style={styles.body}>{message}</Text>}
       <ServiceAction label={refreshing ? '확인 중...' : '내역 새로 확인'} onPress={() => { void refreshManually(); }} />
+      <CareRequestAdmin requests={data?.careRequests ?? []} metrics={data?.careMetrics ?? null} busy={busy}
+        onRespond={(requestId, status, note) => void write('respond_hospital_care', { requestId, status, note: note || null })}
+        onMark={(requestId, milestone) => void write('mark_hospital_care', { requestId, milestone })} />
       <Text style={styles.sectionTitle}>제휴사 등록</Text>
       {data?.partners.map((partner) => <Button key={partner.id} variant="outline" disabled={busy} onPress={() => {
         setEditing(true); setPartnerId(partner.id); setRevision(partner.revision); setServiceKey(partner.service_key);

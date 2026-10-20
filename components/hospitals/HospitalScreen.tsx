@@ -9,20 +9,20 @@ import { useSession } from '@/hooks/use-session';
 import { goBackOrReplace } from '@/lib/back-navigation';
 import { resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { COLORS } from '@/lib/theme';
-import { HOSPITAL_DEMO_ENABLED } from '@/lib/platform-api';
 
-export default function HospitalScreen({ children, detail = false, headerActions }: { children: ReactNode; detail?: boolean; headerActions?: ReactElement }) {
+export default function HospitalScreen({ children, detail = false, title, headerActions }: { children: ReactNode; detail?: boolean; title?: string; headerActions?: ReactElement }) {
   const session = useSession();
+  const heading = title ?? (detail ? '병원 상세' : '제휴병원');
   const insets = useSafeAreaInsets();
   const preset = resolveBottomNavPreset(session, { surface: 'service-hub' });
   return <SafeAreaView style={hospitalStyles.screen} edges={['top', 'left', 'right']}>
-    <Stack.Screen options={{ headerShown: false, title: detail ? '병원 상세' : '제휴병원' }} />
+    <Stack.Screen options={{ headerShown: false, title: heading }} />
     <View style={hospitalStyles.column}>
       <View style={hospitalStyles.header}>
         <Pressable accessibilityRole="button" accessibilityLabel="뒤로 가기" style={hospitalStyles.iconButton} onPress={() => goBackOrReplace(router, detail ? '/services/hospitals' : '/')}>
           <Feather aria-hidden name="arrow-left" size={23} color={COLORS.text.primary} accessible={false} />
         </Pressable>
-        <Text accessibilityRole="header" style={hospitalStyles.headerTitle}>{detail ? '병원 상세' : '제휴병원'}{HOSPITAL_DEMO_ENABLED ? ' · 샘플' : ''}</Text>
+        <Text accessibilityRole="header" style={hospitalStyles.headerTitle}>{heading}</Text>
         {headerActions && <View style={hospitalStyles.headerActions}>{headerActions}</View>}
       </View>
       {children}

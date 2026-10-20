@@ -6,6 +6,7 @@ import {
   getPushPermissionStatus,
   registerPushToken,
   unregisterDevicePushToken,
+  unregisterPlatformMemberPushToken,
 } from '@/lib/notifications';
 import {
   captureAppSessionOwner,
@@ -186,8 +187,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       onLocalClearFailure: () => logger.warn('[session] local logout cleanup failed'),
       onPushUnregisterFailure: reason => logger.warn('[push] logout token unregister failed', { reason }),
     });
+    if (platformSessionToken) {
+      void unregisterPlatformMemberPushToken(platformSessionToken).then((result) => {
+        if (!result.ok) logger.warn('[push] member logout token unregister failed', { reason: result.reason });
+      });
+    }
     return cleanup;
-  }, [appSessionToken, clearSessionState]);
+  }, [appSessionToken, clearSessionState, platformSessionToken]);
 
   const loginPlatformMember = useCallback(async (member: PlatformMemberIdentity, token: string) => {
     const cleanup = logoutSession();

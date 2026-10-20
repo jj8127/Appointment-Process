@@ -1,5 +1,5 @@
 import { Feather } from '@expo/vector-icons';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,7 +8,7 @@ import { Button } from '@/components/Button';
 import HospitalScreen, { hospitalStyles as styles } from '@/components/hospitals/HospitalScreen';
 import { recordHospitalEvent, useHospitalExposure } from '@/hooks/use-hospital-exposure';
 import { openExternalUrl } from '@/lib/open-external-url';
-import { HOSPITAL_DEMO_ENABLED, PlatformApiError, platformRequest, type PlatformHospital } from '@/lib/platform-api';
+import { PlatformApiError, acceptsCareRequests, isSampleHospital, platformRequest, type PlatformHospital } from '@/lib/platform-api';
 import { COLORS } from '@/lib/theme';
 import { useReadAttempt } from '@/lib/use-read-attempt';
 
@@ -50,11 +50,16 @@ export default function HospitalDetail() {
         {shown.photoUrl ? <Image source={{ uri: shown.photoUrl }} accessibilityLabel={`${shown.name} 병원 사진`} style={{ width: '100%', aspectRatio: 1.7 }} /> : <View style={{ backgroundColor: COLORS.gray[50], padding: 32, alignItems: 'center', gap: 8 }}><Feather name="image" size={36} color={COLORS.gray[400]} accessible={false} /><Text style={styles.caption}>병원 사진</Text></View>}
         <View style={styles.content}>
           <View style={[styles.separator, { gap: 9 }]}>
-            <Text style={styles.ad}>광고 · 제휴병원</Text>
+            <Text style={styles.ad}>{isSampleHospital(shown.id) ? '샘플' : '광고 · 제휴병원'}</Text>
             <Text accessibilityRole="header" style={styles.title}>{shown.name}</Text>
             {!!shown.specialties.length && <Text style={styles.body}>{shown.specialties.join(' · ')}</Text>}
             <Text style={styles.body}>{shown.region}</Text>
           </View>
+          {acceptsCareRequests(shown.id) && <View style={[styles.separator, { gap: 12 }]}>
+            <Text accessibilityRole="header" style={styles.heading}>간병 예약</Text>
+            <Button onPress={() => router.push({ pathname: '/services/care-request', params: { hospitalId: shown.id } })}
+              leftIcon={<Feather name="calendar" size={17} color={COLORS.white} accessible={false} />}>간병 예약 요청하기</Button>
+          </View>}
           {shown.description && <View style={[styles.separator, { gap: 9 }]}><Text accessibilityRole="header" style={styles.heading}>병원 소개</Text><Text style={styles.body}>{shown.description}</Text></View>}
           <View style={[styles.separator, { gap: 12 }]}>
             <Text accessibilityRole="header" style={styles.heading}>위치와 연락처</Text>
@@ -62,7 +67,7 @@ export default function HospitalDetail() {
             {shown.phone && <View style={styles.row}><Feather name="phone" size={18} color={COLORS.text.secondary} accessible={false} /><Text selectable style={styles.body}>{shown.phone}</Text></View>}
             <View style={[styles.row, { flexWrap: 'wrap' }]}>
               {shown.phone && <Button style={{ flexGrow: 1 }} onPress={() => open(`tel:${shown.phone!.replace(/[^0-9+]/g, '')}`, 'phone')} leftIcon={<Feather name="phone" size={17} color={COLORS.white} accessible={false} />}>전화 문의</Button>}
-              {shown.address && <Button variant="outline" disabled={HOSPITAL_DEMO_ENABLED} style={{ flexGrow: 1 }} onPress={() => open(`https://map.naver.com/p/search/${encodeURIComponent(`${shown.name} ${shown.address}`)}`, 'directions')}>위치·길찾기</Button>}
+              {shown.address && <Button variant="outline" disabled={isSampleHospital(shown.id)} style={{ flexGrow: 1 }} onPress={() => open(`https://map.naver.com/p/search/${encodeURIComponent(`${shown.name} ${shown.address}`)}`, 'directions')}>위치·길찾기</Button>}
             </View>
             {shown.websiteUrl && <Button variant="ghost" onPress={() => open(shown.websiteUrl!)}>병원 홈페이지 열기 ↗</Button>}
             {actionError && <Text accessibilityRole="alert" style={styles.body}>{actionError}</Text>}

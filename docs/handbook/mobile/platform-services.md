@@ -2,10 +2,25 @@ doc_id: FC-MOBILE-PLATFORM-SERVICES
 owner_repo: fc-onboarding-app
 owner_area: mobile-and-data
 audience: developer, operator
-last_verified: 2026-10-14
-source_of_truth: app/services + app/apply-gate.tsx + hooks/use-session.tsx + lib/platform-api.ts + components/FamilyCareReferrer.tsx + supabase/functions/platform-service/index.ts + supabase/migrations/20261014130000_platform_service_referrals.sql + supabase/migrations/20261014120000_platform_staff_grant.sql + supabase/migrations/20261014073458_platform_affiliate_account_withdrawal.sql + supabase/migrations/20261014043557_unified_common_insurance_enrollment.sql + supabase/migrations/20261012072525_platform_common_membership.sql + supabase/migrations/20261012072611_hospital_directory_ad_performance.sql
+last_verified: 2026-10-20
+source_of_truth: app/services + components/hospitals/CareRequestAdmin.tsx + lib/hospital-care.ts + supabase/migrations/20261020100000_platform_hospital_care_requests.sql + app/apply-gate.tsx + hooks/use-session.tsx + lib/platform-api.ts + components/FamilyCareReferrer.tsx + supabase/functions/platform-service/index.ts + supabase/migrations/20261014130000_platform_service_referrals.sql + supabase/migrations/20261014120000_platform_staff_grant.sql + supabase/migrations/20261014073458_platform_affiliate_account_withdrawal.sql + supabase/migrations/20261014043557_unified_common_insurance_enrollment.sql + supabase/migrations/20261012072525_platform_common_membership.sql + supabase/migrations/20261012072611_hospital_directory_ad_performance.sql
 
 # 모두온 공통 서비스
+
+## 2026-10-20 제휴병원 간병 예약 요청 (로컬 구현, 미배포)
+
+사용자 결정: 실제 제휴병원 `굿모닝한방병원 청주`(충북 청주시 상당구 무심동로 22 방서타워 2~4층)만 실데이터로 추가하고 나머지 가상 병원 12곳은 유지한다. 목표는 제휴병원 환자를 모두온 간병으로 연결하는 것이며, 핵심 지표는 요청 후 확정 피드백까지 걸리는 시간이다.
+
+- 병원 목록은 여전히 `data/hospital-demo.ts`이다. 실제 병원은 고정 id `20000000-0000-4000-8000-000000000001`(`CARE_HOSPITAL_ID`)로 맨 앞·강조 지면에 둔다. 화면 제목의 `· 샘플`을 없애고 가상 병원에만 `샘플` 표시를 붙이며, 길찾기는 실제 병원에서만 켠다. 전화·진료 시간·병동 정보·홈페이지는 병원 홈페이지(https://gmcheongju.com/) 자료를 병원 허락을 받아 사용한다.
+- 상세의 `간병 예약 요청하기`는 `/services/care-request`로 간다. 로그인한 회원만 요청하며 희망 시작일(오늘~30일, 서버는 90일까지 허용), 간병 형태(24시간/주간), 연락받을 시간만 받는다. 환자 건강 정보는 별도 동의가 필요한 민감정보라 앱에서 받지 않고 상담원이 전화로 확인한다.
+- 서버: `platform_hospital_care_requests` 테이블과 `create/cancel/respond_hospital_care_request_v1`. `platform-service` 동작은 `request_hospital_care`·`cancel_hospital_care`·`list_hospital_care`(본인)과 관리자 `respond_hospital_care`, `get_admin.careRequests`(회원 이름·전화 포함)이다. 예약을 받는 병원은 서버 `careHospitals` 허용 목록으로 제한한다. 같은 멱등 키 재전송은 같은 결과, 내용이 다르면 `idempotency_conflict`, 회원당 답변 대기 3건 초과는 `care_request_limit`이다.
+- 상태: 접수됨 → 확인 중 → 확정 / 일정 조정 / 진행 어려움, 회원 취소. 일정 조정·진행 어려움은 회원 안내 문구가 필수이고 같은 결정 재전송은 `changed:false`이다. 확정된 요청에서만 `lib/hospital-care.ts`의 간병 시작 전 주의사항을 펼쳐 볼 수 있다. 주의사항 문구는 공개 입원 안내를 참고한 초안이며 운영자 검토 대상이다.
+- 관리자: 제휴·정산 관리 화면 맨 위 `CareRequestAdmin`이 답변 대기 건을 오래된 순으로 경과 시간과 함께 보여 준다.
+- 탈퇴: `platform_members.active`가 false가 되는 모든 탈퇴 경로에서 트리거가 해당 회원의 요청을 삭제한다.
+- 앱 알림: 일반 회원 토큰은 `platform_member_push_tokens`(기기 토큰 1개당 마지막 등록 회원)에 저장한다. 예약 화면은 이미 허용된 기기를 조용히 등록하고, 첫 예약 요청이 성공한 뒤에만 알림 권한을 묻는다. 로그아웃은 이 기기 토큰만 지우고 탈퇴 트리거는 회원 토큰을 모두 지운다.
+- 새 요청이 처음 저장되면(`created:true`, 재전송은 제외) 활성 플랫폼 관리자 중 운영 알림을 끄지 않은 사람의 `device_tokens`로 알린다. 관리자가 확정·일정 조정·진행 어려움으로 바꾸면(`changed:true`) 회원에게 알린다. 확인 중은 알리지 않는다. 발송은 응답 뒤에 실행하며 실패해도 처리 결과를 바꾸지 않는다. Expo가 등록 해제로 답한 토큰은 지운다.
+- 알림 문구에는 이름·병원·건강 정보를 넣지 않는다(`_shared/hospital-care-push.ts`). 데이터는 `{kind:'hospital_care'}`이며, 앱은 알림함 대상 검증 대신 이 표시로 `/services/care-request`를 연다.
+- 새 네이티브 모듈은 없으므로 앱 반영은 OTA로 가능하다. 운영 DB migration·Edge 배포·OTA 전에는 서버 동작이 없으므로 운영 앱에서 요청 전송은 실패한다. 배포는 별도 승인 대상이다.
 
 ## 2026-10-14 제휴 서비스별 추천인 (가족간병 우선)
 

@@ -733,7 +733,7 @@ it('hospital discovery filters both placements, measures visible cards and prese
     '@/components/hospitals/DepartmentIcon': { default: 'DepartmentIcon', DepartmentIcon: 'DepartmentIcon' },
     '@/components/service-home': { ServiceIcon: 'ServiceIcon' },
     '@/hooks/use-hospital-exposure': { useHospitalExposure: exposure },
-    '@/lib/platform-api': { HOSPITAL_DIRECTORY_SPECIALTIES: specialties, platformRequest: request }, '@/lib/theme': { COLORS }, '@/lib/use-read-attempt': { useReadAttempt },
+    '@/lib/platform-api': { HOSPITAL_DIRECTORY_SPECIALTIES: specialties, isSampleHospital: () => false, platformRequest: request }, '@/lib/theme': { COLORS }, '@/lib/use-read-attempt': { useReadAttempt },
   });
   let renderer!: Renderer;
   await act(async () => { renderer = create(createElement(Hospitals)); });
@@ -817,7 +817,8 @@ it('hospital detail opens contact even when measurement fails and hides stale de
     '@/components/Button': { Button: 'Button' }, '@/components/hospitals/HospitalScreen': { default: 'HospitalScreen', hospitalStyles: {} },
     '@/components/service-home': { ServiceIcon: 'ServiceIcon' },
     '@/hooks/use-hospital-exposure': { useHospitalExposure: () => 'synthetic-session', recordHospitalEvent: record },
-    '@/lib/open-external-url': { openExternalUrl: open }, '@/lib/platform-api': { platformRequest: request, PlatformApiError: ApiError }, '@/lib/theme': { COLORS }, '@/lib/use-read-attempt': { useReadAttempt },
+    '@/lib/open-external-url': { openExternalUrl: open }, '@/lib/theme': { COLORS }, '@/lib/use-read-attempt': { useReadAttempt },
+    '@/lib/platform-api': { platformRequest: request, PlatformApiError: ApiError, isSampleHospital: () => false, acceptsCareRequests: () => false },
   });
   let renderer!: Renderer;
   await act(async () => { renderer = create(createElement(Detail)); });
@@ -891,6 +892,7 @@ it('hospital admin requires publication approvals, blocks duplicate saves and ke
     '@/components/Button': { Button: 'Button' }, '@/components/FormInput': { FormInput: 'FormInput' },
     '@/components/hospitals/HospitalContractFields': { default: 'HospitalContractFields', EMPTY_HOSPITAL_DRAFT: emptyHospital },
     '@/components/hospitals/HospitalPerformanceReport': { default: 'HospitalPerformanceReport' },
+    '@/components/hospitals/CareRequestAdmin': { default: 'CareRequestAdmin' },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
     '@/hooks/use-draft-exit-guard': { useDraftExitGuard: guard },
     '@/hooks/use-session': { useSession: () => ({ hydrated: true, role: 'admin', readOnly: false, staffType: 'admin', appSessionToken: 'synthetic-admin' }) },
@@ -924,6 +926,100 @@ it('hospital admin requires publication approvals, blocks duplicate saves and ke
   await act(async () => { rejectSave(new Error('시험 저장 실패')); });
   expect(editor().props.draft).toEqual(expect.objectContaining({ district: '강남구', reviewRequired: false }));
   expect(texts(renderer.root)).toContain('시험 저장 실패');
+  await act(async () => { renderer.unmount(); });
+});
+
+it('care reservation reuses one key for a retried submit, shows staff answers and the pre-care checklist only when confirmed', async () => {
+  const careTypes = { full_day: '24시간 간병', day_time: '주간 간병' };
+  const contactTimes = { morning: '오전', afternoon: '오후', evening: '저녁', anytime: '언제든' };
+  const statuses = { requested: '접수됨', reviewing: '확인 중', confirmed: '확정', adjusted: '일정 조정', declined: '진행 어려움', cancelled: '취소함' };
+  const confirmed = { id: 'synthetic-request', hospitalId: 'synthetic-care-hospital', hospitalName: '시험병원', desiredStart: '2026-10-21', careType: 'full_day',
+    contactTime: 'morning', status: 'confirmed', staffNote: '시험 안내', respondedAt: null, createdAt: '2026-10-20T00:00:00Z' };
+  let listed: unknown[] = [];
+  let failSubmit = true;
+  const request = jest.fn(async (action: string, ..._args: unknown[]) => {
+    if (action === 'list_hospital_care') return { requests: listed };
+    if (failSubmit) { failSubmit = false; throw new Error('시험 연결 실패'); }
+    listed = [confirmed];
+    return { requestId: confirmed.id, status: 'requested' };
+  });
+  let keys = 0;
+  const registerPush = jest.fn(async () => ({ ok: true }));
+  const Screen = executeComponent('app/services/care-request.tsx', {
+    '@/lib/notifications': { registerPlatformMemberPushToken: registerPush },
+    '@expo/vector-icons': { Feather: 'Feather' }, 'expo-crypto': { randomUUID: () => `synthetic-key-${++keys}` },
+    'expo-router': { router: { push: jest.fn() }, useLocalSearchParams: () => ({ hospitalId: 'synthetic-care-hospital' }) },
+    'react-native': { ActivityIndicator: 'ActivityIndicator', Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', View: 'View', StyleSheet: { create: (styles: unknown) => styles } },
+    'react-native-safe-area-context': { useSafeAreaInsets: () => ({ bottom: 0 }) },
+    '@/components/Button': { Button: 'Button' }, '@/components/hospitals/HospitalScreen': { default: 'HospitalScreen', hospitalStyles: {} },
+    '@/hooks/use-session': { useSession: () => ({ hydrated: true, platformSessionToken: 'synthetic-member' }) },
+    '@/lib/hospital-care': { CARE_PRECAUTIONS: ['시험 주의사항'], careStartOptions: () => [{ value: '2026-10-21', label: '내일', weekday: '수' }], formatCareDate: (value: string) => value },
+    '@/lib/platform-api': { CARE_HOSPITAL_ID: 'synthetic-care-hospital', CARE_REQUEST_STATUSES: statuses, CARE_TYPES: careTypes, CONTACT_TIMES: contactTimes, PlatformApiError: Error, platformRequest: request },
+    '@/lib/theme': { COLORS }, '@/lib/use-read-attempt': { useReadAttempt },
+  });
+  let renderer!: Renderer;
+  await act(async () => { renderer = create(createElement(Screen)); });
+  expect(texts(renderer.root)).toContain('아직 요청한 내역이 없습니다.');
+  expect(registerPush).toHaveBeenCalledWith('synthetic-member');
+  const submit = () => renderer.root.findAllByType('Button').find((node) => node.children.includes('예약 요청 보내기'))!;
+  expect(submit().props.disabled).toBe(true);
+  const choose = (label: string) => (renderer.root.findAllByType('Pressable').find((node) => texts(node).includes(label))!.props.onPress as () => void)();
+  await act(async () => { choose('내일'); choose('24시간 간병'); choose('오전'); });
+  expect(submit().props.disabled).toBe(false);
+  await act(async () => { (submit().props.onPress as () => void)(); });
+  expect(texts(renderer.root)).toContain('시험 연결 실패');
+  await act(async () => { (submit().props.onPress as () => void)(); });
+  const submits = request.mock.calls.filter(([action]) => action === 'request_hospital_care');
+  expect(submits.map(([, payload]) => (payload as { idempotencyKey: string }).idempotencyKey)).toEqual(['synthetic-key-1', 'synthetic-key-1']);
+  expect(registerPush).toHaveBeenLastCalledWith('synthetic-member', { requestPermission: true });
+  expect(registerPush).toHaveBeenCalledTimes(2);
+  expect(submits[1]).toEqual(['request_hospital_care', { hospitalId: 'synthetic-care-hospital', desiredStart: '2026-10-21', careType: 'full_day', contactTime: 'morning', idempotencyKey: 'synthetic-key-1' }, 'synthetic-member']);
+  expect(texts(renderer.root)).toEqual(expect.arrayContaining(['확정', '시험 안내']));
+  expect(texts(renderer.root)).not.toContain('시험 주의사항');
+  expect(renderer.root.findAllByType('Button').some((node) => node.children.includes('요청 취소'))).toBe(false);
+  await act(async () => { choose('간병 시작 전 확인할 것'); });
+  expect(texts(renderer.root)).toContain('시험 주의사항');
+  await act(async () => { renderer.unmount(); });
+});
+
+it('care request admin orders waiting requests by first-contact due time, shows the countdown and records milestones', async () => {
+  const statuses = { requested: '접수됨', reviewing: '확인 중', confirmed: '확정', adjusted: '일정 조정', declined: '진행 어려움', cancelled: '취소함' };
+  const now = Date.now();
+  const at = (minutes: number) => new Date(now + minutes * 60000).toISOString();
+  const row = (id: string, status: string, dueInMinutes: number, extra: Record<string, unknown> = {}) => ({ id, hospitalId: 'h', hospitalName: '시험병원', desiredStart: '2026-10-21', careType: 'day_time',
+    contactTime: 'anytime', status, staffNote: null, respondedAt: null, createdAt: at(dueInMinutes - 30), memberName: `회원${id}`, memberPhone: '01000000000',
+    firstContactDueAt: at(dueInMinutes), firstContactAt: null, decidedAt: null, careStartedAt: null, ...extra });
+  const onRespond = jest.fn();
+  const onMark = jest.fn();
+  const Admin = executeComponent('components/hospitals/CareRequestAdmin.tsx', {
+    '@/components/Button': { Button: 'Button' }, '@/components/FormInput': { FormInput: 'FormInput' },
+    '@/components/ServiceInformation': { informationStyles: {} }, '@/lib/hospital-care': { formatCareDate: (value: string) => value },
+    '@/lib/platform-api': { CARE_REQUEST_STATUSES: statuses, CARE_TYPES: { full_day: '24시간 간병', day_time: '주간 간병' }, CONTACT_TIMES: { anytime: '언제든' } },
+  });
+  const metrics = { requests: 4, firstContactDue: 3, firstContactOnTime: 2, overdueNow: 1, medianFirstContactMinutes: 18.4, medianDecisionMinutes: 95, confirmed: 1, started: 0 };
+  const requests = [row('C', 'confirmed', -600, { firstContactAt: at(-620) }), row('B', 'requested', 20), row('A', 'reviewing', -15)];
+  let renderer!: Renderer;
+  await act(async () => { renderer = create(createElement(Admin, { requests, metrics, busy: false, onRespond, onMark })); });
+  const all = texts(renderer.root);
+  expect(all).toContain('간병 예약 요청 · 답변 대기 2건');
+  expect(all).toContain('최근 30일 4건 · 첫 연락 기한 준수 67% · 지금 기한 초과 1건');
+  expect(all).toContain('첫 연락 중앙값 18분 · 결정 중앙값 1시간 · 확정 1건 · 시작 0건');
+  expect(all.filter((text) => /^회원[ABC] /.test(text)).map((text) => text[2])).toEqual(['A', 'B', 'C']);
+  expect(all.some((text) => text.startsWith('확인 중 · 첫 연락 기한 1') && text.includes('분 초과'))).toBe(true);
+  expect(all.some((text) => text.startsWith('접수됨 · 첫 연락 1') && text.includes('분 남음'))).toBe(true);
+  const buttons = (label: string) => renderer.root.findAllByType('Button').filter((node) => node.children.includes(label));
+  expect(buttons('첫 연락 완료')).toHaveLength(2);
+  await act(async () => { (buttons('첫 연락 완료')[0].props.onPress as () => void)(); });
+  expect(onMark).toHaveBeenCalledWith('A', 'first_contact');
+  await act(async () => { (buttons('간병 시작 확인')[0].props.onPress as () => void)(); });
+  expect(onMark).toHaveBeenLastCalledWith('C', 'care_started');
+  await act(async () => { (buttons('처리하기')[0].props.onPress as () => void)(); });
+  await act(async () => { (buttons('일정 조정')[0].props.onPress as () => void)(); });
+  expect(onRespond).not.toHaveBeenCalled();
+  expect(texts(renderer.root)).toContain('일정 조정과 진행 어려움은 회원에게 보낼 안내를 입력해 주세요.');
+  await act(async () => { (renderer.root.findAllByType('FormInput')[0].props.onChangeText as (value: string) => void)(' 22일 시작 가능 '); });
+  await act(async () => { (buttons('일정 조정')[0].props.onPress as () => void)(); });
+  expect(onRespond).toHaveBeenCalledWith('A', 'adjusted', '22일 시작 가능');
   await act(async () => { renderer.unmount(); });
 });
 

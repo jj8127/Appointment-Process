@@ -31,6 +31,7 @@ import {
   buildNotificationTargetRoute,
   parseNotificationPushData,
 } from '@/lib/notification-target';
+import { isHospitalCarePushData } from '@/lib/hospital-care';
 import { authorizeNotificationOpen } from '@/lib/notification-open-authorization';
 import {
   bootstrapNotificationNavigation,
@@ -184,6 +185,8 @@ function NotificationNavigationBootstrap() {
   const [pending, setPending] =
     useState<PendingNotificationNavigation | null>(null);
   const [invalidTargetPending, setInvalidTargetPending] = useState(false);
+  // 모두온 member care answers carry no inbox row; they open the reservation screen.
+  const [careTapPending, setCareTapPending] = useState(false);
   const handledResponseIdsRef = useRef(new Map<string, number>());
   const acceptedNotificationIdsRef = useRef(new Set<string>());
   const dispatchedNotificationIdsRef = useRef(new Set<string>());
@@ -279,6 +282,11 @@ function NotificationNavigationBootstrap() {
       : undefined;
     if (handledAt !== undefined && Date.now() - handledAt < 2_000) return;
 
+    if (isHospitalCarePushData(responseCandidate?.notification?.request?.content?.data)) {
+      if (responseKey) handledResponseIdsRef.current.set(responseKey, Date.now());
+      setCareTapPending(true);
+      return;
+    }
     const parsed = parseNotificationPushData(
       responseCandidate?.notification?.request?.content?.data,
     );
@@ -395,6 +403,12 @@ function NotificationNavigationBootstrap() {
     }),
     [],
   );
+
+  useEffect(() => {
+    if (!careTapPending || !hydrated || !rootNavigationState?.key) return;
+    setCareTapPending(false);
+    router.push('/services/care-request');
+  }, [careTapPending, hydrated, rootNavigationState?.key]);
 
   useEffect(() => {
     if (!hydrated || !role || !rootNavigationState?.key) return;
