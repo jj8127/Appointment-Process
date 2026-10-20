@@ -367,35 +367,39 @@ export default function ExamApplicantDetailPage() {
           />
         </Container>
       ) : null}
-      <Tooltip label="이전 신청자" position="right" disabled={!navigation.previousId}>
-        <ActionIcon
-          className={`${styles.sideNavigationButton} ${styles.sideNavigationPrevious}`}
-          variant="default"
-          radius="xl"
-          size={56}
-          aria-label="이전 신청자로 이동"
-          disabled={!navigation.previousId}
-          loading={navigatingToId !== null && navigatingToId === navigation.previousId}
-          onClick={() => goToApplicant(navigation.previousId, 'previous')}
-        >
-          <IconChevronLeft size={30} stroke={2.2} />
-        </ActionIcon>
-      </Tooltip>
-      <Tooltip label="다음 신청자" position="left" disabled={!navigation.nextId}>
-        <ActionIcon
-          className={`${styles.sideNavigationButton} ${styles.sideNavigationNext}`}
-          variant="default"
-          radius="xl"
-          size={56}
-          aria-label="다음 신청자로 이동"
-          disabled={!navigation.nextId}
-          loading={navigatingToId !== null && navigatingToId === navigation.nextId}
-          onClick={() => goToApplicant(navigation.nextId, 'next')}
-        >
-          <IconChevronRight size={30} stroke={2.2} />
-        </ActionIcon>
-      </Tooltip>
       <div className={styles.sideNavigationGutter}>
+        <div className={`${styles.sideNavigationRail} ${styles.sideNavigationRailPrevious}`}>
+          <Tooltip label="이전 신청자" position="right" disabled={!navigation.previousId}>
+            <ActionIcon
+              className={`${styles.sideNavigationButton} ${styles.sideNavigationPrevious}`}
+              variant="default"
+              radius="xl"
+              size={56}
+              aria-label="이전 신청자로 이동"
+              disabled={!navigation.previousId}
+              loading={navigatingToId !== null && navigatingToId === navigation.previousId}
+              onClick={() => goToApplicant(navigation.previousId, 'previous')}
+            >
+              <IconChevronLeft size={30} stroke={2.2} />
+            </ActionIcon>
+          </Tooltip>
+        </div>
+        <div className={`${styles.sideNavigationRail} ${styles.sideNavigationRailNext}`}>
+          <Tooltip label="다음 신청자" position="left" disabled={!navigation.nextId}>
+            <ActionIcon
+              className={`${styles.sideNavigationButton} ${styles.sideNavigationNext}`}
+              variant="default"
+              radius="xl"
+              size={56}
+              aria-label="다음 신청자로 이동"
+              disabled={!navigation.nextId}
+              loading={navigatingToId !== null && navigatingToId === navigation.nextId}
+              onClick={() => goToApplicant(navigation.nextId, 'next')}
+            >
+              <IconChevronRight size={30} stroke={2.2} />
+            </ActionIcon>
+          </Tooltip>
+        </div>
       <div className={surface.page}>
         <Stack
           gap={14}

@@ -1,19 +1,20 @@
 .sideNavigationButton {
-  position: fixed;
-  top: 50%;
-  z-index: 220;
+  /* Sticky inside the page's own side rail: the dashboard main area sets a filter, which would
+     anchor a fixed-position button to that area and push the button over the cards. */
+  position: sticky;
+  top: calc(50% - 28px);
+  pointer-events: auto;
   border: 0;
   background: rgba(255, 255, 255, 0.94);
   color: var(--dashboard-ink);
   box-shadow: 0 10px 28px rgba(30, 29, 24, 0.12);
-  transform: translateY(-50%);
   backdrop-filter: blur(5px);
   transition: transform 320ms ease, box-shadow 320ms ease, opacity 320ms ease;
 }
 
 .sideNavigationButton:hover:not(:disabled) {
   box-shadow: 0 12px 30px rgba(30, 29, 24, 0.18);
-  transform: translateY(-50%) scale(1.06);
+  transform: scale(1.06);
 }
 
 .sideNavigationButton:focus-visible {
@@ -25,48 +26,51 @@
   opacity: 0.28;
 }
 
-.sideNavigationPrevious {
-  left: 100px;
-}
-
+.sideNavigationPrevious,
 .sideNavigationNext {
-  right: 28px;
+  align-self: flex-start;
 }
 
-@media (max-width: 1100px) {
-  .sideNavigationPrevious {
-    left: 88px;
-  }
-
-  .sideNavigationNext {
-    right: 12px;
-  }
-}
-
-/* Keeps the cards clear of the fixed side buttons (56px button + its offset from the content edge). */
+/* The cards sit between two side rails, so the buttons can never cover them. */
 .sideNavigationGutter {
-  padding-inline: 72px;
+  position: relative;
+  padding-inline: 76px;
+}
+
+.sideNavigationRail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 76px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.sideNavigationRailPrevious {
+  left: 0;
+}
+
+.sideNavigationRailNext {
+  right: 0;
 }
 
 @media (max-width: 768px) {
   .sideNavigationGutter {
-    padding-inline: 0;
-    padding-bottom: 88px;
+    padding-inline: 48px;
   }
 
-  .sideNavigationButton,
-  .sideNavigationButton:hover:not(:disabled) {
-    top: auto;
-    bottom: 16px;
-    transform: none;
+  .sideNavigationRail {
+    width: 48px;
   }
 
-  .sideNavigationPrevious {
-    left: 16px;
-  }
-
-  .sideNavigationNext {
-    right: 16px;
+  .sideNavigationButton {
+    top: calc(50% - 20px);
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
   }
 }
 

@@ -83,8 +83,11 @@ test('detail route navigates to previous and next applicants in stable list orde
   assert.match(detailSource, /aria-label="다음 신청자로 이동"/);
   assert.match(detailSource, /disabled=\{!navigation\.previousId\}/);
   assert.match(detailSource, /disabled=\{!navigation\.nextId\}/);
-  assert.match(detailCssSource, /position: fixed/);
-  assert.match(detailCssSource, /top: 50%/);
+  // The buttons are sticky inside side rails beside the cards, so they never cover them.
+  assert.match(detailCssSource, /\.sideNavigationRail \{[\s\S]*position: absolute/);
+  assert.match(detailCssSource, /position: sticky;\s*top: calc\(50% - 28px\)/);
+  assert.match(detailCssSource, /\.sideNavigationGutter \{[\s\S]*padding-inline: 76px/);
+  assert.doesNotMatch(detailCssSource, /position: fixed/);
   assert.match(detailCssSource, /\.sideNavigationPrevious/);
   assert.match(detailCssSource, /\.sideNavigationNext/);
 });
