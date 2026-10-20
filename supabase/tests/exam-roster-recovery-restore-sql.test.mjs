@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 
 const { PGlite } = createRequire(import.meta.url)(process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite');
-const migration = await readFile(new URL('../migrations/20261020120000_restore_exam_registrations_cancelled_by_roster_recovery.sql', import.meta.url), 'utf8');
+const migration = await readFile(new URL('../migrations/20261020021524_restore_exam_registrations_cancelled_by_roster_recovery.sql', import.meta.url), 'utf8');
 const schema = await readFile(new URL('../schema.sql', import.meta.url), 'utf8');
 
 function slice(startMarker, endMarker) {
