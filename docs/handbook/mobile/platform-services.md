@@ -12,6 +12,7 @@ source_of_truth: app/services + components/hospitals/CareRequestAdmin.tsx + lib/
 사용자 결정: 실제 제휴병원 `굿모닝한방병원 청주`(충북 청주시 상당구 무심동로 22 방서타워 2~4층)만 실데이터로 추가하고 나머지 가상 병원 12곳은 유지한다. 목표는 제휴병원 환자를 모두온 간병으로 연결하는 것이며, 핵심 지표는 요청 후 확정 피드백까지 걸리는 시간이다.
 
 - 병원 목록은 여전히 `data/hospital-demo.ts`이다. 실제 병원은 고정 id `20000000-0000-4000-8000-000000000001`(`CARE_HOSPITAL_ID`)로 맨 앞·강조 지면에 둔다. 화면 제목의 `· 샘플`을 없애고 가상 병원에만 `샘플` 표시를 붙이며, 길찾기는 실제 병원에서만 켠다. 전화·진료 시간·병동 정보·홈페이지는 병원 홈페이지(https://gmcheongju.com/) 자료를 병원 허락을 받아 사용한다.
+- 2026-10-21 사용자 결정: 병원 정보는 병원 명의 광고로 게시한다. 병원이 `docs/moduon-hospital-care/hospital-ad-confirmation.md`의 문구·사진을 승인해야 하며, 상세 표시는 `병원 제공 광고`다. 병원 승인과 정식 등록은 회사가 앱 밖에서 직접 처리하며 앱에는 반영하지 않는다(사용자 결정). 앱의 병원 정보는 `data/hospital-demo.ts`에 둔다.
 - 상세의 `간병 예약 요청하기`는 `/services/care-request`로 간다. 로그인한 회원만 요청하며 희망 시작일(오늘~30일, 서버는 90일까지 허용), 간병 형태(24시간/주간), 연락받을 시간만 받는다. 환자 건강 정보는 별도 동의가 필요한 민감정보라 앱에서 받지 않고 상담원이 전화로 확인한다.
 - 서버: `platform_hospital_care_requests` 테이블과 `create/cancel/respond_hospital_care_request_v1`. `platform-service` 동작은 `request_hospital_care`·`cancel_hospital_care`·`list_hospital_care`(본인)과 관리자 `respond_hospital_care`, `get_admin.careRequests`(회원 이름·전화 포함)이다. 예약을 받는 병원은 서버 `careHospitals` 허용 목록으로 제한한다. 같은 멱등 키 재전송은 같은 결과, 내용이 다르면 `idempotency_conflict`, 회원당 답변 대기 3건 초과는 `care_request_limit`이다.
 - 상태: 접수됨 → 확인 중 → 확정 / 일정 조정 / 진행 어려움, 회원 취소. 일정 조정·진행 어려움은 회원 안내 문구가 필수이고 같은 결정 재전송은 `changed:false`이다. 확정된 요청에서만 `lib/hospital-care.ts`의 간병 시작 전 주의사항을 펼쳐 볼 수 있다. 주의사항 문구는 공개 입원 안내를 참고한 초안이며 운영자 검토 대상이다.

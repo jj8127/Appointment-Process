@@ -50,7 +50,7 @@ export default function HospitalDetail() {
         {shown.photoUrl ? <Image source={{ uri: shown.photoUrl }} accessibilityLabel={`${shown.name} 병원 사진`} style={{ width: '100%', aspectRatio: 1.7 }} /> : <View style={{ backgroundColor: COLORS.gray[50], padding: 32, alignItems: 'center', gap: 8 }}><Feather name="image" size={36} color={COLORS.gray[400]} accessible={false} /><Text style={styles.caption}>병원 사진</Text></View>}
         <View style={styles.content}>
           <View style={[styles.separator, { gap: 9 }]}>
-            <Text style={styles.ad}>{isSampleHospital(shown.id) ? '샘플' : '광고 · 제휴병원'}</Text>
+            <Text style={styles.ad}>{isSampleHospital(shown.id) ? '샘플' : '병원 제공 광고'}</Text>
             <Text accessibilityRole="header" style={styles.title}>{shown.name}</Text>
             {!!shown.specialties.length && <Text style={styles.body}>{shown.specialties.join(' · ')}</Text>}
             <Text style={styles.body}>{shown.region}</Text>
