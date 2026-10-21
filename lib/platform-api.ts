@@ -191,6 +191,11 @@ const messages: Record<string, string> = {
   expired_token: '인증 코드가 만료되었습니다. 새 코드를 요청해주세요.',
   attempts_exhausted: '인증 코드 확인 횟수를 초과했습니다. 새 코드를 요청해주세요.',
   account_unavailable: '비밀번호를 변경할 수 없는 계정입니다.',
+  missing_token: '문자로 받은 6자리 인증 코드를 입력해주세요.',
+  weak_password: '비밀번호는 8자 이상이며 영문+숫자+특수문자를 포함해야 합니다.',
+  password_mismatch: '비밀번호가 일치하지 않습니다.',
+  not_set: '비밀번호가 아직 설정되지 않았습니다. 회원가입을 먼저 완료해 주세요.',
+  inactive_account: '사용이 중지된 계정입니다. 관리자에게 문의해 주세요.',
   db_error: '요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.',
   rate_limited: '잠시 후 다시 시도해 주세요.',
   conflict: '이미 처리되었거나 내용이 변경되었습니다. 최신 내역을 확인해 주세요.',
@@ -253,7 +258,10 @@ export async function platformRequest<T>(action: string, payload: Record<string,
       const message = action === 'enroll_insurance' && ['consent_required', 'invalid_terms'].includes(code)
         ? messages.insurance_consent_required
         : action.endsWith('_hospital_care') && ['invalid_details', 'invalid_input'].includes(code) ? '예약 정보를 확인해 주세요.' : messages[code];
-      throw new PlatformApiError(message ?? (status === 401 ? messages.invalid_session : '연결하지 못했습니다. 입력 내용을 유지한 채 다시 시도해 주세요.'), code, status, loginRejection);
+      // An unmapped server code reached the server, so it is not a connection failure.
+      const fallback = status === 401 ? messages.invalid_session
+        : typeof response?.code === 'string' ? messages.request_failed : '연결하지 못했습니다. 입력 내용을 유지한 채 다시 시도해 주세요.';
+      throw new PlatformApiError(message ?? fallback, code, status, loginRejection);
     }
   }
   if (action === 'search_insurance_referral') {

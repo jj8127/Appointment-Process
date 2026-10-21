@@ -190,9 +190,16 @@ describe('common platform transport', () => {
   });
   it.each([
     ['invalid_token', '유효하지'], ['expired_token', '만료'], ['attempts_exhausted', '확인 횟수'],
+    ['missing_token', '6자리'], ['weak_password', '8자 이상'], ['not_set', '회원가입'],
   ])('offers the matching recovery action for %s', async (code, message) => {
     invoke.mockResolvedValue({ data: { ok: false, code }, error: null });
     await expect(platformRequest('reset_password')).rejects.toMatchObject({ code, message: expect.stringContaining(message) });
+  });
+  it('does not report an unmapped server rejection as a connection failure', async () => {
+    invoke.mockResolvedValue({ data: null, error: { context: new Response(JSON.stringify({ ok: false, code: 'future_error', message: 'synthetic internal detail' }), { status: 400 }) } });
+    const failure = platformRequest('reset_password');
+    await expect(failure).rejects.toMatchObject({ code: 'future_error', status: 400, message: expect.stringContaining('요청을 처리하지') });
+    await expect(failure).rejects.not.toMatchObject({ message: expect.stringContaining('internal detail') });
   });
 });
 

@@ -453,7 +453,8 @@ serveWithConfiguredCors(async request => {
           const response=await fetch(`${supabaseUrl}/functions/v1/${action==='request_password_reset' ? 'request-password-reset' : 'reset-password'}`,{
             method:'POST',headers:{'Content-Type':'application/json',apikey:getEnv('SUPABASE_ANON_KEY') ?? '',
               Authorization:`Bearer ${getEnv('SUPABASE_ANON_KEY') ?? ''}`},body:JSON.stringify({phone,
-              ...(action==='reset_password' ? {code:body.code,password:body.password,confirm:body.password} : {})}),
+              // reset-password reads token/newPassword, not the common code/password names.
+              ...(action==='reset_password' ? {token:body.code,newPassword:body.password,confirm:body.password} : {})}),
             signal:AbortSignal.timeout(10000)});
           const result=await response.json();
           if(!result || typeof result!=='object' || typeof result.ok!=='boolean') throw new Error('database_error');

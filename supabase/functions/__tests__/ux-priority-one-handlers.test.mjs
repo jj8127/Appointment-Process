@@ -214,7 +214,7 @@ test('one common recovery UI delegates insurance/staff accounts to their existin
     assert.equal(response.status,200);assert.equal(calls.length,1);
     assert.equal(calls[0].url,`https://synthetic.invalid/functions/v1/${action==='request_password_reset' ? 'request-password-reset' : 'reset-password'}`);
     assert.deepEqual(calls[0].body,action==='request_password_reset' ? {phone:'00000000011'}
-      : {phone:'00000000011',code:'123456',password:'Synthetic!123',confirm:'Synthetic!123'});
+      : {phone:'00000000011',token:'123456',newPassword:'Synthetic!123',confirm:'Synthetic!123'});
   }
 });
 
