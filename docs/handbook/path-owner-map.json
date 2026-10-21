@@ -8,6 +8,8 @@
         "supabase/functions/platform-service/",
         "supabase/functions/_shared/password-hash.ts",
         "supabase/functions/_shared/signup-sms.ts",
+        "supabase/functions/_shared/hospital-care-push.ts",
+        "supabase/functions/_shared/__tests__/hospital-care-push.test.ts",
         "supabase/migrations/20261012072525_platform_common_membership.sql",
         "supabase/migrations/20261012072611_hospital_directory_ad_performance.sql",
         "supabase/migrations/20261014043557_unified_common_insurance_enrollment.sql",
