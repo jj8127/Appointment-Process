@@ -3,7 +3,7 @@ owner_repo: fc-onboarding-app
 owner_area: mobile-and-data
 audience: developer, operator
 last_verified: 2026-10-20
-source_of_truth: app/services + components/hospitals/CareRequestAdmin.tsx + lib/hospital-care.ts + supabase/migrations/20261020100000_platform_hospital_care_requests.sql + app/apply-gate.tsx + hooks/use-session.tsx + lib/platform-api.ts + components/FamilyCareReferrer.tsx + supabase/functions/platform-service/index.ts + supabase/migrations/20261014130000_platform_service_referrals.sql + supabase/migrations/20261014120000_platform_staff_grant.sql + supabase/migrations/20261014073458_platform_affiliate_account_withdrawal.sql + supabase/migrations/20261014043557_unified_common_insurance_enrollment.sql + supabase/migrations/20261012072525_platform_common_membership.sql + supabase/migrations/20261012072611_hospital_directory_ad_performance.sql
+source_of_truth: app/services + components/hospitals/CareRequestAdmin.tsx + lib/hospital-care.ts + supabase/migrations/20261021022245_platform_hospital_care_requests.sql + app/apply-gate.tsx + hooks/use-session.tsx + lib/platform-api.ts + components/FamilyCareReferrer.tsx + supabase/functions/platform-service/index.ts + supabase/migrations/20261014130000_platform_service_referrals.sql + supabase/migrations/20261014120000_platform_staff_grant.sql + supabase/migrations/20261014073458_platform_affiliate_account_withdrawal.sql + supabase/migrations/20261014043557_unified_common_insurance_enrollment.sql + supabase/migrations/20261012072525_platform_common_membership.sql + supabase/migrations/20261012072611_hospital_directory_ad_performance.sql
 
 # 모두온 공통 서비스
 
