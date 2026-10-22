@@ -1,4 +1,5 @@
 import { MobileStatusToggle } from '@/components/MobileStatusToggle';
+import { SegmentedControl } from '@/components/SelectionControls';
 import { RefreshButton } from '@/components/RefreshButton';
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
@@ -1971,27 +1972,14 @@ export default function DashboardScreen() {
 
             {/* Interim ID Section */}
             <View style={{ marginBottom: 16 }}>
-              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-                {(['신입', '경력'] as const).map((type) => {
-                  const isSelected = currentCareer === type;
-                  return (
-                    <Pressable
-                      key={type}
-                      style={[
-                        styles.filterTab,
-                        isSelected && styles.filterTabActive,
-                        { flex: 1, alignItems: 'center', justifyContent: 'center' },
-                        !canEdit && { opacity: 0.6 },
-                      ]}
-                      onPress={() => setCareerInputs((prev) => ({ ...prev, [fc.id]: type }))}
-                      disabled={!canEdit}
-                    >
-                      <Text style={[styles.filterText, isSelected && styles.filterTextActive]}>
-                        {type}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
+              <View style={{ marginBottom: 8 }}>
+                <SegmentedControl
+                  label="경력 구분"
+                  value={currentCareer ?? ''}
+                  disabled={!canEdit}
+                  options={[{ value: '신입', label: '신입' }, { value: '경력', label: '경력' }]}
+                  onChange={(type) => setCareerInputs((prev) => ({ ...prev, [fc.id]: type }))}
+                />
               </View>
 
               <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -2096,17 +2084,11 @@ export default function DashboardScreen() {
             <View style={styles.cardHeaderRow}>
               <Text style={{ fontSize: 13, fontWeight: '600', color: CHARCOAL }}>보증 보험 동의 상태</Text>
             </View>
-            <View style={[styles.actionRow, { flexWrap: 'wrap', marginTop: 8 }]}>
+            <View style={{ marginTop: 8 }}>
               {(() => {
-                return (
-                  <>
-              <Pressable
-                style={[
-                  styles.filterTab,
-                  allowanceDisplay.key === 'entered' && styles.filterTabActive,
-                  (!canEdit || !currentAllowance || allowanceStatusBusy) && styles.actionButtonDisabled,
-                ]}
-                onPress={async () => {
+                // Each choice writes the same status update the former buttons did.
+                const allowanceActions = {
+                  entered: async () => {
                   try {
                     await updateStatus.mutateAsync({
                       id: fc.id,
@@ -2121,20 +2103,8 @@ export default function DashboardScreen() {
                     const error = err as Error;
                     Alert.alert('처리 실패', error?.message ?? '상태 업데이트 중 문제가 발생했습니다.');
                   }
-                }}
-                disabled={!canEdit || !currentAllowance || allowanceStatusBusy}
-              >
-                <Text style={[styles.filterText, allowanceDisplay.key === 'entered' && styles.filterTextActive]}>
-                  입력 완료
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.filterTab,
-                  allowanceDisplay.key === 'prescreen' && styles.filterTabActive,
-                  (!canEdit || !currentAllowance || allowanceStatusBusy) && styles.actionButtonDisabled,
-                ]}
-                onPress={async () => {
+                },
+                  prescreen: async () => {
                   try {
                     await updateStatus.mutateAsync({
                       id: fc.id,
@@ -2149,20 +2119,8 @@ export default function DashboardScreen() {
                     const error = err as Error;
                     Alert.alert('처리 실패', error?.message ?? '상태 업데이트 중 문제가 발생했습니다.');
                   }
-                }}
-                disabled={!canEdit || !currentAllowance || allowanceStatusBusy}
-              >
-                <Text style={[styles.filterText, allowanceDisplay.key === 'prescreen' && styles.filterTextActive]}>
-                  사전 심사 요청 완료
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.filterTab,
-                  allowanceDisplay.key === 'approved' && styles.filterTabActive,
-                  (!canEdit || !currentAllowance || allowanceStatusBusy) && styles.actionButtonDisabled,
-                ]}
-                onPress={async () => {
+                },
+                  approved: async () => {
                   if (allowanceApprovingRef.current) return;
                   allowanceApprovingRef.current = true;
                   setAllowanceApprovingId(fc.id);
@@ -2197,14 +2155,21 @@ export default function DashboardScreen() {
                     allowanceApprovingRef.current = false;
                     setAllowanceApprovingId(null);
                   }
-                }}
-                disabled={!canEdit || !currentAllowance || allowanceStatusBusy}
-              >
-                <Text style={[styles.filterText, allowanceDisplay.key === 'approved' && styles.filterTextActive]}>
-                  {allowanceApprovingId === fc.id ? '처리 중...' : '승인 완료'}
-                </Text>
-              </Pressable>
-                  </>
+                },
+                };
+                const allowanceKey = allowanceDisplay.key === 'entered' || allowanceDisplay.key === 'prescreen' || allowanceDisplay.key === 'approved' ? allowanceDisplay.key : '';
+                return (
+                  <SegmentedControl
+                    label="보증 보험 동의 상태"
+                    value={allowanceKey}
+                    disabled={!canEdit || !currentAllowance || allowanceStatusBusy}
+                    options={[
+                      { value: 'entered', label: '입력 완료' },
+                      { value: 'prescreen', label: '사전 심사 요청 완료' },
+                      { value: 'approved', label: allowanceApprovingId === fc.id ? '처리 중...' : '승인 완료' },
+                    ]}
+                    onChange={(key) => { void allowanceActions[key](); }}
+                  />
                 );
               })()}
             </View>

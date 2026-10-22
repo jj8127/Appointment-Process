@@ -904,7 +904,7 @@ it('hospital admin requires publication approvals, blocks duplicate saves and ke
   const guard = jest.fn();
   let rejectSave!: (error: Error) => void;
   const request = jest.fn((action: string) => action === 'get_admin' ? Promise.resolve({ partners: [], applications: [], settlements: [], benefits: [] }) : new Promise((_, reject) => { rejectSave = reject; }));
-  const Manage = executeComponent('app/services/manage.tsx', {
+  const load = (adAdmin: boolean) => executeComponent('app/services/manage.tsx', {
     'expo-crypto': { randomUUID: () => 'synthetic-partner' },
     '@/components/Button': { Button: 'Button' }, '@/components/FormInput': { FormInput: 'FormInput' },
     '@/components/hospitals/HospitalContractFields': { default: 'HospitalContractFields', EMPTY_HOSPITAL_DRAFT: emptyHospital },
@@ -915,11 +915,19 @@ it('hospital admin requires publication approvals, blocks duplicate saves and ke
     '@/hooks/use-session': { useSession: () => ({ hydrated: true, role: 'admin', readOnly: false, staffType: 'admin', appSessionToken: 'synthetic-admin' }) },
     '@/lib/board-comment-request': { createCreationRequestTracker },
     '@/lib/admin-assisted-signup-validation': { getSeoulTodayIsoDate: () => '2026-10-11' }, '@/lib/calendar-date': { parseCalendarDate },
-    '@/lib/platform-api': { PLATFORM_SERVICES: { care: '가족간병', hospital: '제휴병원' }, HOSPITAL_PROVINCES: [{ code: '11', name: '서울' }], platformRequest: request, PlatformApiError: Error },
+    '@/lib/platform-api': { PLATFORM_SERVICES: { care: '가족간병', hospital: '제휴병원' }, HOSPITAL_PROVINCES: [{ code: '11', name: '서울' }], HOSPITAL_AD_ADMIN_ENABLED: adAdmin, platformRequest: request, PlatformApiError: Error },
     '@/lib/use-read-attempt': { useReadAttempt },
   });
   let renderer!: Renderer;
+  // Hospital ad work is handled outside the app: no hospital service choice and no ad report while the flag is off.
+  await act(async () => { renderer = create(createElement(load(false))); });
+  const serviceOptions = () => renderer.root.findAllByType('OptionSheetField').find((node) => node.props.label === '제휴 서비스')!.props.options as { value: string }[];
+  expect(serviceOptions().map((option) => option.value)).toEqual(['care']);
+  expect(renderer.root.findAllByType('HospitalPerformanceReport')).toHaveLength(0);
+  await act(async () => { renderer.unmount(); });
+  const Manage = load(true);
   await act(async () => { renderer = create(createElement(Manage)); });
+  expect(renderer.root.findAllByType('HospitalPerformanceReport')).toHaveLength(1);
   const button = (label: string) => renderer.root.findAllByType('Button').find((node) => node.children.includes(label))!;
   const editor = () => renderer.root.findAllByType('HospitalContractFields')[0];
   const picker = (label: string) => ['OptionSheetField', 'SegmentedControl', 'ChoiceRows'].flatMap((type) => renderer.root.findAllByType(type)).find((node) => node.props.label === label)!;

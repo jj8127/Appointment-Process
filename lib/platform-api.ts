@@ -51,6 +51,8 @@ export const HOSPITAL_DIRECTORY_SPECIALTIES = [
   '한방병원', '정형외과', '안과', '치과', '성형외과', '건강검진센터',
 ] as const;
 export const HOSPITAL_DEMO_ENABLED = process.env.EXPO_PUBLIC_HOSPITAL_DEMO === 'true';
+/** 2026-10-22 user decision: hospital ad registration and ad reports are handled outside the app. The screens stay in code, hidden. */
+export const HOSPITAL_AD_ADMIN_ENABLED = false;
 /** The partner hospital that takes care reservations; must match the platform-service allowlist. */
 export const CARE_HOSPITAL_ID = '20000000-0000-4000-8000-000000000001';
 export const acceptsCareRequests = (hospitalId: string) => hospitalId === CARE_HOSPITAL_ID;

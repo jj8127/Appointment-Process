@@ -16,7 +16,7 @@ import { useSession } from '@/hooks/use-session';
 import { createCreationRequestTracker } from '@/lib/board-comment-request';
 import { getSeoulTodayIsoDate } from '@/lib/admin-assisted-signup-validation';
 import { parseCalendarDate } from '@/lib/calendar-date';
-import { HOSPITAL_PROVINCES, PLATFORM_SERVICES, PlatformApiError, platformRequest, type PlatformService } from '@/lib/platform-api';
+import { HOSPITAL_AD_ADMIN_ENABLED, HOSPITAL_PROVINCES, PLATFORM_SERVICES, PlatformApiError, platformRequest, type PlatformService } from '@/lib/platform-api';
 import { useReadAttempt } from '@/lib/use-read-attempt';
 
 type Partner = { id: string; service_key: PlatformService; name: string; region: string; address: string; website_url: string; phone: string; consumer_rate: number; referrer_rate: number; referrer_basis: 'commission' | 'after_consumer'; active: boolean; revision: number; ad_period_start: string | null; ad_period_end: string | null; ad_placement: string | null; ad_fee: number | null; province_code: string | null; district: string | null; specialties: string[]; description: string | null; photo_url: string | null; opening_hours: string | null; verified_at: string | null; material_approved: boolean; review_required: boolean | null; review_number: string | null; review_expires_at: string | null };
@@ -142,7 +142,7 @@ export default function ServiceManage() {
         onRespond={(requestId, status, note) => void write('respond_hospital_care', { requestId, status, note: note || null })}
         onMark={(requestId, milestone) => void write('mark_hospital_care', { requestId, milestone })} />
       <Text style={styles.sectionTitle}>제휴사 등록</Text>
-      {!!data?.partners.length && <View style={{ marginBottom: 16 }}><ActionRows items={data.partners.map((partner) => ({ key: partner.id, label: partner.name,
+      {!!data?.partners.some((partner) => HOSPITAL_AD_ADMIN_ENABLED || partner.service_key !== 'hospital') && <View style={{ marginBottom: 16 }}><ActionRows items={data.partners.filter((partner) => HOSPITAL_AD_ADMIN_ENABLED || partner.service_key !== 'hospital').map((partner) => ({ key: partner.id, label: partner.name,
         detail: `${PLATFORM_SERVICES[partner.service_key]} · ${partner.active ? '활성' : '중지'}`, disabled: busy, onPress: () => {
         setEditing(true); setPartnerId(partner.id); setRevision(partner.revision); setServiceKey(partner.service_key);
         setActive(partner.active); setReferrerBasis(partner.referrer_basis);
@@ -154,7 +154,7 @@ export default function ServiceManage() {
       {editing && <Button variant="ghost" disabled={busy} onPress={() => { setEditing(false); setRevision(0); setPartnerId(randomUUID()); setFields(EMPTY_PARTNER); setHospital(EMPTY_HOSPITAL_DRAFT); setActive(false); }}>새 제휴사 등록으로 전환</Button>}
       <View style={{ marginBottom: 16 }}>
         <OptionSheetField label="제휴 서비스" value={serviceKey} disabled={busy || editing} onChange={setServiceKey}
-          options={(Object.entries(PLATFORM_SERVICES) as [PlatformService, string][]).map(([value, label]) => ({ value, label }))} />
+          options={(Object.entries(PLATFORM_SERVICES) as [PlatformService, string][]).filter(([value]) => HOSPITAL_AD_ADMIN_ENABLED || value !== 'hospital').map(([value, label]) => ({ value, label }))} />
       </View>
       {(['name', 'region', 'address', 'websiteUrl', 'phone'] as const).filter((key) => serviceKey !== 'hospital' || key !== 'region').map((key) => <FormInput key={key} label={{ name: serviceKey === 'hospital' ? '병원명' : '제휴사명', region: '지역', address: '주소', websiteUrl: '홈페이지 주소', phone: '대표 연락처' }[key]} accessibilityLabel={key} value={fields[key]} editable={!busy} maxLength={key === 'websiteUrl' ? 500 : key === 'region' ? 50 : 100} onChangeText={(value) => setFields((current) => ({ ...current, [key]: value }))} />)}
       {serviceKey === 'hospital' ? <>
@@ -179,7 +179,7 @@ export default function ServiceManage() {
       </>}
       <Pressable accessibilityRole="checkbox" accessibilityLabel="제휴사 활성화" accessibilityState={{ checked: active, disabled: busy }} disabled={busy} style={styles.list} onPress={() => setActive((value) => !value)}><Text style={styles.item}>{active ? '☑' : '□'} 제휴를 확인하여 활성화합니다.</Text></Pressable>
       <Button loading={busyAction === 'save_partner'} disabled={busy} fullWidth onPress={savePartner}>{editing ? '제휴사 수정 저장' : '합의된 제휴사 등록'}</Button>
-      <HospitalPerformanceReport token={token} allowed={allowed} partners={(data?.partners ?? []).filter((partner) => partner.service_key === 'hospital')} />
+      {HOSPITAL_AD_ADMIN_ENABLED && <HospitalPerformanceReport token={token} allowed={allowed} partners={(data?.partners ?? []).filter((partner) => partner.service_key === 'hospital')} />}
       <Text style={styles.sectionTitle}>외부 거래·정산 확인</Text>
       <View style={{ gap: 16, marginBottom: 16 }}>
         <OptionSheetField label="정산할 신청" value={applicationId} disabled={busy} onChange={(id) => { setApplicationId(id); setSettlementPartnerId(''); setConfirmed(false); }}
