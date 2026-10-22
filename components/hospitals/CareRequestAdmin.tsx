@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Button } from '@/components/Button';
 import { FormInput } from '@/components/FormInput';
 import { CareStatusBadge } from '@/components/hospitals/HospitalScreen';
+import { ChoiceRows } from '@/components/SelectionControls';
 import { CARE_STATUS_TONES, formatCareDate } from '@/lib/hospital-care';
 import { CARE_REQUEST_STATUSES, CARE_TYPES, type HospitalCareRequest } from '@/lib/platform-api';
 import { COLORS } from '@/lib/theme';
@@ -99,17 +100,8 @@ export default function CareRequestAdmin({ requests, metrics, busy, onRespond, o
         {countdown && <Button variant="outline" disabled={busy} onPress={() => onMark(request.id, 'first_contact')}>첫 연락 완료</Button>}
         {request.status === 'confirmed' && !request.careStartedAt && <Button variant="outline" disabled={busy} onPress={() => onMark(request.id, 'care_started')}>간병 시작 확인</Button>}
         {request.status !== 'cancelled' && <>
-          <View style={local.decisions}>{DECISIONS.map((status) => {
-            const picked = decision === status;
-            const tone = CARE_STATUS_TONES[status];
-            return <Pressable key={status} accessibilityRole="radio" accessibilityState={{ checked: picked, disabled: busy }} disabled={busy}
-              onPress={() => { setDecision(status); setNoteError(null); }}
-              style={[local.decision, picked && { borderColor: tone.fg, backgroundColor: tone.bg }]}>
-              <View style={[local.decisionDot, { backgroundColor: tone.fg }]} />
-              <Text style={[local.decisionText, picked && { color: tone.fg }]}>{CARE_REQUEST_STATUSES[status]}</Text>
-              <MaterialIcons name="check-circle" size={22} color={picked ? tone.fg : COLORS.gray[300]} accessible={false} />
-            </Pressable>;
-          })}</View>
+          <ChoiceRows label="처리 결정" value={decision ?? ''} disabled={busy} onChange={(status) => { setDecision(status); setNoteError(null); }}
+            options={DECISIONS.map((status) => ({ value: status, label: CARE_REQUEST_STATUSES[status], color: CARE_STATUS_TONES[status].fg }))} />
           <FormInput label="회원에게 보낼 안내 (확정 시 선택)" accessibilityLabel="회원 안내" value={note} editable={!busy} maxLength={500} multiline
             onChangeText={(value) => { setNote(value); setNoteError(null); }} />
           {noteError && <Text accessibilityRole="alert" style={local.error}>{noteError}</Text>}
@@ -173,9 +165,5 @@ const local = StyleSheet.create({
   fact: { flexDirection: 'row', gap: 10 },
   factLabel: { width: 56, fontSize: 15, lineHeight: 22, color: COLORS.gray[500] },
   factValue: { flex: 1, minWidth: 0, fontSize: 16, lineHeight: 22, color: COLORS.text.primary },
-  decisions: { gap: 8 },
-  decision: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, borderWidth: 1.5, borderColor: COLORS.border.light, borderRadius: 14 },
-  decisionDot: { width: 10, height: 10, borderRadius: 5 },
-  decisionText: { flex: 1, fontSize: 16, fontWeight: '600', color: COLORS.text.primary },
   error: { fontSize: 14, lineHeight: 20, color: CARE_STATUS_TONES.declined.fg },
 });

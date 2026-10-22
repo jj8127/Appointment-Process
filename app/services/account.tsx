@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, Text, View } from 'react-native';
 
+import { ActionRows, type ActionRow } from '@/components/SelectionControls';
 import ServiceInformation, { ServiceAction, informationStyles as styles } from '@/components/ServiceInformation';
 import { Button } from '@/components/Button';
 import { usePlatformAccount } from '@/hooks/use-platform-account';
@@ -103,6 +104,18 @@ export default function ServiceAccount() {
       } },
     ]);
   };
+  const insuranceSettings: ActionRow = { label: '보험 계정 설정', icon: 'manage-accounts', tone: 'violet', onPress: () => router.push('/settings?surface=service-hub') };
+  // Settings-style rows; the account screen keeps one filled button only where a step needs it.
+  const actions: ActionRow[] = [
+    ...(data && !needsConsent ? [
+      { label: '서비스 이용내역', icon: 'receipt-long', tone: 'blue', onPress: () => router.navigate('/services/activity') } as ActionRow,
+      ...(session.role ? [insuranceSettings] : []),
+      ...(session.role === 'admin' && !session.readOnly && session.staffType === 'admin'
+        ? [{ label: '제휴·정산 관리', icon: 'handshake', tone: 'orange', onPress: () => router.navigate('/services/manage') } as ActionRow] : []),
+    ] : []),
+    ...(needsConsent && session.role ? [insuranceSettings] : []),
+    ...(session.isPlatformSignedIn ? [{ label: '로그아웃', icon: 'logout', tone: 'slate', onPress: () => session.logout() } as ActionRow] : []),
+  ];
   return <ServiceInformation title="내 정보" account>
     <Text accessibilityRole="header" style={styles.title}>{data ? `${data.member.name}님` : '모두온 계정'}</Text>
     {loading && <Text accessibilityLiveRegion="polite" style={styles.body}>내 정보를 확인하고 있습니다.</Text>}
@@ -134,14 +147,8 @@ export default function ServiceAccount() {
       </View>)}
     </>}
     <View style={accountStyles.actions}>
-      {data && !needsConsent && <>
-        <ServiceAction style={accountStyles.action} label="서비스 이용내역" onPress={() => router.navigate('/services/activity')} />
-        {session.role && <ServiceAction style={accountStyles.action} label="보험 계정 설정" onPress={() => router.push('/settings?surface=service-hub')} />}
-        {session.role === 'admin' && !session.readOnly && session.staffType === 'admin' && <ServiceAction style={accountStyles.action} label="제휴·정산 관리" onPress={() => router.navigate('/services/manage')} />}
-      </>}
-      {session.isPlatformSignedIn && <ServiceAction style={accountStyles.action} label="로그아웃" onPress={() => session.logout()} />}
-      {needsConsent && session.role && <ServiceAction style={accountStyles.action} label="보험 계정 설정" onPress={() => router.push('/settings?surface=service-hub')} />}
-      {session.isPlatformSignedIn && (canWithdraw || deletePending || deletionCheckFailed) && token && <Button variant="outline" loading={deleteLoading} disabled={deleteLoading || consenting} onPress={requestDeletion} fullWidth>{deletionCheckFailed ? '탈퇴 요청 다시 확인' : deletePending ? '탈퇴 처리 재시도' : '공통 회원 탈퇴'}</Button>}
+      {actions.length > 0 && <ActionRows items={actions} />}
+      {session.isPlatformSignedIn && (canWithdraw || deletePending || deletionCheckFailed) && token && <Button variant="ghost" size="sm" loading={deleteLoading} disabled={deleteLoading || consenting} onPress={requestDeletion} textStyle={accountStyles.withdraw}>{deletionCheckFailed ? '탈퇴 요청 다시 확인' : deletePending ? '탈퇴 처리 재시도' : '공통 회원 탈퇴'}</Button>}
       {deleteError && <Text accessibilityRole="alert" style={styles.body}>{deleteError}</Text>}
       <Pressable accessibilityRole="link" style={{ minHeight: 44, justifyContent: 'center' }} onPress={() => {
         void openExternalUrl(PLATFORM_PRIVACY_POLICY_URL).catch(() => setConsentError('개인정보처리방침을 열지 못했습니다. 다시 시도해주세요.'));
@@ -153,5 +160,5 @@ export default function ServiceAccount() {
 
 const accountStyles = {
   actions: { gap: SPACING.md, marginTop: SPACING.sm },
-  action: { marginTop: 0 },
+  withdraw: { color: COLORS.gray[500], fontWeight: '500' as const },
 };

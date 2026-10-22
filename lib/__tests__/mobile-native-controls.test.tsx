@@ -39,6 +39,9 @@ function executeComponent(path: string, dependencies: Record<string, unknown> = 
     if (name === '@/lib/logger') return { logger: { debug: jest.fn(), warn: jest.fn() } };
     if (name === '@/lib/open-external-url') return { openExternalUrl: jest.fn(async () => undefined) };
     if (name === '@/hooks/use-keyboard-padding') return { useKeyboardPadding: () => 0 };
+    // Shared pickers render as named host nodes so tests drive them through their props.
+    if (name === '@/components/SelectionControls') return { ActionRows: 'ActionRows', ChoiceRows: 'ChoiceRows', SegmentedControl: 'SegmentedControl', IconTile: 'IconTile' };
+    if (name === '@/components/OptionSheetField') return { OptionSheetField: 'OptionSheetField' };
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     if (name === '@/lib/back-navigation') return require('@/lib/back-navigation');
     throw new Error(`Unexpected component dependency ${name}`);
@@ -512,22 +515,24 @@ it('public account offers common login and keeps insurance settings within the c
   data = { member: { name: '시험 회원', referralCode: 'synthetic-code' }, applications: [], benefits: [] };
   session = { role: 'fc', isPlatformSignedIn: true };
   await act(async () => { renderer.update(createElement(Account)); });
+  // Signed-in destinations are one grouped list of rows, not stacked filled buttons.
+  const rows = () => renderer.root.findAllByType('ActionRows').flatMap((node) => node.props.items as { label: string; onPress: () => void }[]);
   const actionGroup = renderer.root.findAllByType('View').find(node => (node.props.style as { gap?: number })?.gap === SPACING.md)!;
   expect(actionGroup).toBeDefined();
-  expect(actionGroup.findAllByType('ServiceAction').map(node => node.props.label)).toEqual(['서비스 이용내역', '보험 계정 설정', '로그아웃']);
-  expect(actionGroup.findAllByType('ServiceAction').every(node => (node.props.style as { marginTop: number }).marginTop === 0)).toBe(true);
+  expect(actionGroup.findAllByType('ActionRows')).toHaveLength(1);
+  expect(rows().map((row) => row.label)).toEqual(['서비스 이용내역', '보험 계정 설정', '로그아웃']);
   expect(actionGroup.findAllByType('Pressable').some(node => node.props.accessibilityRole === 'link')).toBe(true);
-  await act(async () => { const press = actions().find(node => node.props.label === '서비스 이용내역')!.props.onPress as () => void; press(); press(); });
+  await act(async () => { const press = rows().find((row) => row.label === '서비스 이용내역')!.onPress; press(); press(); });
   expect(navigate.mock.calls.slice(-2)).toEqual([['/services/activity'], ['/services/activity']]);
-  await act(async () => { (actions().find((node) => node.props.label === '보험 계정 설정')!.props.onPress as () => void)(); });
+  await act(async () => { rows().find((row) => row.label === '보험 계정 설정')!.onPress(); });
   expect(push).toHaveBeenCalledWith('/settings?surface=service-hub');
   session = { role: null, isPlatformSignedIn: true };
   await act(async () => { renderer.update(createElement(Account)); });
-  expect(actions().some((node) => node.props.label === '보험 계정 설정')).toBe(false);
+  expect(rows().some((row) => row.label === '보험 계정 설정')).toBe(false);
   expect(texts(renderer.root)).toContain('시험 회원님');
   Object.assign(session, { role: 'admin', readOnly: false, staffType: 'admin' });
   await act(async () => renderer.update(createElement(Account)));
-  await act(async () => { const press = actions().find(node => node.props.label === '제휴·정산 관리')!.props.onPress as () => void; press(); press(); });
+  await act(async () => { const press = rows().find((row) => row.label === '제휴·정산 관리')!.onPress; press(); press(); });
   expect(navigate.mock.calls.slice(-2)).toEqual([['/services/manage'], ['/services/manage']]);
   await act(async () => { renderer.unmount(); });
 });
@@ -551,8 +556,8 @@ it('existing FC account requires explicit consent, blocks repeat saves and prese
   expect(save().props.disabled).toBe(true);
   expect(renderer.root.findAllByType('Button').some(node => node.children.includes('공통 회원 탈퇴'))).toBe(false);
   expect(request).not.toHaveBeenCalled();
-  const actions = () => renderer.root.findAllByType('ServiceAction');
-  await act(async () => { (actions().find((node) => node.props.label === '보험 계정 설정')!.props.onPress as () => void)(); });
+  const rows = () => renderer.root.findAllByType('ActionRows').flatMap((node) => node.props.items as { label: string; onPress: () => void }[]);
+  await act(async () => { rows().find((row) => row.label === '보험 계정 설정')!.onPress(); });
   expect(push).toHaveBeenCalledWith('/settings?surface=service-hub');
   await act(async () => { (renderer.root.findAllByType('Pressable')[0].props.onPress as () => void)(); });
   await act(async () => { (save().props.onPress as () => void)(); (save().props.onPress as () => void)(); });
@@ -564,7 +569,7 @@ it('existing FC account requires explicit consent, blocks repeat saves and prese
   request.mockResolvedValueOnce({ ok: true } as never);
   await act(async () => { await (save().props.onPress as () => Promise<void>)(); });
   expect(refresh).toHaveBeenCalledTimes(1);
-  await act(async () => { (actions().find((node) => node.props.label === '로그아웃')!.props.onPress as () => void)(); });
+  await act(async () => { rows().find((row) => row.label === '로그아웃')!.onPress(); });
   expect(logout).toHaveBeenCalledTimes(1);
   await act(async () => { renderer.unmount(); });
 });
@@ -601,7 +606,8 @@ it.each(['fc', 'member'])('common withdrawal remains available with expired cons
   const remove = () => renderer.root.findAllByType('Button').find(node => node.children.includes('공통 회원 탈퇴') || node.children.includes('탈퇴 처리 재시도') || node.children.includes('탈퇴 요청 다시 확인'))!;
   const actionGroup = renderer.root.findAllByType('View').find(node => (node.props.style as { gap?: number })?.gap === SPACING.md)!;
   expect(actionGroup.findAllByType('Button')).toContain(remove());
-  expect(remove().props.variant).toBe('outline');
+  // Withdrawal is a quiet text action under the list, never a filled or outlined block.
+  expect(remove().props.variant).toBe('ghost');
   await act(async () => { (remove().props.onPress as () => void)(); });
   expect(buttons[0]).toMatchObject({ text: '취소', style: 'cancel' });
   expect(request).not.toHaveBeenCalled();
@@ -916,14 +922,16 @@ it('hospital admin requires publication approvals, blocks duplicate saves and ke
   await act(async () => { renderer = create(createElement(Manage)); });
   const button = (label: string) => renderer.root.findAllByType('Button').find((node) => node.children.includes(label))!;
   const editor = () => renderer.root.findAllByType('HospitalContractFields')[0];
-  await act(async () => { (button('제휴병원').props.onPress as () => void)(); });
+  const picker = (label: string) => ['OptionSheetField', 'SegmentedControl', 'ChoiceRows'].flatMap((type) => renderer.root.findAllByType(type)).find((node) => node.props.label === label)!;
+  expect(picker('제휴 서비스').props.options).toContainEqual({ value: 'hospital', label: '제휴병원' });
+  await act(async () => { (picker('제휴 서비스').props.onChange as (value: string) => void)('hospital'); });
   await act(async () => {
     for (const [key, value] of Object.entries({ name: '시험 병원', address: '시험 주소', adPeriodStart: '2026-10-01', adPeriodEnd: '2026-10-31', adFee: '10000' })) {
       const input = renderer.root.findAllByType('FormInput').find((node) => node.props.accessibilityLabel === key)!;
       (input.props.onChangeText as (text: string) => void)(value);
     }
     (editor().props.onChange as (value: unknown) => void)({ ...emptyHospital, provinceCode: '11', district: '강남구', specialties: '내과, 재활의학과', verifiedAt: '2026-10-11' });
-    (button('지역 강조').props.onPress as () => void)();
+    (picker('계약 노출 위치').props.onChange as (value: string) => void)('regional_featured');
     (renderer.root.findAllByType('Pressable').find((node) => node.props.accessibilityLabel === '제휴사 활성화')!.props.onPress as () => void)();
   });
   await act(async () => { (button('합의된 제휴사 등록').props.onPress as () => void)(); });
@@ -1041,7 +1049,7 @@ it('care request admin orders waiting requests by first-contact due time, shows 
   expect(onMark).toHaveBeenLastCalledWith('C', 'care_started');
   await press('회원A 요청 열기');
   expect(buttons('처리하기')[0].props.disabled).toBe(true);
-  await press('일정 조정');
+  await act(async () => { (renderer.root.findAllByType('ChoiceRows')[0].props.onChange as (value: string) => void)('adjusted'); });
   await act(async () => { (buttons('처리하기')[0].props.onPress as () => void)(); });
   expect(onRespond).not.toHaveBeenCalled();
   expect(texts(renderer.root)).toContain('일정 조정과 진행 어려움은 회원에게 보낼 안내를 입력해 주세요.');

@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
-import type { ComponentProps, ReactElement, ReactNode } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -12,14 +12,7 @@ import { CARE_STATUS_TONES } from '@/lib/hospital-care';
 import { CARE_REQUEST_STATUSES } from '@/lib/platform-api';
 import { COLORS } from '@/lib/theme';
 
-type IconName = ComponentProps<typeof MaterialIcons>['name'];
-
-/** Filled icon on a tinted square; the tone carries the meaning, so callers pick it by meaning. */
-export function IconTile({ name, tone, size = 40 }: { name: IconName; tone: keyof typeof COLORS.tile; size?: number }) {
-  return <View style={[hospitalStyles.tile, { width: size, height: size, borderRadius: size * 0.3, backgroundColor: COLORS.tile[tone].bg }]}>
-    <MaterialIcons name={name} size={Math.round(size * 0.55)} color={COLORS.tile[tone].fg} accessible={false} />
-  </View>;
-}
+export { IconTile } from '@/components/SelectionControls';
 
 /** Same label and tone for a care status on the member and staff screens. */
 export function CareStatusBadge({ status }: { status: keyof typeof CARE_REQUEST_STATUSES }) {
@@ -83,7 +76,6 @@ export const hospitalStyles = StyleSheet.create({
   empty: { paddingVertical: 32, gap: 10, alignItems: 'center' },
   separator: { borderBottomWidth: 1, borderBottomColor: COLORS.border.light, paddingBottom: 22 },
   band: { height: 10, backgroundColor: COLORS.gray[100] },
-  tile: { alignItems: 'center', justifyContent: 'center' },
   badge: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
   badgeDot: { width: 7, height: 7, borderRadius: 4 },
   badgeText: { fontSize: 13, lineHeight: 18, fontWeight: '700' },

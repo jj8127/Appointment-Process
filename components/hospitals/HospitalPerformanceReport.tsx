@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '@/components/Button';
 import { FormInput } from '@/components/FormInput';
+import { OptionSheetField } from '@/components/OptionSheetField';
 import { informationStyles } from '@/components/ServiceInformation';
 import { getSeoulTodayIsoDate } from '@/lib/admin-assisted-signup-validation';
 import { parseCalendarDate } from '@/lib/calendar-date';
@@ -11,6 +12,7 @@ import { COLORS } from '@/lib/theme';
 import { useReadAttempt } from '@/lib/use-read-attempt';
 
 const METRICS = { impressions: '광고 노출', detailViews: '상세 열람', phoneClicks: '전화 클릭', directionsClicks: '길찾기 클릭' } as const;
+const ALL_HOSPITALS = 'all';
 const PLACEMENTS = { regional_list: '지역 목록', regional_featured: '지역 강조' } as const;
 
 export default function HospitalPerformanceReport({ token, allowed, partners }: {
@@ -58,8 +60,8 @@ export default function HospitalPerformanceReport({ token, allowed, partners }: 
     <Text accessibilityRole="header" style={informationStyles.sectionTitle}>병원 광고 성과</Text>
     <Text style={styles.note}>최근 90일 · 한국 날짜 기준</Text>
     <View style={styles.choices}>
-      <Button size="sm" variant={!partnerId ? 'primary' : 'outline'} disabled={loading} onPress={() => setPartnerId('')}>전체 병원</Button>
-      {partners.map((partner) => <Button key={partner.id} size="sm" variant={partnerId === partner.id ? 'primary' : 'outline'} disabled={loading} onPress={() => setPartnerId(partner.id)}>{partner.name}</Button>)}
+      <OptionSheetField label="조회할 병원" value={partnerId || ALL_HOSPITALS} disabled={loading} onChange={(id) => setPartnerId(id === ALL_HOSPITALS ? '' : id)}
+        options={[{ value: ALL_HOSPITALS, label: '전체 병원' }, ...partners.map((partner) => ({ value: partner.id, label: partner.name }))]} />
     </View>
     <FormInput label="조회 시작일 (YYYY-MM-DD)" accessibilityLabel="성과 조회 시작일" value={from} editable={!loading} maxLength={10} onChangeText={setFrom} />
     <FormInput label="조회 종료일 (YYYY-MM-DD)" accessibilityLabel="성과 조회 종료일" value={to} editable={!loading} maxLength={10} onChangeText={setTo} />
@@ -88,7 +90,7 @@ export default function HospitalPerformanceReport({ token, allowed, partners }: 
 const styles = StyleSheet.create({
   section: { marginTop: 24, marginBottom: 24, paddingTop: 24, borderTopWidth: 1, borderColor: COLORS.border.light },
   note: { fontSize: 13, lineHeight: 21, color: COLORS.text.secondary, marginBottom: 12 },
-  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+  choices: { marginBottom: 16 },
   error: { fontSize: 14, lineHeight: 23, color: COLORS.error, marginTop: 12 },
   period: { fontSize: 13, color: COLORS.text.secondary, marginVertical: 16 },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 20 },
