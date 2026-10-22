@@ -6,6 +6,8 @@ import * as ts from 'typescript';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '../bottom-navigation';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS, SHADOWS, TOUCH_TARGET } from '../theme';
 import { useReadAttempt } from '../use-read-attempt';
+import { CARE_STATUS_TONES, CARE_WEEKDAYS, careCalendarMonths } from '../hospital-care';
+import { formatExternalUrlDisplayText } from '../external-url';
 import { createCreationRequestTracker } from '../board-comment-request';
 import { parseCalendarDate } from '../calendar-date';
 import { buildReferralInviteUrl, buildReferralShareText } from '../referral-share';
@@ -723,7 +725,7 @@ it('hospital discovery filters both placements, measures visible cards and prese
     ? { regions: [{ provinceCode: '11', provinceName: '서울', districts: ['강남구'] }], specialties: ['내과', '이비인후과', '피부과'] }
     : { hospitals: [hospital], featured, hasMore: false, nextOffset: null });
   const Hospitals = executeComponent('app/services/hospitals.tsx', {
-    '@expo/vector-icons': { Feather: 'Feather' }, 'expo-router': { router: { push } },
+    '@expo/vector-icons': { MaterialIcons: 'MaterialIcons' }, 'expo-router': { router: { push } },
     'react-native': { ActivityIndicator: 'ActivityIndicator', Image: 'Image', Modal: 'Modal', Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', View: 'View', StyleSheet: { create: (styles: unknown) => styles },
       FlatList: (props: Record<string, unknown>) => createElement('FlatList', props, props.ListHeaderComponent as ReactElement,
         ...(props.data as unknown[]).map((item, index) => createElement(React.Fragment, { key: index }, (props.renderItem as (value: unknown) => ReactElement)({ item }))), props.ListFooterComponent as ReactElement) },
@@ -811,10 +813,11 @@ it('hospital detail opens contact even when measurement fails and hides stale de
   const open = jest.fn().mockResolvedValue(undefined);
   const record = jest.fn();
   const Detail = executeComponent('app/services/hospital.tsx', {
-    '@expo/vector-icons': { Feather: 'Feather' }, 'expo-router': { useLocalSearchParams: () => ({ id: hospital.id }) },
-    'react-native': { ActivityIndicator: 'ActivityIndicator', Image: 'Image', ScrollView: 'ScrollView', Text: 'Text', View: 'View' },
-    'react-native-safe-area-context': { useSafeAreaInsets: () => ({ bottom: 0 }) },
-    '@/components/Button': { Button: 'Button' }, '@/components/hospitals/HospitalScreen': { default: 'HospitalScreen', hospitalStyles: {} },
+    '@expo/vector-icons': { MaterialIcons: 'MaterialIcons' }, 'expo-application': { applicationId: 'synthetic.app' },
+    'expo-router': { router: { push: jest.fn() }, useLocalSearchParams: () => ({ id: hospital.id }) },
+    'react-native': { ActivityIndicator: 'ActivityIndicator', Image: 'Image', Platform: { OS: 'android' }, Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', View: 'View', StyleSheet: { create: (styles: unknown) => styles } },
+    '@/components/Button': { Button: 'Button' }, '@/components/hospitals/HospitalScreen': { default: 'HospitalScreen', IconTile: 'IconTile', hospitalStyles: {} },
+    '@/lib/external-url': { formatExternalUrlDisplayText },
     '@/components/service-home': { ServiceIcon: 'ServiceIcon' },
     '@/hooks/use-hospital-exposure': { useHospitalExposure: () => 'synthetic-session', recordHospitalEvent: record },
     '@/lib/open-external-url': { openExternalUrl: open }, '@/lib/theme': { COLORS }, '@/lib/use-read-attempt': { useReadAttempt },
@@ -826,6 +829,14 @@ it('hospital detail opens contact even when measurement fails and hides stale de
   await act(async () => { (button('전화 문의').props.onPress as () => void)(); });
   expect(record).toHaveBeenCalledWith(hospital, 'phone', 'synthetic-session');
   expect(open).toHaveBeenCalledWith('tel:020000000', { preferExternalBrowser: true });
+  // Directions open the Naver Map app first and fall back to its web page when the app is missing.
+  const place = encodeURIComponent('시험병원 시험 주소');
+  await act(async () => { (button('위치·길찾기').props.onPress as () => void)(); });
+  expect(record).toHaveBeenLastCalledWith(hospital, 'directions', 'synthetic-session');
+  expect(open).toHaveBeenLastCalledWith(`nmap://search?query=${place}&appname=synthetic.app`);
+  open.mockRejectedValueOnce(new Error('no app'));
+  await act(async () => { (button('위치·길찾기').props.onPress as () => void)(); });
+  expect(open).toHaveBeenLastCalledWith(`https://map.naver.com/p/search/${place}`, { preferExternalBrowser: true });
   request.mockRejectedValue(new Error('시험 연결 실패'));
   await act(async () => { (button('정보 다시 확인').props.onPress as () => void)(); });
   expect(texts(renderer.root)).toContain('시험 연결 실패');
@@ -947,13 +958,14 @@ it('care reservation reuses one key for a retried submit, shows staff answers an
   const registerPush = jest.fn(async () => ({ ok: true }));
   const Screen = executeComponent('app/services/care-request.tsx', {
     '@/lib/notifications': { registerPlatformMemberPushToken: registerPush },
-    '@expo/vector-icons': { Feather: 'Feather' }, 'expo-crypto': { randomUUID: () => `synthetic-key-${++keys}` },
+    '@expo/vector-icons': { MaterialIcons: 'MaterialIcons' }, 'expo-crypto': { randomUUID: () => `synthetic-key-${++keys}` },
     'expo-router': { router: { push: jest.fn() }, useLocalSearchParams: () => ({ hospitalId: 'synthetic-care-hospital' }) },
-    'react-native': { ActivityIndicator: 'ActivityIndicator', Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', View: 'View', StyleSheet: { create: (styles: unknown) => styles } },
-    'react-native-safe-area-context': { useSafeAreaInsets: () => ({ bottom: 0 }) },
-    '@/components/Button': { Button: 'Button' }, '@/components/hospitals/HospitalScreen': { default: 'HospitalScreen', hospitalStyles: {} },
+    'react-native': { ActivityIndicator: 'ActivityIndicator', Alert: { alert: jest.fn() }, Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', View: 'View', StyleSheet: { create: (styles: unknown) => styles } },
+    '@/components/Button': { Button: 'Button' },
+    '@/components/hospitals/HospitalScreen': { default: 'HospitalScreen', CareStatusBadge: 'CareStatusBadge', IconTile: 'IconTile', hospitalStyles: {} },
     '@/hooks/use-session': { useSession: () => ({ hydrated: true, platformSessionToken: 'synthetic-member' }) },
-    '@/lib/hospital-care': { CARE_PRECAUTIONS: ['시험 주의사항'], careStartOptions: () => [{ value: '2026-10-21', label: '내일', weekday: '수' }], formatCareDate: (value: string) => value },
+    '@/lib/hospital-care': { CARE_PRECAUTIONS: ['시험 주의사항'], CARE_STATUS_TONES, CARE_WEEKDAYS, careCalendarMonths,
+      careStartOptions: () => [{ value: '2026-10-21', label: '내일', weekday: '수' }], formatCareDate: (value: string) => value, formatCareTime: (value: string) => value },
     '@/lib/platform-api': { CARE_HOSPITAL_ID: 'synthetic-care-hospital', CARE_REQUEST_STATUSES: statuses, CARE_TYPES: careTypes, CONTACT_TIMES: contactTimes, PlatformApiError: Error, platformRequest: request },
     '@/lib/theme': { COLORS }, '@/lib/use-read-attempt': { useReadAttempt },
   });
@@ -963,8 +975,8 @@ it('care reservation reuses one key for a retried submit, shows staff answers an
   expect(registerPush).toHaveBeenCalledWith('synthetic-member');
   const submit = () => renderer.root.findAllByType('Button').find((node) => node.children.includes('예약 요청 보내기'))!;
   expect(submit().props.disabled).toBe(true);
-  const choose = (label: string) => (renderer.root.findAllByType('Pressable').find((node) => texts(node).includes(label))!.props.onPress as () => void)();
-  await act(async () => { choose('내일'); choose('24시간 간병'); choose('오전'); });
+  const choose = (label: string) => (renderer.root.findAllByType('Pressable').find((node) => node.props.accessibilityLabel === label || texts(node).includes(label))!.props.onPress as () => void)();
+  await act(async () => { choose('10월 21일 수요일'); choose('24시간 간병'); });
   expect(submit().props.disabled).toBe(false);
   await act(async () => { (submit().props.onPress as () => void)(); });
   expect(texts(renderer.root)).toContain('시험 연결 실패');
@@ -973,7 +985,7 @@ it('care reservation reuses one key for a retried submit, shows staff answers an
   expect(submits.map(([, payload]) => (payload as { idempotencyKey: string }).idempotencyKey)).toEqual(['synthetic-key-1', 'synthetic-key-1']);
   expect(registerPush).toHaveBeenLastCalledWith('synthetic-member', { requestPermission: true });
   expect(registerPush).toHaveBeenCalledTimes(2);
-  expect(submits[1]).toEqual(['request_hospital_care', { hospitalId: 'synthetic-care-hospital', desiredStart: '2026-10-21', careType: 'full_day', contactTime: 'morning', idempotencyKey: 'synthetic-key-1' }, 'synthetic-member']);
+  expect(submits[1]).toEqual(['request_hospital_care', { hospitalId: 'synthetic-care-hospital', desiredStart: '2026-10-21', careType: 'full_day', contactTime: 'anytime', idempotencyKey: 'synthetic-key-1' }, 'synthetic-member']);
   expect(texts(renderer.root)).toEqual(expect.arrayContaining(['확정', '시험 안내']));
   expect(texts(renderer.root)).not.toContain('시험 주의사항');
   expect(renderer.root.findAllByType('Button').some((node) => node.children.includes('요청 취소'))).toBe(false);
@@ -992,33 +1004,49 @@ it('care request admin orders waiting requests by first-contact due time, shows 
   const onRespond = jest.fn();
   const onMark = jest.fn();
   const Admin = executeComponent('components/hospitals/CareRequestAdmin.tsx', {
+    '@expo/vector-icons': { MaterialIcons: 'MaterialIcons' },
     '@/components/Button': { Button: 'Button' }, '@/components/FormInput': { FormInput: 'FormInput' },
-    '@/components/ServiceInformation': { informationStyles: {} }, '@/lib/hospital-care': { formatCareDate: (value: string) => value },
-    '@/lib/platform-api': { CARE_REQUEST_STATUSES: statuses, CARE_TYPES: { full_day: '24시간 간병', day_time: '주간 간병' }, CONTACT_TIMES: { anytime: '언제든' } },
+    '@/components/hospitals/HospitalScreen': { CareStatusBadge: 'CareStatusBadge' },
+    '@/lib/hospital-care': { CARE_STATUS_TONES, formatCareDate: (value: string) => value }, '@/lib/theme': { COLORS },
+    '@/lib/platform-api': { CARE_REQUEST_STATUSES: statuses, CARE_TYPES: { full_day: '24시간 간병', day_time: '주간 간병' } },
   });
   const metrics = { requests: 4, firstContactDue: 3, firstContactOnTime: 2, overdueNow: 1, medianFirstContactMinutes: 18.4, medianDecisionMinutes: 95, confirmed: 1, started: 0 };
   const requests = [row('C', 'confirmed', -600, { firstContactAt: at(-620) }), row('B', 'requested', 20), row('A', 'reviewing', -15)];
   let renderer!: Renderer;
-  await act(async () => { renderer = create(createElement(Admin, { requests, metrics, busy: false, onRespond, onMark })); });
+  // The list arrives after the first render; waiting requests must still be the default view.
+  await act(async () => { renderer = create(createElement(Admin, { requests: [], metrics, busy: false, onRespond, onMark })); });
+  expect(texts(renderer.root)).toContain('받은 예약 요청이 없습니다.');
+  await act(async () => { renderer.update(createElement(Admin, { requests, metrics, busy: false, onRespond, onMark })); });
   const all = texts(renderer.root);
-  expect(all).toContain('간병 예약 요청 · 답변 대기 2건');
-  expect(all).toContain('최근 30일 4건 · 첫 연락 기한 준수 67% · 지금 기한 초과 1건');
+  expect(all).toEqual(expect.arrayContaining(['간병 예약 요청', '2건', '답변 대기', '4건', '67%', '1건', '답변 대기 2', '확정 1', '전체 3']));
   expect(all).toContain('첫 연락 중앙값 18분 · 결정 중앙값 1시간 · 확정 1건 · 시작 0건');
-  expect(all.filter((text) => /^회원[ABC] /.test(text)).map((text) => text[2])).toEqual(['A', 'B', 'C']);
-  expect(all.some((text) => text.startsWith('확인 중 · 첫 연락 기한 1') && text.includes('분 초과'))).toBe(true);
-  expect(all.some((text) => text.startsWith('접수됨 · 첫 연락 1') && text.includes('분 남음'))).toBe(true);
+  const names = () => texts(renderer.root).filter((text) => /^회원[ABC]$/.test(text)).map((text) => text[2]);
+  expect(names()).toEqual(['A', 'B']);
+  expect(all.some((text) => text.startsWith('첫 연락 기한 1') && text.includes('분 초과'))).toBe(true);
+  expect(all.some((text) => text.startsWith('첫 연락 1') && text.includes('분 남음'))).toBe(true);
+  const press = async (label: string) => { await act(async () => {
+    (renderer.root.findAllByType('Pressable').find((node) => node.props.accessibilityLabel === label || texts(node).includes(label))!.props.onPress as () => void)();
+  }); };
+  await press('전체 3');
+  expect(names()).toEqual(['A', 'B', 'C']);
   const buttons = (label: string) => renderer.root.findAllByType('Button').filter((node) => node.children.includes(label));
-  expect(buttons('첫 연락 완료')).toHaveLength(2);
+  // Actions stay folded until staff open one request.
+  expect(buttons('첫 연락 완료')).toHaveLength(0);
+  await press('회원A 요청 열기');
+  expect(buttons('첫 연락 완료')).toHaveLength(1);
   await act(async () => { (buttons('첫 연락 완료')[0].props.onPress as () => void)(); });
   expect(onMark).toHaveBeenCalledWith('A', 'first_contact');
+  await press('회원C 요청 열기');
   await act(async () => { (buttons('간병 시작 확인')[0].props.onPress as () => void)(); });
   expect(onMark).toHaveBeenLastCalledWith('C', 'care_started');
+  await press('회원A 요청 열기');
+  expect(buttons('처리하기')[0].props.disabled).toBe(true);
+  await press('일정 조정');
   await act(async () => { (buttons('처리하기')[0].props.onPress as () => void)(); });
-  await act(async () => { (buttons('일정 조정')[0].props.onPress as () => void)(); });
   expect(onRespond).not.toHaveBeenCalled();
   expect(texts(renderer.root)).toContain('일정 조정과 진행 어려움은 회원에게 보낼 안내를 입력해 주세요.');
   await act(async () => { (renderer.root.findAllByType('FormInput')[0].props.onChangeText as (value: string) => void)(' 22일 시작 가능 '); });
-  await act(async () => { (buttons('일정 조정')[0].props.onPress as () => void)(); });
+  await act(async () => { (buttons('처리하기')[0].props.onPress as () => void)(); });
   expect(onRespond).toHaveBeenCalledWith('A', 'adjusted', '22일 시작 가능');
   await act(async () => { renderer.unmount(); });
 });

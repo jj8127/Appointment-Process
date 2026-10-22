@@ -13,10 +13,11 @@ source_of_truth: app/services + components/hospitals/CareRequestAdmin.tsx + lib/
 
 - 병원 목록은 여전히 `data/hospital-demo.ts`이다. 실제 병원은 고정 id `20000000-0000-4000-8000-000000000001`(`CARE_HOSPITAL_ID`)로 맨 앞·강조 지면에 둔다. 화면 제목의 `· 샘플`을 없애고 가상 병원에만 `샘플` 표시를 붙이며, 길찾기는 실제 병원에서만 켠다. 전화·진료 시간·병동 정보·홈페이지는 병원 홈페이지(https://gmcheongju.com/) 자료를 병원 허락을 받아 사용한다.
 - 2026-10-21 사용자 결정: 병원 정보는 병원 명의 광고로 게시한다. 병원이 `docs/moduon-hospital-care/hospital-ad-confirmation.md`의 문구·사진을 승인해야 하며, 상세 표시는 `병원 제공 광고`다. 병원 승인과 정식 등록은 회사가 앱 밖에서 직접 처리하며 앱에는 반영하지 않는다(사용자 결정). 앱의 병원 정보는 `data/hospital-demo.ts`에 둔다.
-- 상세의 `간병 예약 요청하기`는 `/services/care-request`로 간다. 로그인한 회원만 요청하며 희망 시작일(오늘~30일, 서버는 90일까지 허용), 간병 형태(24시간/주간), 연락받을 시간만 받는다. 환자 건강 정보는 별도 동의가 필요한 민감정보라 앱에서 받지 않고 상담원이 전화로 확인한다.
+- 상세의 `간병 예약 요청하기`는 `/services/care-request`로 간다. 로그인한 회원만 요청하며 희망 시작일(오늘~30일, 서버는 90일까지 허용), 간병 형태(24시간/주간)만 받는다. 2026-10-22 사용자 결정으로 연락받을 시간은 묻지 않으며, 앱은 `contactTime`을 `anytime`으로 보낸다(요청 계약·DB는 그대로). 환자 건강 정보는 별도 동의가 필요한 민감정보라 앱에서 받지 않고 상담원이 전화로 확인한다.
 - 서버: `platform_hospital_care_requests` 테이블과 `create/cancel/respond_hospital_care_request_v1`. `platform-service` 동작은 `request_hospital_care`·`cancel_hospital_care`·`list_hospital_care`(본인)과 관리자 `respond_hospital_care`, `get_admin.careRequests`(회원 이름·전화 포함)이다. 예약을 받는 병원은 서버 `careHospitals` 허용 목록으로 제한한다. 같은 멱등 키 재전송은 같은 결과, 내용이 다르면 `idempotency_conflict`, 회원당 답변 대기 3건 초과는 `care_request_limit`이다.
 - 상태: 접수됨 → 확인 중 → 확정 / 일정 조정 / 진행 어려움, 회원 취소. 일정 조정·진행 어려움은 회원 안내 문구가 필수이고 같은 결정 재전송은 `changed:false`이다. 확정된 요청에서만 `lib/hospital-care.ts`의 간병 시작 전 주의사항을 펼쳐 볼 수 있다. 주의사항 문구는 공개 입원 안내를 참고한 초안이며 운영자 검토 대상이다.
-- 관리자: 제휴·정산 관리 화면 맨 위 `CareRequestAdmin`이 답변 대기 건을 오래된 순으로 경과 시간과 함께 보여 준다.
+- 관리자: 제휴·정산 관리 화면 맨 위 `CareRequestAdmin`이 답변 대기 건을 첫 연락 기한 순으로 보여 준다. 2026-10-22부터 목록(답변 대기/확정/전체 탭)과 행을 눌러 여는 응답 패널로 나뉘며, 패널에서 상태 하나를 고르고 `처리하기`로 보낸다.
+- 2026-10-22 화면 개편: 글자 크기는 제목 26·섹션 19·본문 16·최소 13, 주 버튼 높이 56. 아이콘은 `MaterialIcons` 채움형을 의미별 색 타일(`COLORS.tile`)에 올린다. 상태 6개의 색은 `CARE_STATUS_TONES` 하나를 회원·관리자 화면이 함께 쓴다. 상세의 `위치·길찾기`는 네이버 지도 앱(`nmap://search`)을 먼저 열고, 없으면 네이버 지도 웹을 연다. 희망 시작일은 한 달씩 넘기는 달력이다.
 - 탈퇴: `platform_members.active`가 false가 되는 모든 탈퇴 경로에서 트리거가 해당 회원의 요청을 삭제한다.
 - 앱 알림: 일반 회원 토큰은 `platform_member_push_tokens`(기기 토큰 1개당 마지막 등록 회원)에 저장한다. 예약 화면은 이미 허용된 기기를 조용히 등록하고, 첫 예약 요청이 성공한 뒤에만 알림 권한을 묻는다. 로그아웃은 이 기기 토큰만 지우고 탈퇴 트리거는 회원 토큰을 모두 지운다.
 - 새 요청이 처음 저장되면(`created:true`, 재전송은 제외) 활성 플랫폼 관리자 중 운영 알림을 끄지 않은 사람의 `device_tokens`로 알린다. 관리자가 확정·일정 조정·진행 어려움으로 바꾸면(`changed:true`) 회원에게 알린다. 확인 중은 알리지 않는다. 발송은 응답 뒤에 실행하며 실패해도 처리 결과를 바꾸지 않는다. Expo가 등록 해제로 답한 토큰은 지운다.

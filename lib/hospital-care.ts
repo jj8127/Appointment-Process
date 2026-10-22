@@ -37,3 +37,40 @@ export function formatCareDate(value: string) {
   const [year, month, day] = value.split('-').map(Number);
   return `${month}월 ${day}일 (${WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()]})`;
 }
+
+/** "10월 22일 14:05" in Seoul time (UTC+9, no daylight saving). */
+export function formatCareTime(value: string) {
+  const date = new Date(Date.parse(value) + 9 * 3600000);
+  return `${date.getUTCMonth() + 1}월 ${date.getUTCDate()}일 ${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')}`;
+}
+
+export type CareCalendarCell = { day: number; value: string | null; today: boolean; sunday: boolean } | null;
+
+/** Month grids (Sunday first) covering the selectable start dates; days outside the window have no value. */
+export function careCalendarMonths(options: { value: string; label: string }[]) {
+  const selectable = new Set(options.map((option) => option.value));
+  const today = options.find((option) => option.label === '오늘')?.value;
+  return [...new Set(options.map((option) => option.value.slice(0, 7)))].map((key) => {
+    const [year, month] = key.split('-').map(Number);
+    const lead = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+    const days = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const cells: CareCalendarCell[] = Array.from({ length: lead }, () => null);
+    for (let day = 1; day <= days; day++) {
+      const value = `${key}-${String(day).padStart(2, '0')}`;
+      cells.push({ day, value: selectable.has(value) ? value : null, today: value === today, sunday: (lead + day - 1) % 7 === 0 });
+    }
+    return { key, label: `${year}.${String(month).padStart(2, '0')}`, cells };
+  });
+}
+
+export const CARE_WEEKDAYS = WEEKDAYS;
+
+/** One tone per status, shared by the member and staff screens. */
+export const CARE_STATUS_TONES = {
+  requested: { bg: '#f1f3f5', fg: '#374151' },
+  reviewing: { bg: '#e3edff', fg: '#1d4ed8' },
+  adjusted: { bg: '#fff1dc', fg: '#9a3412' },
+  confirmed: { bg: '#dcf5e7', fg: '#047857' },
+  declined: { bg: '#fde4e4', fg: '#b91c1c' },
+  cancelled: { bg: '#f1f3f5', fg: '#4b5563' },
+} as const;
