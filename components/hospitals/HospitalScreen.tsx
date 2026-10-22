@@ -23,21 +23,26 @@ export function CareStatusBadge({ status }: { status: keyof typeof CARE_REQUEST_
   </View>;
 }
 
-export default function HospitalScreen({ children, detail = false, overlayHeader = false, title, headerActions, footer }: {
+export default function HospitalScreen({ children, detail = false, overlayHeader = false, overlaySolid = false, solidTitle, title, headerActions, footer }: {
   children: ReactNode; detail?: boolean; overlayHeader?: boolean; title?: string; headerActions?: ReactElement; footer?: ReactNode;
+  /** Once the cover photo has scrolled away, the floating back button becomes a solid bar so content never slides under it. */
+  overlaySolid?: boolean; solidTitle?: string;
 }) {
   const session = useSession();
   const heading = title ?? (detail ? '병원 상세' : '제휴병원');
   const insets = useSafeAreaInsets();
   const preset = resolveBottomNavPreset(session, { surface: 'service-hub' });
-  const back = <Pressable accessibilityRole="button" accessibilityLabel="뒤로 가기" style={overlayHeader ? hospitalStyles.floatingBack : hospitalStyles.iconButton}
+  const back = <Pressable accessibilityRole="button" accessibilityLabel="뒤로 가기" style={overlayHeader && !overlaySolid ? hospitalStyles.floatingBack : hospitalStyles.iconButton}
     onPress={() => goBackOrReplace(router, detail ? '/services/hospitals' : '/')}>
     <MaterialIcons name="arrow-back" size={24} color={COLORS.text.primary} accessible={false} />
   </Pressable>;
   return <SafeAreaView style={hospitalStyles.screen} edges={['top', 'left', 'right']}>
     <Stack.Screen options={{ headerShown: false, title: heading }} />
     <View style={hospitalStyles.column}>
-      {overlayHeader ? <View style={hospitalStyles.overlayHeader}>{back}</View> : <View style={hospitalStyles.header}>
+      {overlayHeader ? <View style={overlaySolid ? [hospitalStyles.header, hospitalStyles.solidHeader] : hospitalStyles.overlayHeader}>
+        {back}
+        {overlaySolid && <Text accessibilityRole="header" numberOfLines={1} style={hospitalStyles.headerTitle}>{solidTitle ?? heading}</Text>}
+      </View> : <View style={hospitalStyles.header}>
         {back}
         <Text accessibilityRole="header" style={hospitalStyles.headerTitle}>{heading}</Text>
         {headerActions && <View style={hospitalStyles.headerActions}>{headerActions}</View>}
@@ -55,6 +60,7 @@ export const hospitalStyles = StyleSheet.create({
   column: { flex: 1, maxWidth: 640, width: '100%', alignSelf: 'center' },
   header: { minHeight: 56, paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 4 },
   overlayHeader: { position: 'absolute', top: 8, left: 12, zIndex: 2 },
+  solidHeader: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.gray[100] },
   floatingBack: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.95)',
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.18, shadowRadius: 6, elevation: 3 },
   iconButton: { minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'center' },

@@ -17,7 +17,7 @@ import { COLORS, SPACING } from '@/lib/theme';
 import { resetTo } from '@/lib/back-navigation';
 
 export default function ServiceAccount() {
-  const { data, error, needsConsent, canWithdraw, loading, refresh, session, token } = usePlatformAccount();
+  const { data, error, signedOut, needsConsent, canWithdraw, loading, refresh, session, token } = usePlatformAccount();
   const logoutAll = useAppLogout('/', 'service-hub');
   const logoutRef = useRef(logoutAll);
   logoutRef.current = logoutAll;
@@ -116,6 +116,7 @@ export default function ServiceAccount() {
     ...(needsConsent && session.role ? [insuranceSettings] : []),
     ...(session.isPlatformSignedIn ? [{ label: '로그아웃', icon: 'logout', tone: 'slate', onPress: () => session.logout() } as ActionRow] : []),
   ];
+  const relogin = () => { session.logout(); resetTo(router, '/services/login'); };
   return <ServiceInformation title="내 정보" account>
     <Text accessibilityRole="header" style={styles.title}>{data ? `${data.member.name}님` : '모두온 계정'}</Text>
     {loading && <Text accessibilityLiveRegion="polite" style={styles.body}>내 정보를 확인하고 있습니다.</Text>}
@@ -135,7 +136,12 @@ export default function ServiceAccount() {
       {consentError && <Text accessibilityRole="alert" style={styles.body}>{consentError}</Text>}
       <Button loading={consenting} disabled={!termsAccepted || consenting || deleteLoading} onPress={acceptTerms} fullWidth>동의하고 계속하기</Button>
     </View>}
-    {error && !needsConsent && <View><Text accessibilityRole="alert" style={styles.body}>{error}</Text><ServiceAction label="다시 확인" onPress={() => void refresh()} />{session.isPlatformSignedIn && <ServiceAction label="다시 로그인" onPress={() => { session.logout(); resetTo(router, '/services/login'); }} />}</View>}
+    {error && !needsConsent && <View><Text accessibilityRole="alert" style={styles.body}>{error}</Text>
+      {/* One filled action: signing in when the session was rejected, otherwise reading again. */}
+      {signedOut ? <ServiceAction label="다시 로그인" onPress={relogin} /> : <>
+        <ServiceAction label="다시 확인" onPress={() => void refresh()} />
+        {session.isPlatformSignedIn && <Button variant="ghost" onPress={relogin}>다시 로그인</Button>}
+      </>}</View>}
     {data && !needsConsent && <>
       <Text style={styles.sectionTitle}>제휴 서비스 혜택</Text>
       <Text style={styles.body}>각 제휴사의 정산이 끝난 뒤 7일 이내에 회사가 정한 비율로 지급합니다. 거래와 정산이 확인된 내역만 표시합니다.</Text>

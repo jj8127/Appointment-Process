@@ -15,27 +15,29 @@ export function usePlatformAccount() {
   const dataOwner = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [signedOut, setSignedOut] = useState(false);
   const [loading, setLoading] = useState(false);
   const refresh = useCallback(async () => {
     const owns = begin();
-    if (!token) { setData(null); setError(null); setErrorCode(null); setLoading(false); return; }
+    if (!token) { setData(null); setError(null); setErrorCode(null); setSignedOut(false); setLoading(false); return; }
     setLoading(true);
     try {
       const next = await platformRequest<PlatformAccount>('get_account', {}, token);
       if (!owns() || tokenRef.current !== token) return;
-      dataOwner.current = token; setData(next); setError(null); setErrorCode(null);
+      dataOwner.current = token; setData(next); setError(null); setErrorCode(null); setSignedOut(false);
     } catch (cause) {
       if (!owns() || tokenRef.current !== token) return;
       if (cause instanceof PlatformApiError && (cause.status === 401 || cause.status === 403 || cause.code === 'consent_required' || cause.code === 'enrollment_required')) setData(null);
       setErrorCode(cause instanceof PlatformApiError ? cause.code : null);
+      setSignedOut(cause instanceof PlatformApiError && (cause.status === 401 || cause.status === 403) && cause.code !== 'consent_required' && cause.code !== 'enrollment_required');
       setError(cause instanceof Error ? cause.message : '내역을 불러오지 못했습니다.');
     } finally { if (owns() && tokenRef.current === token) setLoading(false); }
   }, [begin, token]);
   useEffect(() => {
-    setData(null); setError(null); setErrorCode(null);
+    setData(null); setError(null); setErrorCode(null); setSignedOut(false);
     if (session.hydrated) void refresh();
   }, [refresh, session.hydrated]);
   const ownedData = dataOwner.current === token ? data : null;
-  return { data: ownedData, error, needsConsent: errorCode === 'consent_required' || errorCode === 'enrollment_required' || ownedData?.member.termsAccepted === false,
+  return { data: ownedData, error, signedOut, needsConsent: errorCode === 'consent_required' || errorCode === 'enrollment_required' || ownedData?.member.termsAccepted === false,
     canWithdraw: Boolean(session.platformMember || ownedData || errorCode === 'consent_required'), loading: !session.hydrated || loading, refresh, token, session };
 }

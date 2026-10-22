@@ -46,7 +46,7 @@ export function formatCareTime(value: string) {
 
 export type CareCalendarCell = { day: number; value: string | null; today: boolean; sunday: boolean } | null;
 
-/** Month grids (Sunday first) covering the selectable start dates; days outside the window have no value. */
+/** Month grids (Sunday first) covering the selectable start dates; days outside the window have no value. Weeks that end before the window are left out. */
 export function careCalendarMonths(options: { value: string; label: string }[]) {
   const selectable = new Set(options.map((option) => option.value));
   const today = options.find((option) => option.label === '오늘')?.value;
@@ -59,7 +59,11 @@ export function careCalendarMonths(options: { value: string; label: string }[]) 
       const value = `${key}-${String(day).padStart(2, '0')}`;
       cells.push({ day, value: selectable.has(value) ? value : null, today: value === today, sunday: (lead + day - 1) % 7 === 0 });
     }
-    return { key, label: `${year}.${String(month).padStart(2, '0')}`, cells };
+    const first = options[0]?.value ?? '';
+    const weeks: CareCalendarCell[][] = [];
+    for (let index = 0; index < cells.length; index += 7) weeks.push(cells.slice(index, index + 7));
+    const kept = weeks.filter((week) => week.some((cell) => cell && `${key}-${String(cell.day).padStart(2, '0')}` >= first));
+    return { key, label: `${year}.${String(month).padStart(2, '0')}`, cells: kept.flat() };
   });
 }
 

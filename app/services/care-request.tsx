@@ -40,6 +40,8 @@ export default function CareRequest() {
   const begin = useReadAttempt();
   const [requests, setRequests] = useState<HospitalCareRequest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A rejected session cannot be fixed by reading again; the way out is signing in.
+  const [signedOut, setSignedOut] = useState(false);
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [submitting, setSubmitting] = useState(false);
@@ -55,13 +57,13 @@ export default function CareRequest() {
   const refresh = useCallback(async () => {
     const owns = begin();
     if (!token) { setRequests(null); setLoading(false); return; }
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setSignedOut(false);
     try {
       const response = await platformRequest<{ requests: HospitalCareRequest[] }>('list_hospital_care', {}, token);
       if (owns()) setRequests(response.requests);
     } catch (cause) {
       if (!owns()) return;
-      if (cause instanceof PlatformApiError && (cause.status === 401 || cause.status === 403)) setRequests(null);
+      if (cause instanceof PlatformApiError && (cause.status === 401 || cause.status === 403)) { setRequests(null); setSignedOut(true); }
       setError(cause instanceof Error ? cause.message : '예약 내역을 불러오지 못했습니다.');
     } finally { if (owns()) setLoading(false); }
   }, [begin, token]);
@@ -139,7 +141,7 @@ export default function CareRequest() {
 
         {!supported ? <Text style={styles.body}>이 병원은 아직 간병 예약을 받지 않습니다.</Text>
           : !session.hydrated ? <ActivityIndicator color={COLORS.primary} />
-          : !token ? <View style={{ gap: 12 }}>
+          : !token || signedOut ? <View style={{ gap: 12 }}>
             <Text style={styles.body}>로그인한 뒤 예약을 요청할 수 있습니다.</Text>
             <Button size="lg" onPress={() => router.push('/services/login')}>로그인</Button>
           </View>
@@ -181,7 +183,7 @@ export default function CareRequest() {
                   style={({ pressed }) => [local.option, selected && local.optionSelected, pressed && !selected && local.cellPressed]}>
                   <View style={styles.row}>
                     <View style={styles.flexible}><IconTile name={CARE_TYPE_ICONS[value].name} tone={CARE_TYPE_ICONS[value].tone} /></View>
-                    <MaterialIcons name="check-circle" size={24} color={selected ? COLORS.primaryButton : COLORS.gray[300]} accessible={false} />
+                    <MaterialIcons name={selected ? 'check-circle' : 'radio-button-unchecked'} size={24} color={selected ? COLORS.primaryButton : COLORS.gray[300]} accessible={false} />
                   </View>
                   <Text style={local.optionText}>{CARE_TYPES[value]}</Text>
                 </Pressable>;
@@ -203,7 +205,8 @@ export default function CareRequest() {
               <Text accessibilityRole="header" style={local.listTitle}>내 예약 요청</Text>
               {loading && !requests && <ActivityIndicator color={COLORS.primary} />}
               {error && <View style={styles.error}><Text accessibilityRole="alert" style={styles.body}>{error}</Text>
-                <Button variant="outline" loading={loading} onPress={() => void refresh()}>다시 확인하기</Button></View>}
+                {signedOut ? <Button variant="outline" onPress={() => router.push('/services/login')}>로그인</Button>
+                  : <Button variant="outline" loading={loading} onPress={() => void refresh()}>다시 확인하기</Button>}</View>}
               {requests?.length === 0 && <Text style={styles.body}>아직 요청한 내역이 없습니다.</Text>}
               {requests?.map((request, index) => index === 0 || OPEN_STATUSES.includes(request.status) ? card(request)
                 : <View key={request.id} style={local.past}>

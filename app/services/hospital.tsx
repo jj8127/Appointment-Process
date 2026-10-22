@@ -13,6 +13,7 @@ import { PlatformApiError, acceptsCareRequests, isSampleHospital, platformReques
 import { COLORS } from '@/lib/theme';
 import { useReadAttempt } from '@/lib/use-read-attempt';
 
+const PHOTO_HEIGHT = 270;
 const TIME_RANGE = String.raw`\d{1,2}:\d{2}\s*[–~-]\s*\d{1,2}:\d{2}`;
 const HOURS_PART = new RegExp(String.raw`^(.+?)\s+(${TIME_RANGE})(?:\s*\((.+?)\s+(${TIME_RANGE})\))?$`);
 
@@ -37,6 +38,7 @@ export default function HospitalDetail() {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pastPhoto, setPastPhoto] = useState(false);
   const shown = useMemo(() => hospital && hospital.id === id ? { ...hospital, adPlacement: hospital.adPlacement === 'regional_featured' && placement === 'regional_featured' ? 'regional_featured' as const : 'regional_list' as const } : null, [hospital, id, placement]);
   const measured = useMemo(() => shown ? [shown] : [], [shown]);
   const sessionId = useHospitalExposure(measured, 'detail');
@@ -73,11 +75,12 @@ export default function HospitalDetail() {
   };
   const sample = shown ? isSampleHospital(shown.id) : false;
 
-  return <HospitalScreen detail overlayHeader={!!shown?.photoUrl}
+  return <HospitalScreen detail overlayHeader={!!shown?.photoUrl} overlaySolid={pastPhoto} solidTitle={shown?.name}
     footer={shown && acceptsCareRequests(shown.id) ? <Button size="lg" style={local.cta} textStyle={local.ctaText}
       onPress={() => router.push({ pathname: '/services/care-request', params: { hospitalId: shown.id } })}
       leftIcon={<MaterialIcons name="calendar-month" size={22} color={COLORS.white} accessible={false} />}>간병 예약 요청하기</Button> : undefined}>
-    <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
+    <ScrollView contentContainerStyle={{ paddingBottom: 32 }} scrollEventThrottle={32}
+      onScroll={({ nativeEvent }) => { const past = nativeEvent.contentOffset.y > PHOTO_HEIGHT - 56; if (past !== pastPhoto) setPastPhoto(past); }}>
       {loading && !shown && <View style={[styles.content, styles.row]}><ActivityIndicator color={COLORS.primary} /><Text style={styles.body}>병원 정보를 확인하고 있어요.</Text></View>}
       {error && <View style={[styles.content, shown?.photoUrl && local.belowBack]}><View style={styles.error}><Text accessibilityRole="alert" style={styles.body}>{error}</Text>{shown && <Text style={styles.caption}>최근 조회한 정보를 표시하고 있습니다.</Text>}<Button variant="outline" loading={loading} onPress={() => void refresh()}>다시 확인하기</Button></View></View>}
       {shown && <>
@@ -102,8 +105,11 @@ export default function HospitalDetail() {
           <View style={local.infoRow}><IconTile name="location-on" tone="blue" size={34} />
             {shown.address ? <Text selectable style={local.infoText}>{shown.address}</Text> : <Text style={[local.infoText, local.muted]}>주소 정보를 확인 중입니다.</Text>}</View>
           <View style={[local.infoRow, local.divided]}><IconTile name="schedule" tone="violet" size={34} />
-            {hours ? <View style={local.hours}>{hours.rows.map(([label, time]) => <View key={label} style={styles.row}>
-              <Text style={local.hoursLabel}>{label}</Text><Text style={local.infoText}>{time}</Text></View>)}</View>
+            {hours ? <View style={local.hours}>
+              {/* Two columns so the times stay aligned however large the system font is. */}
+              <View>{hours.rows.map(([label]) => <Text key={label} style={local.hoursLabel}>{label}</Text>)}</View>
+              <View style={styles.flexible}>{hours.rows.map(([label, time]) => <Text key={label} style={local.hoursTime}>{time}</Text>)}</View>
+            </View>
               : <Text style={local.infoText}>{shown.openingHours || '운영시간 미등록'}</Text>}</View>
           {shown.phone && <View style={[local.infoRow, local.divided]}><IconTile name="call" tone="green" size={34} /><Text selectable style={local.infoText}>{shown.phone}</Text></View>}
           {shown.websiteUrl && <Pressable accessibilityRole="link" accessibilityLabel="병원 홈페이지 열기" onPress={() => open(shown.websiteUrl!)}
@@ -125,7 +131,7 @@ export default function HospitalDetail() {
 }
 
 const local = StyleSheet.create({
-  photo: { width: '100%', height: 270, backgroundColor: COLORS.gray[100] },
+  photo: { width: '100%', height: PHOTO_HEIGHT, backgroundColor: COLORS.gray[100] },
   belowBack: { paddingTop: 64 },
   intro: { paddingHorizontal: 20, paddingTop: 22, paddingBottom: 20, gap: 10 },
   meta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
@@ -140,8 +146,9 @@ const local = StyleSheet.create({
   infoText: { flex: 1, minWidth: 0, fontSize: 16, lineHeight: 24, color: COLORS.text.primary, paddingTop: 5 },
   muted: { color: COLORS.text.secondary },
   link: { color: COLORS.tile.blue.fg, fontWeight: '600' },
-  hours: { flex: 1, minWidth: 0, gap: 2 },
-  hoursLabel: { minWidth: 84, fontSize: 16, lineHeight: 24, color: COLORS.gray[500], paddingTop: 5 },
+  hours: { flex: 1, minWidth: 0, flexDirection: 'row', gap: 16, paddingTop: 5 },
+  hoursLabel: { fontSize: 16, lineHeight: 26, color: COLORS.gray[500] },
+  hoursTime: { fontSize: 16, lineHeight: 26, color: COLORS.text.primary, fontVariant: ['tabular-nums'] },
   verified: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 4 },
   recheck: { fontSize: 14, color: COLORS.primaryDark },
   cta: { borderRadius: 16 },

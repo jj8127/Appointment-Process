@@ -488,6 +488,7 @@ it.each([
 it('public account offers common login and keeps insurance settings within the common account', async () => {
   let session = { role: 'fc' as string | null, isPlatformSignedIn: false };
   let data: null | { member: { name: string; referralCode: string }; applications: unknown[]; benefits: unknown[] } = null;
+  let failure: { error: string; signedOut: boolean } = { error: '', signedOut: false };
   const push = jest.fn(); const navigate = jest.fn();
   const openPolicy = jest.fn(async () => undefined);
   const Account = executeComponent('app/services/account.tsx', {
@@ -495,7 +496,8 @@ it('public account offers common login and keeps insurance settings within the c
     'expo-clipboard': { setStringAsync: jest.fn() }, '@/lib/messenger-copy-actions': { copyTextWithFeedback: jest.fn(async () => true) }, 'expo-router': { router: { push, navigate } },
     'react-native': { Alert: { alert: jest.fn() }, Pressable: 'Pressable', Text: 'Text', View: 'View' },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
-    '@/hooks/use-platform-account': { usePlatformAccount: () => ({ data, loading: false, error: null, session, token: null, refresh: jest.fn() }) },
+    '@/hooks/use-platform-account': { usePlatformAccount: () => ({ data, loading: false, error: failure.error || null, signedOut: failure.signedOut, session: { ...session, logout: jest.fn() }, token: null, refresh: jest.fn() }) },
+    '@/lib/back-navigation': { resetTo: jest.fn() },
     '@/hooks/use-app-logout': { useAppLogout: () => jest.fn() }, 'expo-crypto': { randomUUID: () => '10000000-0000-4000-8000-000000000001' },
     '@/lib/platform-api': { PLATFORM_PRIVACY_POLICY_URL: 'https://example.test/privacy/', PLATFORM_SERVICES: {}, platformRequest: jest.fn() }, '@/lib/theme': { COLORS, SPACING },
     '@/lib/open-external-url': { openExternalUrl: openPolicy },
@@ -534,6 +536,14 @@ it('public account offers common login and keeps insurance settings within the c
   await act(async () => renderer.update(createElement(Account)));
   await act(async () => { const press = rows().find((row) => row.label === '제휴·정산 관리')!.onPress; press(); press(); });
   expect(navigate.mock.calls.slice(-2)).toEqual([['/services/manage'], ['/services/manage']]);
+  // A rejected session offers one filled action, sign-in; a read failure keeps retry first and sign-in as text.
+  data = null; failure = { error: '로그인이 만료되었습니다.', signedOut: true };
+  await act(async () => renderer.update(createElement(Account)));
+  expect(actions().map((node) => node.props.label)).toEqual(['다시 로그인']);
+  failure = { error: '연결하지 못했습니다.', signedOut: false };
+  await act(async () => renderer.update(createElement(Account)));
+  expect(actions().map((node) => node.props.label)).toEqual(['다시 확인']);
+  expect(renderer.root.findAllByType('Button').some((node) => node.children.includes('다시 로그인'))).toBe(true);
   await act(async () => { renderer.unmount(); });
 });
 it('existing FC account requires explicit consent, blocks repeat saves and preserves refusal navigation', async () => {
@@ -962,10 +972,12 @@ it('care reservation reuses one key for a retried submit, shows staff answers an
   const statuses = { requested: '접수됨', reviewing: '확인 중', confirmed: '확정', adjusted: '일정 조정', declined: '진행 어려움', cancelled: '취소함' };
   const confirmed = { id: 'synthetic-request', hospitalId: 'synthetic-care-hospital', hospitalName: '시험병원', desiredStart: '2026-10-21', careType: 'full_day',
     contactTime: 'morning', status: 'confirmed', staffNote: '시험 안내', respondedAt: null, createdAt: '2026-10-20T00:00:00Z' };
+  class ApiError extends Error { constructor(message: string, public status?: number) { super(message); } }
   let listed: unknown[] = [];
+  let listFailure: Error | null = null;
   let failSubmit = true;
   const request = jest.fn(async (action: string, ..._args: unknown[]) => {
-    if (action === 'list_hospital_care') return { requests: listed };
+    if (action === 'list_hospital_care') { if (listFailure) throw listFailure; return { requests: listed }; }
     if (failSubmit) { failSubmit = false; throw new Error('시험 연결 실패'); }
     listed = [confirmed];
     return { requestId: confirmed.id, status: 'requested' };
@@ -982,7 +994,7 @@ it('care reservation reuses one key for a retried submit, shows staff answers an
     '@/hooks/use-session': { useSession: () => ({ hydrated: true, platformSessionToken: 'synthetic-member' }) },
     '@/lib/hospital-care': { CARE_PRECAUTIONS: ['시험 주의사항'], CARE_STATUS_TONES, CARE_WEEKDAYS, careCalendarMonths,
       careStartOptions: () => [{ value: '2026-10-21', label: '내일', weekday: '수' }], formatCareDate: (value: string) => value, formatCareTime: (value: string) => value },
-    '@/lib/platform-api': { CARE_HOSPITAL_ID: 'synthetic-care-hospital', CARE_REQUEST_STATUSES: statuses, CARE_TYPES: careTypes, CONTACT_TIMES: contactTimes, PlatformApiError: Error, platformRequest: request },
+    '@/lib/platform-api': { CARE_HOSPITAL_ID: 'synthetic-care-hospital', CARE_REQUEST_STATUSES: statuses, CARE_TYPES: careTypes, CONTACT_TIMES: contactTimes, PlatformApiError: ApiError, platformRequest: request },
     '@/lib/theme': { COLORS }, '@/lib/use-read-attempt': { useReadAttempt },
   });
   let renderer!: Renderer;
@@ -1007,6 +1019,13 @@ it('care reservation reuses one key for a retried submit, shows staff answers an
   expect(renderer.root.findAllByType('Button').some((node) => node.children.includes('요청 취소'))).toBe(false);
   await act(async () => { choose('간병 시작 전 확인할 것'); });
   expect(texts(renderer.root)).toContain('시험 주의사항');
+  await act(async () => { renderer.unmount(); });
+  // A rejected session offers sign-in, not a retry that cannot succeed.
+  listFailure = new ApiError('로그인이 만료되었습니다.', 401);
+  await act(async () => { renderer = create(createElement(Screen)); });
+  const labels = renderer.root.findAllByType('Button').map((node) => node.children.join(''));
+  expect(labels).toContain('로그인');
+  expect(labels).not.toContain('다시 확인하기');
   await act(async () => { renderer.unmount(); });
 });
 
