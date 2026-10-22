@@ -5,6 +5,12 @@ audience: developer, operator
 last_verified: 2026-10-16
 source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/group-chat/index.ts + supabase/functions/_shared/group-chat-data-api-batching.ts + supabase/functions/_shared/board.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + lib/fc-notify-client.ts + lib/board-api.ts + lib/notifications.ts + lib/session-logout.ts + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + web/src/lib/fc-notify-proxy-policy.ts + web/src/lib/push-notification-service.ts + web/src/lib/admin-chat-notification-result.ts
 
+## 2026-10-21 모두온 간병 예약 푸시 (운영 적용)
+
+- 회원 토큰은 `platform_member_push_tokens`(Expo 토큰 기본키, 마지막 등록 회원이 소유)에 둔다. 앱은 `registerPlatformMemberPushToken`으로 `platform-service`의 `register_push_token`을 부르고, 이 기기가 등록한 토큰만 저장해 로그아웃 때 `unregister_push_token`으로 그 토큰만 지운다. 직원용 `registerPushToken`과 권한·토큰 획득 단계(`acquireExpoPushToken`)를 공유한다.
+- `_shared/hospital-care-push.ts`가 새 요청(관리자), 직원 응답(회원), 첫 연락 기한 초과(관리자) 문구와 발송을 맡는다. 같은 요청의 재시도·같은 응답 재전송은 RPC가 `created=false`/`changed=false`를 돌려 다시 알리지 않는다. 기한 초과는 `claim_overdue_hospital_care_v1`이 한 번만 청구한다.
+- 관리자 토큰은 `admin_accounts.phone`과 `device_tokens.resident_id` 일치를 가정한다(운영 데이터 미확인). 실제 기기 수신·receipt는 미확인이다.
+
 ## Web Edge CORS boundary (2026-10-10)
 
 - 27 legacy Edge entries use `_shared/serve-with-cors.ts` to apply `_shared/configured-cors.ts` to every handler response, including OPTIONS and error responses. The wrapper selects the requesting origin only when the complete origin is explicitly listed in ALLOWED_ORIGINS. It adds Vary: Origin without sharing mutable headers between requests; status/body/security/cache headers remain intact.

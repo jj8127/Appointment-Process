@@ -22,7 +22,9 @@
         "lib/platform-api.ts",
         "hooks/use-platform-account.ts",
         "hooks/use-hospital-exposure.ts",
-        "components/hospitals/"
+        "components/hospitals/",
+        "supabase/migrations/20261021022245_platform_hospital_care_requests.sql",
+        "supabase/migrations/20261021022302_hospital_care_sla_schedule.sql"
       ],
       "requires_any": [
         "docs/handbook/mobile/platform-services.md",
