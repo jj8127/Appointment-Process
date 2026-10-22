@@ -2025,8 +2025,8 @@ export default function DashboardScreen() {
                 </Text>
               </View>
 
+              <Text style={[styles.inlineFieldLabel, styles.allowanceEditorLabel]}>보증보험 조회 동의일</Text>
               <View style={styles.allowanceEditorRow}>
-                <Text style={styles.inlineFieldLabel}>보증보험 조회 동의일</Text>
                 <Pressable
                   style={[styles.dateSelectButton, styles.allowanceDateButton, !canEdit && styles.actionButtonDisabled]}
                   disabled={!canEdit}
@@ -2037,8 +2037,10 @@ export default function DashboardScreen() {
                   }}
                 >
                   <Text
+                    numberOfLines={1}
                     style={[
                       styles.dateSelectText,
+                      styles.allowanceDateValue,
                       !currentAllowanceDate && styles.dateSelectPlaceholder,
                     ]}
                   >
@@ -4364,11 +4366,15 @@ const styles = StyleSheet.create({
   allowanceInfoRow: {
     marginTop: 10,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: 8,
   },
+  // The label sits above so the date keeps the row width and never wraps per character.
+  allowanceEditorLabel: { marginTop: 12 },
+  allowanceDateValue: { flex: 1, minWidth: 0, marginRight: 6 },
   allowanceEditorRow: {
-    marginTop: 10,
+    marginTop: 6,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -4407,7 +4413,7 @@ const styles = StyleSheet.create({
   allowanceBadgeTextWarning: { color: '#c2410c' },
   allowanceBadgeTextRejected: { color: '#b91c1c' },
   allowanceBadgeTextPending: { color: '#6b7280' },
-  allowanceDateText: { fontSize: 12, color: CHARCOAL },
+  allowanceDateText: { flexShrink: 1, fontSize: 12, color: CHARCOAL },
   // Modal Styles
   modalOverlay: {
     flex: 1,
