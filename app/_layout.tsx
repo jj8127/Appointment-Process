@@ -36,9 +36,11 @@ import { authorizeNotificationOpen } from '@/lib/notification-open-authorization
 import {
   bootstrapNotificationNavigation,
   clearNativeNotificationResponseIfCurrent,
+  createConsumedNotificationResponseStore,
   notificationCaptureMatches,
   processNotificationResponseSafely,
 } from '@/lib/notification-bootstrap';
+import { safeStorage } from '@/lib/safe-storage';
 import {
   markNotificationBootstrapReady,
   markNotificationNavigationIdle,
@@ -112,6 +114,10 @@ const defaultStackScreenOptions = {
 } as const;
 
 const ALERTS_CHANNEL_ID = 'alerts';
+const consumedNotificationResponses = createConsumedNotificationResponseStore(
+  safeStorage,
+  'notification.consumedResponseKeys.v1',
+);
 
 const GARAMIN_LIGHT_THEME = {
   ...DefaultTheme,
@@ -184,7 +190,8 @@ function NotificationNavigationBootstrap() {
   const rootNavigationState = useRootNavigationState();
   const [pending, setPending] =
     useState<PendingNotificationNavigation | null>(null);
-  const [invalidTargetPending, setInvalidTargetPending] = useState(false);
+  // 'unavailable' tells the user the target is gone; 'inbox' only opens the inbox after a transient failure.
+  const [invalidTargetPending, setInvalidTargetPending] = useState<false | 'unavailable' | 'inbox'>(false);
   // 모두온 member care answers carry no inbox row; they open the reservation screen.
   const [careTapPending, setCareTapPending] = useState(false);
   const handledResponseIdsRef = useRef(new Map<string, number>());
@@ -251,7 +258,7 @@ function NotificationNavigationBootstrap() {
   const clearForUnavailableTarget = useCallback(async (expected?: {
     notificationId: string;
     target: PendingNotificationNavigation['target'];
-  }) => {
+  }, outcome: 'unavailable' | 'inbox' = 'unavailable') => {
     if (
       expected
       && !notificationCaptureMatches(pendingRef.current, expected)
@@ -265,7 +272,7 @@ function NotificationNavigationBootstrap() {
     dispatchedNotificationIdsRef.current.clear();
     verifyingNotificationIdsRef.current.clear();
     await clearPendingNotificationNavigation(expected);
-    if (mountedRef.current) setInvalidTargetPending(true);
+    if (mountedRef.current) setInvalidTargetPending(outcome);
   }, []);
 
   const captureResponse = useCallback(async (response: unknown) => {
@@ -281,6 +288,10 @@ function NotificationNavigationBootstrap() {
       ? handledResponseIdsRef.current.get(responseKey)
       : undefined;
     if (handledAt !== undefined && Date.now() - handledAt < 2_000) return;
+    if (responseKey) {
+      if (await consumedNotificationResponses.has(responseKey)) return;
+      await consumedNotificationResponses.add(responseKey);
+    }
 
     if (isHospitalCarePushData(responseCandidate?.notification?.request?.content?.data)) {
       if (responseKey) handledResponseIdsRef.current.set(responseKey, Date.now());
@@ -414,7 +425,7 @@ function NotificationNavigationBootstrap() {
     if (!hydrated || !role || !rootNavigationState?.key) return;
     if (invalidTargetPending) {
       setInvalidTargetPending(false);
-      router.push('/notifications?targetError=unavailable');
+      router.push(invalidTargetPending === 'inbox' ? '/notifications' : '/notifications?targetError=unavailable');
       markNotificationNavigationIdle();
       return;
     }
@@ -479,10 +490,11 @@ function NotificationNavigationBootstrap() {
         return;
       }
       if (!authorization.ok) {
+        // A network or session hiccup is not proof the target is gone.
         await clearForUnavailableTarget({
           notificationId: pendingAtStart.notificationId,
           target: pendingAtStart.target,
-        });
+        }, authorization.reason === 'request_failed' ? 'inbox' : 'unavailable');
         return;
       }
       const route = buildNotificationTargetRoute({

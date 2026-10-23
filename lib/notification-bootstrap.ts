@@ -19,6 +19,50 @@ export function notificationCaptureMatches(
   );
 }
 
+type ConsumedResponseStorage = {
+  getItem: (key: string) => Promise<string | null>;
+  setItem: (key: string, value: string) => Promise<void>;
+};
+
+/**
+ * Remembers notification taps already handled, across app restarts. Android can hand the
+ * same launch response back on every cold start (reopening from recents), and an in-memory
+ * guard alone replays it each time. Storage failures fall back to the in-memory set.
+ */
+export function createConsumedNotificationResponseStore(
+  storage: ConsumedResponseStorage,
+  storageKey: string,
+  limit = 50,
+) {
+  let keys: string[] | null = null;
+  const load = async () => {
+    if (keys) return keys;
+    try {
+      const parsed: unknown = JSON.parse((await storage.getItem(storageKey)) ?? '[]');
+      keys = Array.isArray(parsed) ? parsed.filter((key): key is string => typeof key === 'string') : [];
+    } catch {
+      keys = [];
+    }
+    return keys;
+  };
+  return {
+    async has(responseKey: string) {
+      return Boolean(responseKey) && (await load()).includes(responseKey);
+    },
+    async add(responseKey: string) {
+      if (!responseKey) return;
+      const current = await load();
+      if (current.includes(responseKey)) return;
+      keys = [...current, responseKey].slice(-limit);
+      try {
+        await storage.setItem(storageKey, JSON.stringify(keys));
+      } catch {
+        // Keep the in-memory record; the next launch may replay once.
+      }
+    },
+  };
+}
+
 export async function clearNativeNotificationResponseIfCurrent<T>(input: {
   capturedResponse: T;
   getResponseKey: (response: T | null) => string;

@@ -1061,3 +1061,23 @@ it('hospital report preserves same-period failure, rejects invalid dates and cle
   expect(renderer.root.findAllByType('Button')).toHaveLength(0);
   await act(async () => { renderer.unmount(); });
 });
+
+it('family care referrer keeps the invite code in the code field when the preview cannot be shown', async () => {
+  const request = jest.fn(async (action: string) => {
+    if (action === 'get_service_referral') return { referrer: null };
+    throw new Error('시험 미리보기 실패');
+  });
+  const Referrer = executeComponent('components/FamilyCareReferrer.tsx', {
+    'react-native': { Text: 'Text', View: 'View', StyleSheet: { create: (styles: unknown) => styles } },
+    '@/components/Button': { Button: 'Button' }, '@/components/FormInput': { FormInput: 'FormInput' },
+    '@/hooks/use-session': { useSession: () => ({ platformSessionToken: 'synthetic-member' }) },
+    '@/lib/platform-api': { platformRequest: request }, '@/lib/referral-deeplink': { normalizeReferralInviteCode },
+    '@/lib/theme': { COLORS }, '@/lib/use-read-attempt': { useReadAttempt },
+  });
+  let renderer!: Renderer;
+  await act(async () => { renderer = create(createElement(Referrer, { inviteCode: 'sc79e564ed0b' })); });
+  expect(request).toHaveBeenCalledWith('preview_service_referral', { serviceKey: 'care', referralCode: 'SC79E564ED0B' }, 'synthetic-member');
+  const field = renderer.root.findAllByType('FormInput')[0];
+  expect(field?.props.value).toBe('SC79E564ED0B');
+  await act(async () => { renderer.unmount(); });
+});

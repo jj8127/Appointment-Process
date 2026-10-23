@@ -44,7 +44,19 @@ describe('notification navigation resume boundary', () => {
       '!notificationCaptureMatches(pendingRef.current, expected)',
     );
     expect(clearBlock).toContain('await clearPendingNotificationNavigation(expected)');
-    expect(clearBlock).toContain('setInvalidTargetPending(true)');
+    expect(clearBlock).toContain('setInvalidTargetPending(outcome)');
+  });
+
+  it('skips taps handled on an earlier launch and treats a transient authorization failure as inbox-only', () => {
+    const source = read('app/_layout.tsx');
+    const captureStart = source.indexOf('const captureResponse');
+    const consumedIndex = source.indexOf('await consumedNotificationResponses.has(responseKey)', captureStart);
+    const parseIndex = source.indexOf('parseNotificationPushData(', captureStart);
+
+    expect(consumedIndex).toBeGreaterThan(captureStart);
+    expect(consumedIndex).toBeLessThan(parseIndex);
+    expect(source).toContain("authorization.reason === 'request_failed' ? 'inbox' : 'unavailable'");
+    expect(source).toContain("invalidTargetPending === 'inbox' ? '/notifications' : '/notifications?targetError=unavailable'");
   });
 
   it('authorizes the current actor and exact stored target before route dispatch', () => {
@@ -85,5 +97,7 @@ describe('notification navigation resume boundary', () => {
     expect(identity).toContain(
       'authorizeNotificationOpen(notificationHandoff)',
     );
+    expect(gate).toContain("authorization.reason === 'request_failed' ? '/notifications' : '/notifications?targetError=unavailable'");
+    expect(identity).toContain("if (authorization.reason === 'request_failed') {");
   });
 });

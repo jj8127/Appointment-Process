@@ -1,5 +1,13 @@
 # 작업 로그
 
+## 2026-10-23 "대상을 열 수 없음" 반복과 초대 링크 가입 경고
+
+앱을 열 때마다 "대상을 열 수 없음"이 뜨던 문제와, 로그아웃 상태에서 초대 링크로 앱을 열면 가입 화면에서 "작성 중인 내용을 버릴까요?"가 뜨던 문제를 고쳤다. 로그인한 뒤에도 가족간병 추천 코드가 채워지게 했다. [→ 상세](WORK_DETAIL.md#20261023-notification-replay-invite-draft)
+
+## 2026-10-23 초대 페이지 "모두온 앱 열기" 버튼 수정
+
+카카오톡 인앱 브라우저에서 가족간병 초대 페이지의 "모두온 앱 열기"가 눌리지 않던 문제를 고쳤다. 버튼이 `hanwhafcpass://` 링크만 가리켜 카카오톡·Android 웹뷰가 무시했다. Android는 intent URL(설치 안 됨 → Play 스토어), iPhone 카카오톡은 Safari로 다시 연 뒤 앱을 연다. [→ 상세](WORK_DETAIL.md#20261023-invite-open-app)
+
 ## 2026-10-21 모두온 간병 예약 요청 운영 배포
 
 굿모닝한방병원 청주 상세의 간병 예약 요청(요청·관리자 응답·첫 연락 기한·회원/관리자 푸시)을 운영에 냈다. 마이그레이션 2개(20261021022245, 20261021022302), platform-service v10, production OTA(android 4.2.21 `630ba94e`, ios 4.2.22 `cb647bca`). PR 10의 governance 요구에 맞춰 schema mirror와 handbook을 갱신했다. [→ 상세](WORK_DETAIL.md#20261021-hospital-care-release)

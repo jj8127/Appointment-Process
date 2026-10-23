@@ -215,6 +215,12 @@ export default function IdentityScreen() {
           });
           if (!isCurrent()) return;
           markNotificationNavigationIdle();
+          if (authorization.reason === 'request_failed') {
+            // A network or session hiccup is not proof the target is gone.
+            Alert.alert('등록 완료', '신원 정보가 저장되었습니다.');
+            router.replace('/notifications');
+            return;
+          }
           Alert.alert(
             '등록 완료 · 알림 대상 확인 실패',
             '신원 정보는 저장되었지만 해당 알림을 더 이상 열 수 없습니다.',

@@ -23,7 +23,7 @@ export default function FamilyCareReferrer({ inviteCode }: { inviteCode?: string
   const begin = useReadAttempt();
   const [state, setState] = useState<PlatformServiceReferral | null>(null);
   const [loading, setLoading] = useState(false);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(invite ?? '');
   const [preview, setPreview] = useState<{ code: string; name: string } | null>(null);
   const [pending, setPending] = useState<'preview' | 'bind' | null>(null);
   const pendingRef = useRef(false);
@@ -49,6 +49,7 @@ export default function FamilyCareReferrer({ inviteCode }: { inviteCode?: string
     }
   }, [begin, token, invite]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (invite) setInput(invite); }, [invite]);
 
   const check = async () => {
     if (!token || pendingRef.current) return;

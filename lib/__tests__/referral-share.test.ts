@@ -120,7 +120,7 @@ describe('purpose-bound referral deep links and recovery', () => {
 describe('public invite landing purpose routing', () => {
   const html = readFileSync(join(process.cwd(), 'invite-page/index.html'), 'utf8');
   const script = /<script>([\s\S]*?)<\/script>/.exec(html)![1];
-  function landing(search: string, writeText = jest.fn(async (_value: string) => {})) {
+  function landing(search: string, writeText = jest.fn(async (_value: string) => {}), userAgent = '') {
     const elements = new Map<string, { textContent: string; href: string; disabled: boolean; style: { display: string }; click?: () => Promise<void>; addEventListener: (event: string, callback: () => Promise<void>) => void }>();
     const document = { title: '', getElementById: (id: string) => {
       if (!elements.has(id)) elements.set(id, {
@@ -129,7 +129,10 @@ describe('public invite landing purpose routing', () => {
       });
       return elements.get(id)!;
     } };
-    runInNewContext(script, { location: { search }, URLSearchParams, document, navigator: { clipboard: { writeText } } });
+    runInNewContext(script, {
+      location: { search, href: `https://garam-invite.vercel.app/${search}` }, URLSearchParams, document,
+      navigator: { clipboard: { writeText }, userAgent, platform: '', maxTouchPoints: 0 },
+    });
     return { document, elements, writeText };
   }
 
@@ -147,6 +150,21 @@ describe('public invite landing purpose routing', () => {
 
   it('keeps the existing FC route when no service is supplied', () => {
     expect(landing('?code=ABCDEFGH').elements.get('openApp')?.href).toBe('hanwhafcpass://signup?code=ABCDEFGH');
+  });
+
+  it('opens the app on Android, including the KakaoTalk in-app browser, through an intent URL with a store fallback', () => {
+    const kakaoAndroid = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36;KAKAOTALK 2410520';
+    expect(landing('?code=ABC123ABCDEF&service=care', undefined, kakaoAndroid).elements.get('openApp')?.href).toBe(
+      'intent://services/signup?service=care&code=ABC123ABCDEF#Intent;scheme=hanwhafcpass;package=com.jj8127.Garam_in;'
+      + 'S.browser_fallback_url=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.jj8127.Garam_in;end',
+    );
+  });
+
+  it('reopens the invite in Safari from the iPhone KakaoTalk in-app browser before opening the app', () => {
+    const kakaoIphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 KAKAOTALK 10.8.0';
+    expect(landing('?code=ABCDEFGH', undefined, kakaoIphone).elements.get('openApp')?.href).toBe(
+      'kakaotalk://web/openExternal?url=https%3A%2F%2Fgaram-invite.vercel.app%2F%3Fcode%3DABCDEFGH',
+    );
   });
 
   it.each(['?code=%E0%A4%A&service=care', '?code=ABC123ABCDEF&service=unknown', '?code=ABCDEFGH&code=ABCDEFGH'])('shows a harmless invalid-link message for %s', search => {
