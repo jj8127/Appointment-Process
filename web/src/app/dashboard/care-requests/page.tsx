@@ -138,13 +138,12 @@ function CareRequestWorkspace({ sessionKey }: { sessionKey: string }) {
 function QueueRow({ item, now, active, onSelect }: { item: AdminCareRequest; now: number; active: boolean; onSelect: () => void }) {
   const left = firstContactMinutesLeft(item, now);
   const tone = left === null ? undefined : left < 0 ? 'late' : left <= SOON_MINUTES ? 'soon' : undefined;
-  const [month, day] = item.desiredStart.slice(5).split('-').map(Number);
+  // The box shows time since the request; its color still follows the first-contact deadline.
+  const elapsed = Math.max(0, Math.floor((now - Date.parse(item.createdAt)) / 60000));
   return (
     <button type="button" className={styles.row} data-active={active || undefined} aria-current={active || undefined} onClick={onSelect}>
       <span className={styles.due} data-tone={tone}>
-        {left === null
-          ? <><span className={styles.dueValue}>{month}/{day}</span><span className={styles.dueUnit}>시작</span></>
-          : <><span className={styles.dueValue}>{minutesLabel(Math.abs(left))}</span><span className={styles.dueUnit}>{left < 0 ? '초과' : '남음'}</span></>}
+        <span className={styles.dueValue}>{minutesLabel(elapsed)}</span><span className={styles.dueUnit}>전</span>
       </span>
       <span className={styles.who}>
         <span className={styles.name}>{item.memberName ?? '회원'}</span>
