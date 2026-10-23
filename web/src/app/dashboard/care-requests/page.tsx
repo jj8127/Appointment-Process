@@ -2,18 +2,22 @@
 
 import { Alert, Button, Container, Group, Loader, SegmentedControl, Stack, Text, Textarea, Title } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconPhone } from '@tabler/icons-react';
+import {
+  IconAlarm, IconBed, IconBuildingHospital, IconCalendarEvent, IconCheck, IconCircleCheck, IconClockHour4, IconListDetails, IconMessageCircle, IconPhone,
+} from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type CSSProperties } from 'react';
 
+import { CountUp } from '@/components/CountUp';
 import { QueryErrorAlert } from '@/components/QueryErrorAlert';
 import { useSession } from '@/hooks/use-session';
 import { QueryReadError } from '@/lib/query-read-error';
 import {
   CARE_DECISIONS, CARE_REQUEST_STATUSES, CARE_TYPES, careMedian, carePercent, careQueue, decisionNeedsNote, firstContactMinutesLeft,
-  formatCareDate, formatCarePhone, formatCareTime, minutesLabel,
+  firstContactLabel, formatCareDate, formatCarePhone, formatCareTime, minutesLabel,
   type AdminCareRequest, type CareDecision, type CareMetrics, type CareMilestone,
 } from '@shared/lib/hospital-care-queue';
+import fcm from '../fc-modal.module.css';
 import surface from '../surface.module.css';
 import styles from './page.module.css';
 
@@ -25,7 +29,7 @@ const SOON_MINUTES = 30;
 const STATUS_COLOR: Record<AdminCareRequest['status'], string> = {
   requested: 'gray', reviewing: 'blue', confirmed: 'green', adjusted: 'orange', declined: 'red', cancelled: 'gray',
 };
-type Tab = 'open' | 'confirmed' | 'all';
+type Tab = 'open' | 'overdue' | 'confirmed' | 'all';
 type Answer = { action: 'respond'; requestId: string; status: CareDecision; note: string } | { action: 'mark'; requestId: string; milestone: CareMilestone };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -69,11 +73,19 @@ function CareRequestWorkspace({ sessionKey }: { sessionKey: string }) {
   const requests = query.data?.requests ?? [];
   const metrics = query.data?.metrics ?? null;
   const { open, confirmed, all } = careQueue(requests);
-  const overdue = open.filter((item) => (firstContactMinutesLeft(item, now) ?? 0) < 0).length;
-  // Until staff pick a tab or a row, show waiting requests and the most urgent one.
+  const overdue = open.filter((item) => (firstContactMinutesLeft(item, now) ?? 0) < 0);
+  // Until staff pick a tile or a row, show waiting requests and the most urgent one.
   const [pickedTab, setTab] = useState<Tab | null>(null);
   const tab = pickedTab ?? (open.length ? 'open' : 'all');
-  const shown = tab === 'open' ? open : tab === 'confirmed' ? confirmed : all;
+  const lists: Record<Tab, AdminCareRequest[]> = { open, overdue, confirmed, all };
+  const shown = lists[tab];
+  // Status tiles filter the queue, as on the 생명/손해 위촉 page; only the waiting tile is orange.
+  const tiles = [
+    { key: 'open' as const, label: '답변 대기', icon: IconClockHour4, hot: true },
+    { key: 'overdue' as const, label: '첫 연락 기한 초과', icon: IconAlarm, hot: false },
+    { key: 'confirmed' as const, label: '확정', icon: IconCircleCheck, hot: false },
+    { key: 'all' as const, label: '전체', icon: IconListDetails, hot: false },
+  ];
   const [pickedId, setPickedId] = useState<string | null>(null);
   const selected = shown.find((item) => item.id === pickedId) ?? shown[0] ?? null;
 
@@ -92,38 +104,38 @@ function CareRequestWorkspace({ sessionKey }: { sessionKey: string }) {
       <div className={surface.head} style={{ '--i': 0 } as CSSProperties}>
         <div>
           <Title order={1} className={surface.title}>간병 예약 요청</Title>
-          <div className={surface.headMeta}>
-            <span className={surface.metaChip} data-tone={!query.data ? undefined : open.length ? 'hot' : 'ok'}><i />답변 대기 <b>{query.data ? `${open.length}건` : '-'}</b></span>
-            {overdue ? <span className={surface.metaChip} data-tone="hot"><i />첫 연락 기한 초과 <b>{overdue}건</b></span> : null}
-          </div>
+          {metrics ? (
+            <div className={surface.headMeta} aria-label="최근 30일 처리 현황">
+              <span className={surface.metaChip}><i />최근 30일 <b>{metrics.requests}건</b> · 확정 {metrics.confirmed} · 시작 {metrics.started}</span>
+              <span className={surface.metaChip} data-tone="ok"><i />첫 연락 기한 준수 <b>{carePercent(metrics.firstContactOnTime, metrics.firstContactDue)}</b> · {metrics.firstContactOnTime}/{metrics.firstContactDue}건</span>
+              <span className={surface.metaChip}><i />첫 연락까지 중앙값 <b>{careMedian(metrics.medianFirstContactMinutes)}</b></span>
+              <span className={surface.metaChip}><i />결정까지 중앙값 <b>{careMedian(metrics.medianDecisionMinutes)}</b></span>
+            </div>
+          ) : null}
         </div>
       </div>
-      {metrics ? (
-        <div className={surface.statGroup} style={{ '--cols': 4, '--i': 1 } as CSSProperties} aria-label="최근 30일 처리 현황">
-          {([
-            ['최근 30일 요청', `${metrics.requests}건`, `확정 ${metrics.confirmed}건 · 시작 ${metrics.started}건`],
-            ['첫 연락 기한 준수', carePercent(metrics.firstContactOnTime, metrics.firstContactDue), `${metrics.firstContactOnTime} / ${metrics.firstContactDue}건`],
-            ['첫 연락까지', careMedian(metrics.medianFirstContactMinutes), '중앙값'],
-            ['결정까지', careMedian(metrics.medianDecisionMinutes), '중앙값'],
-          ] as const).map(([label, value, foot]) => (
-            <div key={label} className={surface.statTile} style={{ minHeight: 0 }}>
-              <span className={surface.statLabel}>{label}</span>
-              <span className={surface.statValue}>{value}</span>
-              <span className={surface.statFoot}>{foot}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
+      <div className={surface.statGroup} style={{ '--cols': 4, '--i': 1 } as CSSProperties} aria-label="요청 상태">
+        {tiles.map((tile, order) => {
+          const Icon = tile.icon;
+          const active = tab === tile.key;
+          return (
+            <button key={tile.key} type="button" className={`${surface.statTile} ${styles.tile}`} data-hot={(tile.hot && open.length > 0) || undefined}
+              data-active={active || undefined} aria-pressed={active} onClick={() => { setTab(tile.key); setPickedId(null); }}>
+              <span className={styles.tileHead}><span>{tile.label}</span><span className={styles.tileIcon}><Icon size={16} stroke={1.8} /></span></span>
+              <span className={surface.statValue}>{query.data ? <CountUp value={lists[tile.key].length} delay={120 + order * 60} suffix="건" /> : '-'}</span>
+            </button>
+          );
+        })}
+      </div>
       {query.error ? <QueryErrorAlert error={query.error} onRetry={query.refetch} isFetching={query.isFetching} hasData={Boolean(query.data)} subject="간병 요청 자료" /> : null}
       {query.error && !query.data ? null : <div className={styles.layout}>
         <section className={surface.tableCard} style={{ '--i': 2 } as CSSProperties} aria-label="요청 목록">
           <div className={styles.queueHead}>
-            <SegmentedControl radius="xl" value={tab} onChange={(value) => { setTab(value as Tab); setPickedId(null); }}
-              data={[{ value: 'open', label: `답변 대기 ${open.length}` }, { value: 'confirmed', label: `확정 ${confirmed.length}` }, { value: 'all', label: `전체 ${requests.length}` }]} />
+            <span className={styles.queueTitle}>{tiles.find((tile) => tile.key === tab)?.label}</span>
             {query.isFetching ? <Loader size="xs" aria-label="새로 불러오는 중" /> : null}
           </div>
           {query.isPending ? <div className={styles.empty}><Loader aria-label="요청 목록 조회 중" /></div>
-            : !shown.length ? <p className={styles.empty}>{tab === 'open' ? '답변을 기다리는 요청이 없습니다.' : '받은 예약 요청이 없습니다.'}</p>
+            : !shown.length ? <p className={styles.empty}>{tab === 'all' ? '받은 예약 요청이 없습니다.' : '해당하는 요청이 없습니다.'}</p>
               : <div className={styles.queue}>{shown.map((item) => <QueueRow key={item.id} item={item} now={now} active={item.id === selected?.id} onSelect={() => { setPickedId(item.id); answer.reset(); }} />)}</div>}
         </section>
         <section className={`${surface.card} ${styles.panel}`} style={{ '--i': 3 } as CSSProperties} aria-label="응답">
@@ -163,6 +175,7 @@ function AnswerPanel({ item, now, busy, error, onAnswer }: {
   const [noteError, setNoteError] = useState<string | null>(null);
   const left = firstContactMinutesLeft(item, now);
   const answerable = item.status !== 'cancelled';
+  const waiting = item.status === 'requested' || item.status === 'reviewing';
   const send = () => {
     if (!decision) return;
     if (decisionNeedsNote(decision) && !note.trim()) { setNoteError('회원에게 보낼 안내를 입력해 주세요.'); return; }
@@ -199,27 +212,35 @@ function AnswerPanel({ item, now, busy, error, onAnswer }: {
           <span className={styles.stepLabel}>{step.label}</span>{step.time ? <time>{step.time}</time> : null}
         </li>)}
       </ol>
-      <dl className={`${surface.well} ${styles.facts}`}>
-        <dt>희망 시작</dt><dd>{formatCareDate(item.desiredStart)}</dd>
-        <dt>간병 형태</dt><dd>{CARE_TYPES[item.careType]}</dd>
-        <dt>병원</dt><dd>{item.hospitalName}</dd>
-        {item.staffNote ? <><dt>보낸 안내</dt><dd>{item.staffNote}</dd></> : null}
-      </dl>
+      <section className={fcm.section} aria-labelledby="care-facts">
+        <span className={fcm.sectionTitle} id="care-facts">요청 정보</span>
+        <dl className={styles.facts}>
+          <dt><IconCalendarEvent size={15} stroke={1.8} aria-hidden />희망 시작</dt><dd>{formatCareDate(item.desiredStart)}</dd>
+          <dt><IconBed size={15} stroke={1.8} aria-hidden />간병 형태</dt><dd>{CARE_TYPES[item.careType]}</dd>
+          <dt><IconBuildingHospital size={15} stroke={1.8} aria-hidden />병원</dt><dd>{item.hospitalName}</dd>
+          {item.staffNote ? <><dt><IconMessageCircle size={15} stroke={1.8} aria-hidden />보낸 안내</dt><dd>{item.staffNote}</dd></> : null}
+        </dl>
+      </section>
       {answerable ? (
-        <Stack gap={12}>
-          <Text fw={600} size="sm" id="care-decision">처리 결정</Text>
+        <section className={fcm.section} aria-labelledby="care-decision">
+          <span className={fcm.sectionTitle} id="care-decision">처리 결정</span>
           <SegmentedControl aria-labelledby="care-decision" fullWidth radius="xl" disabled={busy} value={decision ?? ''}
             color={decision ? STATUS_COLOR[decision] : undefined}
+            styles={{ root: { background: '#fff' } }}
             onChange={(value) => { setDecision(value as CareDecision); setNoteError(null); }}
             data={CARE_DECISIONS.map((value) => ({ value, label: CARE_REQUEST_STATUSES[value] }))} />
           <Textarea label="회원 안내" withAsterisk={decision ? decisionNeedsNote(decision) : false} autosize minRows={3} maxRows={8} maxLength={500}
             value={note} disabled={busy} error={noteError} onChange={(event) => { setNote(event.currentTarget.value); setNoteError(null); }} />
           {error ? <Alert color="red" role="alert">{error}</Alert> : null}
-          <Group justify="flex-end">
-            <Button color="dark" radius="xl" size="md" px={28} disabled={!decision} loading={busy} onClick={send}>응답 보내기</Button>
-          </Group>
-        </Stack>
+        </section>
       ) : null}
+      {/* Decision bar as in FC 상세: where the request stands on the left, the orange main action on the right. */}
+      <div className={`${fcm.footer} ${styles.decisionBar}`}>
+        <span className={fcm.footerStatus} data-done={waiting ? undefined : ''}>
+          <i />{firstContactLabel(item, now) ?? (waiting ? '결정 대기' : item.status === 'confirmed' && !item.careStartedAt ? '간병 시작 대기' : CARE_REQUEST_STATUSES[item.status])}
+        </span>
+        {answerable ? <Button radius="xl" color="orange" leftSection={<IconCheck size={16} />} disabled={!decision} loading={busy} onClick={send}>응답 보내기</Button> : null}
+      </div>
     </Stack>
   );
 }
