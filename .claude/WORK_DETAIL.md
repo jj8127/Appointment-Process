@@ -8,6 +8,7 @@
 - 앱: `app/services/account.tsx`의 제휴·정산 관리 행을 `PARTNER_ADMIN_IN_APP`으로 숨김. `CareRequestAdmin`·`manage.tsx`는 그대로.
 - 공용: `lib/hospital-care-queue.ts`(상태·형태 이름, 기한 계산, 날짜 표시). `lib/platform-api.ts`·`lib/hospital-care.ts`는 다시 내보낸다.
 - 검증: web tsc·lint·node 테스트 818, 앱 tsc·lint, jest 관련 5파일. 로컬 next dev에서 브라우저 안 가짜 응답으로 대기열·안내 필수 오류·응답 전송·첫 연락 기록·확정 탭·조회 실패·390px 화면을 확인했다. `shared-function-contracts`의 함수 목록 검사는 경로에 `.codex-tmp`가 있어 0건이 되는 worktree 환경 문제로 실패한다.
+- 운영 배포(사용자 승인 "그렇게 배포해"): 운영 직전 배포 `dpl_CWZLuqCfF8KoV5RTP7LPmuYjEEw6`(10-20 10:54 KST, `1dac76a7`)는 이 브랜치의 조상이며 그 뒤 `web/` 변경은 이번 파일뿐이다. 깨끗한 worktree의 `c65863fc`를 저장소 루트에서 `vercel deploy --prod --yes --archive=tgz`(Sentry 업로드 토큰 제외)로 배포했다. `dpl_CNh4EkLQcAaGs2nYhCK1TnA7zu4R` READY, `adminweb-red.vercel.app` alias가 이 배포를 가리킨다. 비로그인 응답: `/auth` 200, `/dashboard`·`/dashboard/care-requests`·`/dashboard/docs` 307→`/auth`, `/api/admin/care-requests` GET·POST 401. 배포 후 Vercel 오류 로그 0건, Sentry garamin-web 최근 30분 이슈 0건. 브랜치 push·앱 OTA는 하지 않았다.
 - 미확인: 운영 관리자 계정으로 실제 platform-service 호출(관리자 세션에 모두온 약관 동의가 없으면 409가 그대로 표시된다).
 
 <a id="20261021-hospital-care-release"></a>

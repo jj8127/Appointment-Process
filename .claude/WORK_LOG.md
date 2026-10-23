@@ -2,7 +2,7 @@
 
 ## 2026-10-23 간병 예약 요청 응답을 관리자 웹으로 이전
 
-사용자 결정으로 간병 예약 요청 응답은 폰이 아닌 관리자 웹에서 한다. 관리자 웹 업무 묶음에 `간병 예약 요청`(`/dashboard/care-requests`)을 더했다. 왼쪽은 첫 연락 기한 순 대기열, 오른쪽은 응답 패널이며, 응답을 보내면 다음으로 급한 요청이 열린다. 서버 경로 `/api/admin/care-requests`가 관리자 세션의 앱 토큰으로 기존 platform-service 동작(get_admin·respond_hospital_care·mark_hospital_care)만 호출한다. 앱의 `제휴·정산 관리` 진입 행은 `PARTNER_ADMIN_IN_APP = false`로 숨기고 코드는 남겼다. 간병 상태 이름·대기열 규칙은 `lib/hospital-care-queue.ts`로 모아 앱과 웹이 같이 쓴다. 같은 브랜치에 병원 상세·간병 예약·선택 컨트롤 개편(fa5a3dc6~c18c5a27)이 있다. 미배포. [→ 상세](WORK_DETAIL.md#20261023-care-requests-admin-web)
+사용자 결정으로 간병 예약 요청 응답은 폰이 아닌 관리자 웹에서 한다. 관리자 웹 업무 묶음에 `간병 예약 요청`(`/dashboard/care-requests`)을 더했다. 왼쪽은 첫 연락 기한 순 대기열, 오른쪽은 응답 패널이며, 응답을 보내면 다음으로 급한 요청이 열린다. 서버 경로 `/api/admin/care-requests`가 관리자 세션의 앱 토큰으로 기존 platform-service 동작(get_admin·respond_hospital_care·mark_hospital_care)만 호출한다. 앱의 `제휴·정산 관리` 진입 행은 `PARTNER_ADMIN_IN_APP = false`로 숨기고 코드는 남겼다. 간병 상태 이름·대기열 규칙은 `lib/hospital-care-queue.ts`로 모아 앱과 웹이 같이 쓴다. 같은 브랜치에 병원 상세·간병 예약·선택 컨트롤 개편(fa5a3dc6~c18c5a27)이 있다. 이어서 화면을 다른 관리자 화면 규칙(상태 타일 필터, FC 상세식 섹션·하단 결정 바)에 맞췄고, 사용자 승인으로 관리자 웹만 `c65863fc`로 운영 배포했다(앱 OTA·push 없음). [→ 상세](WORK_DETAIL.md#20261023-care-requests-admin-web)
 
 ## 2026-10-21 모두온 간병 예약 요청 운영 배포
 
