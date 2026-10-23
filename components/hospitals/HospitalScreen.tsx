@@ -48,7 +48,7 @@ export default function HospitalScreen({ children, detail = false, overlayHeader
         {headerActions && <View style={hospitalStyles.headerActions}>{headerActions}</View>}
       </View>}
       {children}
-      {footer && <View style={[hospitalStyles.footer, !preset && { paddingBottom: 12 + insets.bottom }]}>{footer}</View>}
+      {footer ? <View style={[hospitalStyles.footer, !preset && { paddingBottom: 12 + insets.bottom }]}>{footer}</View> : null}
     </View>
     {preset && <BottomNavigation preset={preset} activeKey="home" bottomInset={insets.bottom} animatedStyle={{ position: 'relative' }} />}
   </SafeAreaView>;
