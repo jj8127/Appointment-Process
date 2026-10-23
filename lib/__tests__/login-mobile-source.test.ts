@@ -68,3 +68,20 @@ describe('login mobile keyboard behavior', () => {
     expect(source).toContain('rememberPasswordPressInHandledRef');
   });
 });
+
+describe('care invitation through common signup and login', () => {
+  it('does not count the invite-filled referral code as an unsaved signup draft', () => {
+    const source = readAppFile('services/signup.tsx');
+    const guard = /useDraftExitGuard\(Boolean\(([^)]*)\)/.exec(source)?.[1] ?? '';
+    expect(guard).toContain('name');
+    expect(guard).not.toContain('referralCode');
+  });
+
+  it('carries the care invite code from signup through login to the care screen', () => {
+    const signup = readAppFile('services/signup.tsx');
+    const login = readAppFile('services/login.tsx');
+    expect(signup).toContain("{ pathname: '/services/login', params: { service: 'care', code: referralCode } }");
+    expect(login).toContain("service === 'care' ? normalizeReferralInviteCode(inviteCodeParam) : null");
+    expect(login).toContain("{ pathname: '/services/[service]', params: { service: 'care', code: careInviteCode } }");
+  });
+});

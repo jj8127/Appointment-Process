@@ -1,6 +1,7 @@
 import {
   bootstrapNotificationNavigation,
   clearNativeNotificationResponseIfCurrent,
+  createConsumedNotificationResponseStore,
   notificationCaptureMatches,
   processNotificationResponseSafely,
 } from '../notification-bootstrap';
@@ -126,5 +127,48 @@ describe('notification cold bootstrap behavior', () => {
     });
 
     expect(ready).toEqual([true]);
+  });
+});
+
+describe('consumed notification responses across launches', () => {
+  function memoryStorage(initial?: string) {
+    const values = new Map<string, string>(initial ? [['k', initial]] : []);
+    return {
+      values,
+      getItem: async (key: string) => values.get(key) ?? null,
+      setItem: async (key: string, value: string) => { values.set(key, value); },
+    };
+  }
+
+  it('remembers a handled tap in storage so the next launch does not replay it', async () => {
+    const storage = memoryStorage();
+    const firstLaunch = createConsumedNotificationResponseStore(storage, 'k');
+    expect(await firstLaunch.has('push-1')).toBe(false);
+    await firstLaunch.add('push-1');
+
+    const nextLaunch = createConsumedNotificationResponseStore(storage, 'k');
+    expect(await nextLaunch.has('push-1')).toBe(true);
+    expect(await nextLaunch.has('push-2')).toBe(false);
+  });
+
+  it('keeps only the most recent keys and ignores empty keys', async () => {
+    const storage = memoryStorage();
+    const store = createConsumedNotificationResponseStore(storage, 'k', 2);
+    await store.add('');
+    await store.add('a');
+    await store.add('b');
+    await store.add('c');
+    expect(JSON.parse(storage.values.get('k')!)).toEqual(['b', 'c']);
+    expect(await store.has('')).toBe(false);
+  });
+
+  it('treats unreadable or failing storage as empty and still dedupes in memory', async () => {
+    const store = createConsumedNotificationResponseStore({
+      getItem: async () => 'not json',
+      setItem: async () => { throw new Error('synthetic storage failure'); },
+    }, 'k');
+    expect(await store.has('a')).toBe(false);
+    await store.add('a');
+    expect(await store.has('a')).toBe(true);
   });
 });

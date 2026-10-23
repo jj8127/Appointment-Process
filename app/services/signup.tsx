@@ -55,7 +55,8 @@ export default function PlatformSignup() {
   const pending = useRef(false);
   const referralEdited = useRef(false);
   const beginAttempt = useReadAttempt();
-  const allowCompletedExit = useDraftExitGuard(Boolean(name || phone || code || password || referralCode || termsAccepted), Boolean(loading));
+  // The invite fills the referral code by itself, so it is not a draft the user could lose.
+  const allowCompletedExit = useDraftExitGuard(Boolean(name || phone || code || password || termsAccepted), Boolean(loading));
 
   useEffect(() => {
     let active = true;
@@ -328,7 +329,9 @@ export default function PlatformSignup() {
             <StackItem key={step}>{renderStep(step)}</StackItem>
           ))}
         </LayoutAnimationConfig>
-        <Pressable accessibilityRole="button" disabled={Boolean(loading)} onPress={() => router.replace(resolvePlatformAuthRoute(service, 'login'))} style={styles.link}>
+        <Pressable accessibilityRole="button" disabled={Boolean(loading)} onPress={() => router.replace(referralCode && service === 'care'
+          ? { pathname: '/services/login', params: { service: 'care', code: referralCode } }
+          : resolvePlatformAuthRoute(service, 'login'))} style={styles.link}>
           <Text style={styles.linkText}>이미 계정이 있어요</Text>
         </Pressable>
       </KeyboardAwareWrapper>

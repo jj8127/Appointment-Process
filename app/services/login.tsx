@@ -13,6 +13,7 @@ import { useLogin } from '@/hooks/use-login';
 import { PlatformApiError, platformRequest, type PlatformAuthResponse } from '@/lib/platform-api';
 import { captureAppSessionOwner } from '@/lib/request-board-api';
 import { COLORS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { normalizeReferralInviteCode } from '@/lib/referral-deeplink';
 import { resolvePlatformAuthRoute, resolveSessionLandingRoute } from '@/lib/session-landing';
 import { waitForNotificationNavigationDecision } from '@/lib/notification-navigation-coordinator';
 import { clearSavedLoginCredentials, getSavedLoginCredentials, setSavedLoginCredentials } from '@/lib/saved-login-credentials';
@@ -25,7 +26,9 @@ const NOTIFICATION_HANDOFF_GRACE_MS = 1200;
 
 export default function PlatformLogin() {
   const navigation = useNavigation();
-  const { service, skipAuto } = useLocalSearchParams<{ service?: string; skipAuto?: string }>();
+  const { service, skipAuto, code: inviteCodeParam } = useLocalSearchParams<{ service?: string; skipAuto?: string; code?: string }>();
+  // A care invitation opened while signed out keeps its code through sign-in.
+  const careInviteCode = service === 'care' ? normalizeReferralInviteCode(inviteCodeParam) : null;
   const { hydrated, role, residentId, appSessionToken, platformSessionToken, isRequestBoardDesigner, isPlatformSignedIn, loginPlatformMember } = useSession();
   const { acceptLoginResponse, handleLoginRejection } = useLogin();
   const [phone, setPhone] = useState('');
@@ -52,8 +55,11 @@ export default function PlatformLogin() {
 
   useEffect(() => {
     if (!hydrated || (skipAuto === '1' && !manualLoginSucceeded)) return;
-    const route = resolveSessionLandingRoute({ role, residentId, isRequestBoardDesigner,
+    const landing = resolveSessionLandingRoute({ role, residentId, isRequestBoardDesigner,
       isPlatformSignedIn, requestedService: service });
+    const route = landing && careInviteCode && isPlatformSignedIn
+      ? { pathname: '/services/[service]', params: { service: 'care', code: careInviteCode } } as const
+      : landing;
     if (!route) return;
     let active = true;
     let handoffFallback: ReturnType<typeof setTimeout> | undefined;
@@ -72,7 +78,7 @@ export default function PlatformLogin() {
       }, NOTIFICATION_HANDOFF_GRACE_MS);
     });
     return () => { active = false; if (handoffFallback) clearTimeout(handoffFallback); };
-  }, [hydrated, role, residentId, isRequestBoardDesigner, isPlatformSignedIn, service, skipAuto, manualLoginSucceeded, navigation]);
+  }, [hydrated, role, residentId, isRequestBoardDesigner, isPlatformSignedIn, service, skipAuto, manualLoginSucceeded, navigation, careInviteCode]);
 
   const toggleRememberPassword = useCallback(() => {
     if (rememberPassword) void clearSavedLoginCredentials().catch(() => undefined);

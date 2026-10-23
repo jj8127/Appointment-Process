@@ -114,7 +114,8 @@ export default function ApplyGateScreen() {
   const emailLocalRef = useRef<TextInput>(null);
   const customDomainRef = useRef<TextInput>(null);
   const referralInputRef = useRef<TextInput>(null);
-  const allowExit = useDraftExitGuard(commonOnly && formShown && Boolean(affiliation || emailLocal || emailDomain || carrier || searchQuery), submitting);
+  // An invitation fills the referrer search by itself; only a search the user changed is a draft.
+  const allowExit = useDraftExitGuard(commonOnly && formShown && Boolean(affiliation || emailLocal || emailDomain || carrier || (searchQuery && referralEditVersion.current > 0)), submitting);
   const { data, isLoading, isError, error, refetch, isFetching } = useIdentityStatus();
   const safeNext = useMemo(() => normalizeApplyGateNext(next), [next]);
   const forwardToSafeNext = useCallback(async () => {
@@ -127,7 +128,8 @@ export default function ApplyGateScreen() {
           target: handoff.target,
         });
         markNotificationNavigationIdle();
-        router.replace('/notifications?targetError=unavailable');
+        // A network or session hiccup is not proof the target is gone.
+        router.replace(authorization.reason === 'request_failed' ? '/notifications' : '/notifications?targetError=unavailable');
         return;
       }
     }
