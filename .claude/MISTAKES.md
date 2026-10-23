@@ -1,5 +1,10 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-10-23 실패한 cd 뒤의 git 명령이 메인 체크아웃에서 커밋함
+
+- 재현: 한 줄의 `&&` 체인(임시 worktree 삭제 → `cd <작업 worktree>` → heredoc)이 앞 단계 실패로 멈췄는데, 다음 줄의 `git add`/`git commit`은 체인 밖이라 이전 작업 디렉터리(메인 체크아웃)에서 실행돼 다른 세션의 dirty `.claude/WORK_LOG.md`를 커밋했다(push 전 `reset --soft`와 `restore --staged`로 되돌림).
+- 규칙: 쓰기 명령(add/commit/push/deploy)은 `git -C <절대경로>`를 쓰거나, 시작에서 `cd <경로> || exit 1`과 `git rev-parse --show-toplevel` 확인을 둔다. 정리 단계(worktree 삭제 등)는 작업 명령과 같은 체인에 묶지 않는다.
+
 ## 2026-10-15 증분 release 빌드에서 이미지 교체 후 expo-updates 자산 목록이 갱신되지 않음
 
 - 재현: 같은 `android/`에서 `assembleRelease`를 반복하며 같은 이름의 PNG만 바꾸자 `createReleaseUpdatesResources/app.manifest`가 첫 빌드의 해시를 유지했다. JS 번들은 새 해시를 찾고 내장 목록에는 옛 해시만 있어, 홈 서비스 아이콘이 오류 로그 없이 빈칸으로 표시됐다. 레이아웃·배경·이미지 컴포넌트를 바꾸는 시험으로 원인을 잘못 좁혀 시간을 썼다.
