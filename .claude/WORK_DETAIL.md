@@ -1,5 +1,14 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261023-hospital-redesign-ota"></a>
+## 2026-10-23 제휴병원·간병 예약 재디자인 앱 배포
+
+- 소스: `release/hospital-redesign-20261023` = origin/release/all-surfaces-20261004(c80e551a) + 디자인 브랜치(21a6dbb6) 병합(8d63c686, 작업 기록 충돌만 양쪽 유지) + FC 소속 선택 handbook(`fc-onboarding.md`) + `HospitalScreen` footer를 삼항식으로 바꾼 수정(9a6185d4, react-native-text-child-contract 새 실패 해소).
+- 검증: tsc·lint, 영향 suite 327/327, 엄격 governance 통과. 전체 jest 실패 목록은 기준(27건)과 같고 새 실패 0(위 수정 후).
+- OTA production(소스 9a6185d4): android 4.2.21 group `f79eb33a-f9e6-465c-b1d2-76f78495a444`, ios 4.2.22 group `b8025f14-a759-42fc-8355-5b47efdf422e`. 직전 운영 OTA는 e09a0d81/8b80de53(45fe3f15, 이 소스의 조상). `EXPO_PUBLIC_HOSPITAL_DEMO` 반영은 대조 빌드 해시(5bf5…/4abc…)로 확인, 운영 매니페스트 readback 확인.
+- 관리자 웹: 디자인 세션이 c65863fc로 배포한 것과 이 브랜치의 `web/`가 같아 재배포하지 않았다.
+- 미확인: 실제 기기 화면.
+
 <a id="20261023-notification-replay-invite-draft"></a>
 ## 2026-10-23 "대상을 열 수 없음" 반복과 초대 링크 가입 경고
 
