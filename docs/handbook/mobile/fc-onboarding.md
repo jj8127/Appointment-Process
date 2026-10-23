@@ -7,6 +7,10 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 
 # Mobile Playbook: FC Onboarding
 
+## 2026-10-22 기본 정보의 소속 선택
+
+`app/fc/new.tsx`의 소속은 버튼 묶음 대신 공용 `OptionSheetField`(시트에서 하나 고르기)로 고른다. 선택 값은 기존처럼 `affiliation` 폼 값으로 넣고 검증하며, 제출 중에는 선택을 막는다. 저장 계약과 소속 목록(`AFFILIATION_OPTIONS`)은 바뀌지 않았다.
+
 ## 2026-10-15 다음 단계 카드 여백
 
 보험 홈의 다음 단계 카드(`premiumStepCard`)는 고정 높이 120 대신 최소 높이 136으로 두 줄 설명에 맞게 늘어난다. 같은 줄의 영상 버튼은 카드 높이를 따른다. 단계 판정·이동 경로는 바뀌지 않았다.
