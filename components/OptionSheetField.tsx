@@ -8,7 +8,8 @@ import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 type OptionSheetFieldProps<T extends string> = {
   label: string;
   value: T | '';
-  options: readonly T[];
+  /** Plain strings are their own label; `{ value, label }` shows a different label (codes, ids). */
+  options: readonly (T | { value: T; label: string })[];
   onChange: (value: T) => void;
   placeholder?: string;
   disabled?: boolean;
@@ -33,19 +34,21 @@ export function OptionSheetField<T extends string>({
 }: OptionSheetFieldProps<T>) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
+  const items = options.map((option) => typeof option === 'string' ? { value: option, label: option } : option);
+  const shown = items.find((item) => item.value === value)?.label ?? '';
 
   return (
     <View style={styles.container}>
       {!hideLabel && <Text style={styles.label}>{label}</Text>}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${label} 선택, ${value || '선택 안 함'}`}
+        accessibilityLabel={`${label} 선택, ${shown || '선택 안 함'}`}
         accessibilityState={{ disabled, expanded: open }}
         disabled={disabled}
         onPress={() => setOpen(true)}
         style={({ pressed }) => [styles.field, open && styles.fieldOpen, !!error && styles.fieldError, pressed && styles.pressed, disabled && styles.disabled]}
       >
-        <Text numberOfLines={1} style={[styles.value, !value && styles.placeholder]}>{value || placeholder}</Text>
+        <Text numberOfLines={1} style={[styles.value, !shown && styles.placeholder]}>{shown || placeholder}</Text>
         <Feather accessible={false} name="chevron-down" size={20} color={COLORS.text.secondary} />
       </Pressable>
       {!!error?.trim() && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
@@ -60,17 +63,17 @@ export function OptionSheetField<T extends string>({
             <View style={styles.handle} />
             <Text accessibilityRole="header" style={styles.sheetTitle}>{label}</Text>
             <ScrollView keyboardShouldPersistTaps="always" disableScrollViewPanResponder style={styles.list} bounces={false}>
-              {options.map(option => {
-                const selected = option === value;
+              {items.map(option => {
+                const selected = option.value === value;
                 return (
                   <Pressable
-                    key={option}
+                    key={option.value}
                     accessibilityRole="radio"
                     accessibilityState={{ checked: selected }}
-                    onPress={() => { onChange(option); close(); }}
+                    onPress={() => { onChange(option.value); close(); }}
                     style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
                   >
-                    <Text style={[styles.rowText, selected && styles.rowTextSelected]}>{option}</Text>
+                    <Text style={[styles.rowText, selected && styles.rowTextSelected]}>{option.label}</Text>
                     {selected && <Feather accessible={false} name="check" size={20} color={COLORS.primaryButton} />}
                   </Pressable>
                 );

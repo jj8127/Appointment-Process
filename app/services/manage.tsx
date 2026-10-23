@@ -7,6 +7,8 @@ import { FormInput } from '@/components/FormInput';
 import CareRequestAdmin, { type AdminCareRequest, type CareMetrics } from '@/components/hospitals/CareRequestAdmin';
 import HospitalContractFields, { EMPTY_HOSPITAL_DRAFT, type HospitalDraft } from '@/components/hospitals/HospitalContractFields';
 import HospitalPerformanceReport from '@/components/hospitals/HospitalPerformanceReport';
+import { OptionSheetField } from '@/components/OptionSheetField';
+import { ActionRows, ChoiceRows, SegmentedControl } from '@/components/SelectionControls';
 import ServiceInformation, { ServiceAction, informationStyles as styles } from '@/components/ServiceInformation';
 import { useDraftExitGuard } from '@/hooks/use-draft-exit-guard';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
@@ -14,7 +16,7 @@ import { useSession } from '@/hooks/use-session';
 import { createCreationRequestTracker } from '@/lib/board-comment-request';
 import { getSeoulTodayIsoDate } from '@/lib/admin-assisted-signup-validation';
 import { parseCalendarDate } from '@/lib/calendar-date';
-import { HOSPITAL_PROVINCES, PLATFORM_SERVICES, PlatformApiError, platformRequest, type PlatformService } from '@/lib/platform-api';
+import { HOSPITAL_AD_ADMIN_ENABLED, HOSPITAL_PROVINCES, PLATFORM_SERVICES, PlatformApiError, platformRequest, type PlatformService } from '@/lib/platform-api';
 import { useReadAttempt } from '@/lib/use-read-attempt';
 
 type Partner = { id: string; service_key: PlatformService; name: string; region: string; address: string; website_url: string; phone: string; consumer_rate: number; referrer_rate: number; referrer_basis: 'commission' | 'after_consumer'; active: boolean; revision: number; ad_period_start: string | null; ad_period_end: string | null; ad_placement: string | null; ad_fee: number | null; province_code: string | null; district: string | null; specialties: string[]; description: string | null; photo_url: string | null; opening_hours: string | null; verified_at: string | null; material_approved: boolean; review_required: boolean | null; review_number: string | null; review_expires_at: string | null };
@@ -140,17 +142,19 @@ export default function ServiceManage() {
         onRespond={(requestId, status, note) => void write('respond_hospital_care', { requestId, status, note: note || null })}
         onMark={(requestId, milestone) => void write('mark_hospital_care', { requestId, milestone })} />
       <Text style={styles.sectionTitle}>제휴사 등록</Text>
-      {data?.partners.map((partner) => <Button key={partner.id} variant="outline" disabled={busy} onPress={() => {
+      {!!data?.partners.some((partner) => HOSPITAL_AD_ADMIN_ENABLED || partner.service_key !== 'hospital') && <View style={{ marginBottom: 16 }}><ActionRows items={data.partners.filter((partner) => HOSPITAL_AD_ADMIN_ENABLED || partner.service_key !== 'hospital').map((partner) => ({ key: partner.id, label: partner.name,
+        detail: `${PLATFORM_SERVICES[partner.service_key]} · ${partner.active ? '활성' : '중지'}`, disabled: busy, onPress: () => {
         setEditing(true); setPartnerId(partner.id); setRevision(partner.revision); setServiceKey(partner.service_key);
         setActive(partner.active); setReferrerBasis(partner.referrer_basis);
         setHospital({ provinceCode: partner.province_code ?? '', district: partner.district ?? '', specialties: (partner.specialties ?? []).join(', '), description: partner.description ?? '', photoUrl: partner.photo_url ?? '', openingHours: partner.opening_hours ?? '', verifiedAt: partner.verified_at ?? '', materialApproved: partner.material_approved ?? false, reviewRequired: partner.review_required ?? null, reviewNumber: partner.review_number ?? '', reviewExpiresAt: partner.review_expires_at ?? '' });
         setFields({ name: partner.name, region: partner.region, address: partner.address, websiteUrl: partner.website_url, phone: partner.phone,
           consumerRate: String(Number(partner.consumer_rate) * 100), referrerRate: String(Number(partner.referrer_rate) * 100),
           adPeriodStart: partner.ad_period_start ?? '', adPeriodEnd: partner.ad_period_end ?? '', adPlacement: partner.ad_placement ?? '', adFee: partner.ad_fee === null ? '' : String(partner.ad_fee) });
-      }}>{partner.name} · {partner.active ? '활성' : '중지'} · 수정</Button>)}
+      } }))} /></View>}
       {editing && <Button variant="ghost" disabled={busy} onPress={() => { setEditing(false); setRevision(0); setPartnerId(randomUUID()); setFields(EMPTY_PARTNER); setHospital(EMPTY_HOSPITAL_DRAFT); setActive(false); }}>새 제휴사 등록으로 전환</Button>}
-      <View style={styles.list}>
-        {Object.entries(PLATFORM_SERVICES).map(([key, name]) => <Button key={key} variant={serviceKey === key ? 'primary' : 'outline'} disabled={busy || (editing && key !== serviceKey)} onPress={() => setServiceKey(key as PlatformService)}>{name}</Button>)}
+      <View style={{ marginBottom: 16 }}>
+        <OptionSheetField label="제휴 서비스" value={serviceKey} disabled={busy || editing} onChange={setServiceKey}
+          options={(Object.entries(PLATFORM_SERVICES) as [PlatformService, string][]).filter(([value]) => HOSPITAL_AD_ADMIN_ENABLED || value !== 'hospital').map(([value, label]) => ({ value, label }))} />
       </View>
       {(['name', 'region', 'address', 'websiteUrl', 'phone'] as const).filter((key) => serviceKey !== 'hospital' || key !== 'region').map((key) => <FormInput key={key} label={{ name: serviceKey === 'hospital' ? '병원명' : '제휴사명', region: '지역', address: '주소', websiteUrl: '홈페이지 주소', phone: '대표 연락처' }[key]} accessibilityLabel={key} value={fields[key]} editable={!busy} maxLength={key === 'websiteUrl' ? 500 : key === 'region' ? 50 : 100} onChangeText={(value) => setFields((current) => ({ ...current, [key]: value }))} />)}
       {serviceKey === 'hospital' ? <>
@@ -158,24 +162,33 @@ export default function ServiceManage() {
         <Text style={styles.sectionTitle}>광고 계약</Text>
         {(['adPeriodStart', 'adPeriodEnd', 'adFee'] as const).map((key) => <FormInput key={key} label={{ adPeriodStart: '광고 시작일 (YYYY-MM-DD)', adPeriodEnd: '광고 종료일 (YYYY-MM-DD)', adFee: '광고비 (원)' }[key]} accessibilityLabel={key} value={fields[key]} editable={!busy} keyboardType={key === 'adFee' ? 'number-pad' : 'default'} maxLength={key === 'adFee' ? 15 : 10} onChangeText={(value) => setFields((current) => ({ ...current, [key]: value }))} />)}
         <Text style={styles.item}>계약 노출 위치</Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-          <Button variant={fields.adPlacement === 'regional_list' ? 'primary' : 'outline'} disabled={busy} onPress={() => setFields((current) => ({ ...current, adPlacement: 'regional_list' }))}>지역 목록</Button>
-          <Button variant={fields.adPlacement === 'regional_featured' ? 'primary' : 'outline'} disabled={busy} onPress={() => setFields((current) => ({ ...current, adPlacement: 'regional_featured' }))}>지역 강조</Button>
+        <View style={{ marginBottom: 16 }}>
+          <SegmentedControl label="계약 노출 위치" value={fields.adPlacement as 'regional_list' | 'regional_featured' | ''} disabled={busy}
+            options={[{ value: 'regional_list', label: '지역 목록' }, { value: 'regional_featured', label: '지역 강조' }]}
+            onChange={(adPlacement) => setFields((current) => ({ ...current, adPlacement }))} />
         </View>
         <Text style={styles.body}>선택한 지역·기간에 승인한 소재를 노출합니다. 강조 지면은 해당 조건의 계약이 여러 개면 순환 표시합니다.</Text>
       </> : serviceKey === 'insurance' ? <Text style={styles.body}>보험 상담 서비스는 준비 중입니다. 보험 증원수당은 기존 보험 업무에서 확인합니다.</Text> : <>
         <Text style={styles.body}>소비자 혜택은 수수료 총액에 적용합니다. 직접 추천인 비율의 기준을 합의한 내용대로 선택하세요. 원 미만은 버립니다.</Text>
         <FormInput label="소비자 지급 비율 (%)" accessibilityLabel="소비자 지급 비율" value={fields.consumerRate} editable={!busy} keyboardType="decimal-pad" maxLength={8} onChangeText={(value) => setFields((current) => ({ ...current, consumerRate: value }))} />
         <FormInput label="직접 추천인 지급 비율 (%)" accessibilityLabel="직접 추천인 지급 비율" value={fields.referrerRate} editable={!busy} keyboardType="decimal-pad" maxLength={8} onChangeText={(value) => setFields((current) => ({ ...current, referrerRate: value }))} />
-        <Button variant={referrerBasis === 'after_consumer' ? 'primary' : 'outline'} disabled={busy} onPress={() => setReferrerBasis('after_consumer')}>소비자 혜택을 뺀 나머지 기준</Button>
-        <Button variant={referrerBasis === 'commission' ? 'primary' : 'outline'} disabled={busy} onPress={() => setReferrerBasis('commission')}>수수료 총액 기준</Button>
+        <View style={{ marginBottom: 22 }}>
+          <ChoiceRows label="직접 추천인 비율 기준" value={referrerBasis} disabled={busy} onChange={setReferrerBasis}
+            options={[{ value: 'after_consumer', label: '소비자 혜택을 뺀 나머지 기준' }, { value: 'commission', label: '수수료 총액 기준' }]} />
+        </View>
       </>}
       <Pressable accessibilityRole="checkbox" accessibilityLabel="제휴사 활성화" accessibilityState={{ checked: active, disabled: busy }} disabled={busy} style={styles.list} onPress={() => setActive((value) => !value)}><Text style={styles.item}>{active ? '☑' : '□'} 제휴를 확인하여 활성화합니다.</Text></Pressable>
       <Button loading={busyAction === 'save_partner'} disabled={busy} fullWidth onPress={savePartner}>{editing ? '제휴사 수정 저장' : '합의된 제휴사 등록'}</Button>
-      <HospitalPerformanceReport token={token} allowed={allowed} partners={(data?.partners ?? []).filter((partner) => partner.service_key === 'hospital')} />
+      {HOSPITAL_AD_ADMIN_ENABLED && <HospitalPerformanceReport token={token} allowed={allowed} partners={(data?.partners ?? []).filter((partner) => partner.service_key === 'hospital')} />}
       <Text style={styles.sectionTitle}>외부 거래·정산 확인</Text>
-      {data?.applications.filter((item) => item.status === 'interest' && item.service_key !== 'insurance').map((item) => <Button key={item.id} variant={applicationId === item.id ? 'primary' : 'outline'} disabled={busy} onPress={() => { setApplicationId(item.id); setSettlementPartnerId(''); setConfirmed(false); }}>{PLATFORM_SERVICES[item.service_key]} · {new Date(item.created_at).toLocaleDateString('ko-KR')} · {item.id.slice(0, 8)}</Button>)}
-      {data?.partners.filter((partner) => partner.active && partner.service_key === data.applications.find((item) => item.id === applicationId)?.service_key).map((partner) => <Button key={partner.id} disabled={busy} variant={settlementPartnerId === partner.id ? 'primary' : 'outline'} onPress={() => setSettlementPartnerId(partner.id)}>{partner.name}</Button>)}
+      <View style={{ gap: 16, marginBottom: 16 }}>
+        <OptionSheetField label="정산할 신청" value={applicationId} disabled={busy} onChange={(id) => { setApplicationId(id); setSettlementPartnerId(''); setConfirmed(false); }}
+          options={(data?.applications ?? []).filter((item) => item.status === 'interest' && item.service_key !== 'insurance')
+            .map((item) => ({ value: item.id, label: `${PLATFORM_SERVICES[item.service_key]} · ${new Date(item.created_at).toLocaleDateString('ko-KR')} · ${item.id.slice(0, 8)}` }))} />
+        {!!applicationId && <OptionSheetField label="정산 제휴사" value={settlementPartnerId} disabled={busy} onChange={setSettlementPartnerId}
+          options={(data?.partners ?? []).filter((partner) => partner.active && partner.service_key === data?.applications.find((item) => item.id === applicationId)?.service_key)
+            .map((partner) => ({ value: partner.id, label: partner.name }))} />}
+      </View>
       {(['commissionAmount', 'settledAt', 'transactionReference', 'settlementEvidenceReference'] as const).map((key) => <FormInput key={key} label={{ commissionAmount: '제휴사 정산 수수료 총액 (원)', settledAt: '정산 완료 시각 (시간대 포함)', transactionReference: '실제 거래 식별 번호', settlementEvidenceReference: '제휴사 정산 증빙 식별 번호' }[key]} accessibilityLabel={key} value={settlement[key]} editable={!busy} maxLength={key === 'settlementEvidenceReference' ? 200 : 120} placeholder={key === 'settledAt' ? '2026-10-11T13:00:00+09:00' : undefined} onChangeText={(value) => setSettlement((current) => ({ ...current, [key]: value }))} />)}
       <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: confirmed, disabled: busy }} disabled={busy} style={styles.list} onPress={() => setConfirmed((value) => !value)}>
         <Text style={styles.item}>{confirmed ? '☑' : '□'} 실제 거래·취소 여부와 제휴사 정산 완료 증빙을 확인했습니다.</Text>
@@ -191,7 +204,11 @@ export default function ServiceManage() {
       {data?.settlements.map((item) => <View key={item.id} style={styles.list}><Text style={styles.item}>{Number(item.commission_amount).toLocaleString('ko-KR')}원 · 지급 기한 {new Date(item.due_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}</Text></View>)}
       <Text style={styles.sectionTitle}>실제 지급 기록</Text>
       <Text style={styles.body}>은행 이체를 마친 뒤 대상·시각·이체 식별 번호를 기록하세요. 기록만으로 이체가 실행되지는 않습니다.</Text>
-      {data?.benefits.filter((item) => item.status === 'pending').map((item) => <Button key={item.id} variant={benefitId === item.id ? 'primary' : 'outline'} disabled={busy} onPress={() => { setBenefitId(item.id); setPaymentConfirmed(false); }}>{PLATFORM_SERVICES[item.service_key]} · {Number(item.amount).toLocaleString('ko-KR')}원 · {item.id.slice(0, 8)}</Button>)}
+      <View style={{ marginBottom: 16 }}>
+        <OptionSheetField label="지급 대상" value={benefitId} disabled={busy} onChange={(id) => { setBenefitId(id); setPaymentConfirmed(false); }}
+          options={(data?.benefits ?? []).filter((item) => item.status === 'pending')
+            .map((item) => ({ value: item.id, label: `${PLATFORM_SERVICES[item.service_key]} · ${Number(item.amount).toLocaleString('ko-KR')}원 · ${item.id.slice(0, 8)}` }))} />
+      </View>
       <FormInput label="실제 지급 시각 (시간대 포함)" accessibilityLabel="실제 지급 시각" value={payment.paidAt} editable={!busy} placeholder="2026-10-11T13:00:00+09:00" maxLength={40} onChangeText={(value) => setPayment((current) => ({ ...current, paidAt: value }))} />
       <FormInput label="이체 식별 번호" accessibilityLabel="이체 식별 번호" value={payment.transferReference} editable={!busy} maxLength={120} onChangeText={(value) => setPayment((current) => ({ ...current, transferReference: value }))} />
       <Pressable accessibilityRole="checkbox" accessibilityLabel="실제 이체 확인" accessibilityState={{ checked: paymentConfirmed, disabled: busy }} disabled={busy} style={styles.list} onPress={() => setPaymentConfirmed((value) => !value)}><Text style={styles.item}>{paymentConfirmed ? '☑' : '□'} 해당 대상에게 실제 이체가 완료된 것을 확인했습니다.</Text></Pressable>

@@ -1,5 +1,9 @@
 # 작업 로그
 
+## 2026-10-23 제휴병원·간병 예약 재디자인 앱 배포
+
+디자인 세션 브랜치(`design/moduon-selection-controls-20261022`)를 운영 기준선(PR 10·11 병합 후)과 합쳐 production OTA로 냈다. 관리자 웹 간병 예약 화면은 디자인 세션이 이미 운영 배포했다. [→ 상세](WORK_DETAIL.md#20261023-hospital-redesign-ota)
+
 ## 2026-10-23 "대상을 열 수 없음" 반복과 초대 링크 가입 경고
 
 앱을 열 때마다 "대상을 열 수 없음"이 뜨던 문제와, 로그아웃 상태에서 초대 링크로 앱을 열면 가입 화면에서 "작성 중인 내용을 버릴까요?"가 뜨던 문제를 고쳤다. 로그인한 뒤에도 가족간병 추천 코드가 채워지게 했다. [→ 상세](WORK_DETAIL.md#20261023-notification-replay-invite-draft)
@@ -7,6 +11,10 @@
 ## 2026-10-23 초대 페이지 "모두온 앱 열기" 버튼 수정
 
 카카오톡 인앱 브라우저에서 가족간병 초대 페이지의 "모두온 앱 열기"가 눌리지 않던 문제를 고쳤다. 버튼이 `hanwhafcpass://` 링크만 가리켜 카카오톡·Android 웹뷰가 무시했다. Android는 intent URL(설치 안 됨 → Play 스토어), iPhone 카카오톡은 Safari로 다시 연 뒤 앱을 연다. [→ 상세](WORK_DETAIL.md#20261023-invite-open-app)
+
+## 2026-10-23 간병 예약 요청 응답을 관리자 웹으로 이전
+
+사용자 결정으로 간병 예약 요청 응답은 폰이 아닌 관리자 웹에서 한다. 관리자 웹 업무 묶음에 `간병 예약 요청`(`/dashboard/care-requests`)을 더했다. 왼쪽은 첫 연락 기한 순 대기열, 오른쪽은 응답 패널이며, 응답을 보내면 다음으로 급한 요청이 열린다. 서버 경로 `/api/admin/care-requests`가 관리자 세션의 앱 토큰으로 기존 platform-service 동작(get_admin·respond_hospital_care·mark_hospital_care)만 호출한다. 앱의 `제휴·정산 관리` 진입 행은 `PARTNER_ADMIN_IN_APP = false`로 숨기고 코드는 남겼다. 간병 상태 이름·대기열 규칙은 `lib/hospital-care-queue.ts`로 모아 앱과 웹이 같이 쓴다. 같은 브랜치에 병원 상세·간병 예약·선택 컨트롤 개편(fa5a3dc6~c18c5a27)이 있다. 이어서 화면을 다른 관리자 화면 규칙(상태 타일 필터, FC 상세식 섹션·하단 결정 바)에 맞췄고, 사용자 승인으로 관리자 웹만 `c65863fc`로 운영 배포했다(앱 OTA·push 없음). [→ 상세](WORK_DETAIL.md#20261023-care-requests-admin-web)
 
 ## 2026-10-21 모두온 간병 예약 요청 운영 배포
 

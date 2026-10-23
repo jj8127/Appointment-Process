@@ -22,6 +22,7 @@ import {
   IconMessage,
   IconSettings,
   IconSpeakerphone,
+  IconStethoscope,
   IconUserPlus,
 } from '@tabler/icons-react';
 import { usePathname, useRouter } from 'next/navigation';
@@ -97,7 +98,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           { label: '생명/손해 위촉', icon: IconLink, href: '/dashboard/appointment' },
           { label: '시험 일정', icon: IconCalendarEvent, href: '/dashboard/exam/schedule' },
           { label: '시험 신청자', icon: IconClipboardList, href: '/dashboard/exam/applicants' },
-          ...(canWrite ? [{ label: '서면확인 회원가입', icon: IconUserPlus, href: '/dashboard/fc-signup' }] : []),
+          ...(canWrite ? [
+            { label: '서면확인 회원가입', icon: IconUserPlus, href: '/dashboard/fc-signup' },
+            { label: '간병 예약 요청', icon: IconStethoscope, href: '/dashboard/care-requests' },
+          ] : []),
         ] },
         { label: '사람', items: [
           { label: '추천인 그래프', icon: IconGraph, href: '/dashboard/referrals/graph' },
