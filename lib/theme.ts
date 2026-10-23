@@ -69,6 +69,17 @@ export const COLORS = {
     medium: '#d1d5db',
     dark: '#9ca3af',
   },
+
+  // Icon tiles: one fixed hue per meaning (call=green, place=blue, time=violet).
+  tile: {
+    green: { bg: '#e7f6ee', fg: '#12a150' },
+    blue: { bg: '#eaf1ff', fg: '#2563eb' },
+    violet: { bg: '#f0edff', fg: '#6d5bd0' },
+    amber: { bg: '#fff4de', fg: '#d97706' },
+    indigo: { bg: '#eceefe', fg: '#4f46e5' },
+    slate: { bg: '#eef1f5', fg: '#475569' },
+    orange: { bg: '#fff1e6', fg: '#e8620f' },
+  },
 } as const;
 
 // Typography

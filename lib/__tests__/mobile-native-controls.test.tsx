@@ -6,6 +6,8 @@ import * as ts from 'typescript';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '../bottom-navigation';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS, SHADOWS, TOUCH_TARGET } from '../theme';
 import { useReadAttempt } from '../use-read-attempt';
+import { CARE_STATUS_TONES, CARE_WEEKDAYS, careCalendarMonths } from '../hospital-care';
+import { formatExternalUrlDisplayText } from '../external-url';
 import { createCreationRequestTracker } from '../board-comment-request';
 import { parseCalendarDate } from '../calendar-date';
 import { buildReferralInviteUrl, buildReferralShareText } from '../referral-share';
@@ -37,6 +39,9 @@ function executeComponent(path: string, dependencies: Record<string, unknown> = 
     if (name === '@/lib/logger') return { logger: { debug: jest.fn(), warn: jest.fn() } };
     if (name === '@/lib/open-external-url') return { openExternalUrl: jest.fn(async () => undefined) };
     if (name === '@/hooks/use-keyboard-padding') return { useKeyboardPadding: () => 0 };
+    // Shared pickers render as named host nodes so tests drive them through their props.
+    if (name === '@/components/SelectionControls') return { ActionRows: 'ActionRows', ChoiceRows: 'ChoiceRows', SegmentedControl: 'SegmentedControl', IconTile: 'IconTile' };
+    if (name === '@/components/OptionSheetField') return { OptionSheetField: 'OptionSheetField' };
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     if (name === '@/lib/back-navigation') return require('@/lib/back-navigation');
     throw new Error(`Unexpected component dependency ${name}`);
@@ -483,16 +488,19 @@ it.each([
 it('public account offers common login and keeps insurance settings within the common account', async () => {
   let session = { role: 'fc' as string | null, isPlatformSignedIn: false };
   let data: null | { member: { name: string; referralCode: string }; applications: unknown[]; benefits: unknown[] } = null;
+  let failure: { error: string; signedOut: boolean } = { error: '', signedOut: false };
   const push = jest.fn(); const navigate = jest.fn();
   const openPolicy = jest.fn(async () => undefined);
+  const platformApi = { PLATFORM_PRIVACY_POLICY_URL: 'https://example.test/privacy/', PLATFORM_SERVICES: {}, PARTNER_ADMIN_IN_APP: false, platformRequest: jest.fn() };
   const Account = executeComponent('app/services/account.tsx', {
     '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' },
     'expo-clipboard': { setStringAsync: jest.fn() }, '@/lib/messenger-copy-actions': { copyTextWithFeedback: jest.fn(async () => true) }, 'expo-router': { router: { push, navigate } },
     'react-native': { Alert: { alert: jest.fn() }, Pressable: 'Pressable', Text: 'Text', View: 'View' },
     '@/components/ServiceInformation': { default: 'ServiceInformation', ServiceAction: 'ServiceAction', informationStyles: {} },
-    '@/hooks/use-platform-account': { usePlatformAccount: () => ({ data, loading: false, error: null, session, token: null, refresh: jest.fn() }) },
+    '@/hooks/use-platform-account': { usePlatformAccount: () => ({ data, loading: false, error: failure.error || null, signedOut: failure.signedOut, session: { ...session, logout: jest.fn() }, token: null, refresh: jest.fn() }) },
+    '@/lib/back-navigation': { resetTo: jest.fn() },
     '@/hooks/use-app-logout': { useAppLogout: () => jest.fn() }, 'expo-crypto': { randomUUID: () => '10000000-0000-4000-8000-000000000001' },
-    '@/lib/platform-api': { PLATFORM_PRIVACY_POLICY_URL: 'https://example.test/privacy/', PLATFORM_SERVICES: {}, platformRequest: jest.fn() }, '@/lib/theme': { COLORS, SPACING },
+    '@/lib/platform-api': platformApi, '@/lib/theme': { COLORS, SPACING },
     '@/lib/open-external-url': { openExternalUrl: openPolicy },
     '@/lib/request-board-api': { captureAppSessionOwner: () => () => true }, '@/lib/use-read-attempt': { useReadAttempt },
   });
@@ -510,23 +518,37 @@ it('public account offers common login and keeps insurance settings within the c
   data = { member: { name: '시험 회원', referralCode: 'synthetic-code' }, applications: [], benefits: [] };
   session = { role: 'fc', isPlatformSignedIn: true };
   await act(async () => { renderer.update(createElement(Account)); });
+  // Signed-in destinations are one grouped list of rows, not stacked filled buttons.
+  const rows = () => renderer.root.findAllByType('ActionRows').flatMap((node) => node.props.items as { label: string; onPress: () => void }[]);
   const actionGroup = renderer.root.findAllByType('View').find(node => (node.props.style as { gap?: number })?.gap === SPACING.md)!;
   expect(actionGroup).toBeDefined();
-  expect(actionGroup.findAllByType('ServiceAction').map(node => node.props.label)).toEqual(['서비스 이용내역', '보험 계정 설정', '로그아웃']);
-  expect(actionGroup.findAllByType('ServiceAction').every(node => (node.props.style as { marginTop: number }).marginTop === 0)).toBe(true);
+  expect(actionGroup.findAllByType('ActionRows')).toHaveLength(1);
+  expect(rows().map((row) => row.label)).toEqual(['서비스 이용내역', '보험 계정 설정', '로그아웃']);
   expect(actionGroup.findAllByType('Pressable').some(node => node.props.accessibilityRole === 'link')).toBe(true);
-  await act(async () => { const press = actions().find(node => node.props.label === '서비스 이용내역')!.props.onPress as () => void; press(); press(); });
+  await act(async () => { const press = rows().find((row) => row.label === '서비스 이용내역')!.onPress; press(); press(); });
   expect(navigate.mock.calls.slice(-2)).toEqual([['/services/activity'], ['/services/activity']]);
-  await act(async () => { (actions().find((node) => node.props.label === '보험 계정 설정')!.props.onPress as () => void)(); });
+  await act(async () => { rows().find((row) => row.label === '보험 계정 설정')!.onPress(); });
   expect(push).toHaveBeenCalledWith('/settings?surface=service-hub');
   session = { role: null, isPlatformSignedIn: true };
   await act(async () => { renderer.update(createElement(Account)); });
-  expect(actions().some((node) => node.props.label === '보험 계정 설정')).toBe(false);
+  expect(rows().some((row) => row.label === '보험 계정 설정')).toBe(false);
   expect(texts(renderer.root)).toContain('시험 회원님');
   Object.assign(session, { role: 'admin', readOnly: false, staffType: 'admin' });
   await act(async () => renderer.update(createElement(Account)));
-  await act(async () => { const press = actions().find(node => node.props.label === '제휴·정산 관리')!.props.onPress as () => void; press(); press(); });
+  // Partner and care request work moved to the admin web; the row returns only with the flag.
+  expect(rows().some((row) => row.label === '제휴·정산 관리')).toBe(false);
+  platformApi.PARTNER_ADMIN_IN_APP = true;
+  await act(async () => renderer.update(createElement(Account)));
+  await act(async () => { const press = rows().find((row) => row.label === '제휴·정산 관리')!.onPress; press(); press(); });
   expect(navigate.mock.calls.slice(-2)).toEqual([['/services/manage'], ['/services/manage']]);
+  // A rejected session offers one filled action, sign-in; a read failure keeps retry first and sign-in as text.
+  data = null; failure = { error: '로그인이 만료되었습니다.', signedOut: true };
+  await act(async () => renderer.update(createElement(Account)));
+  expect(actions().map((node) => node.props.label)).toEqual(['다시 로그인']);
+  failure = { error: '연결하지 못했습니다.', signedOut: false };
+  await act(async () => renderer.update(createElement(Account)));
+  expect(actions().map((node) => node.props.label)).toEqual(['다시 확인']);
+  expect(renderer.root.findAllByType('Button').some((node) => node.children.includes('다시 로그인'))).toBe(true);
   await act(async () => { renderer.unmount(); });
 });
 it('existing FC account requires explicit consent, blocks repeat saves and preserves refusal navigation', async () => {
@@ -549,8 +571,8 @@ it('existing FC account requires explicit consent, blocks repeat saves and prese
   expect(save().props.disabled).toBe(true);
   expect(renderer.root.findAllByType('Button').some(node => node.children.includes('공통 회원 탈퇴'))).toBe(false);
   expect(request).not.toHaveBeenCalled();
-  const actions = () => renderer.root.findAllByType('ServiceAction');
-  await act(async () => { (actions().find((node) => node.props.label === '보험 계정 설정')!.props.onPress as () => void)(); });
+  const rows = () => renderer.root.findAllByType('ActionRows').flatMap((node) => node.props.items as { label: string; onPress: () => void }[]);
+  await act(async () => { rows().find((row) => row.label === '보험 계정 설정')!.onPress(); });
   expect(push).toHaveBeenCalledWith('/settings?surface=service-hub');
   await act(async () => { (renderer.root.findAllByType('Pressable')[0].props.onPress as () => void)(); });
   await act(async () => { (save().props.onPress as () => void)(); (save().props.onPress as () => void)(); });
@@ -562,7 +584,7 @@ it('existing FC account requires explicit consent, blocks repeat saves and prese
   request.mockResolvedValueOnce({ ok: true } as never);
   await act(async () => { await (save().props.onPress as () => Promise<void>)(); });
   expect(refresh).toHaveBeenCalledTimes(1);
-  await act(async () => { (actions().find((node) => node.props.label === '로그아웃')!.props.onPress as () => void)(); });
+  await act(async () => { rows().find((row) => row.label === '로그아웃')!.onPress(); });
   expect(logout).toHaveBeenCalledTimes(1);
   await act(async () => { renderer.unmount(); });
 });
@@ -599,7 +621,8 @@ it.each(['fc', 'member'])('common withdrawal remains available with expired cons
   const remove = () => renderer.root.findAllByType('Button').find(node => node.children.includes('공통 회원 탈퇴') || node.children.includes('탈퇴 처리 재시도') || node.children.includes('탈퇴 요청 다시 확인'))!;
   const actionGroup = renderer.root.findAllByType('View').find(node => (node.props.style as { gap?: number })?.gap === SPACING.md)!;
   expect(actionGroup.findAllByType('Button')).toContain(remove());
-  expect(remove().props.variant).toBe('outline');
+  // Withdrawal is a quiet text action under the list, never a filled or outlined block.
+  expect(remove().props.variant).toBe('ghost');
   await act(async () => { (remove().props.onPress as () => void)(); });
   expect(buttons[0]).toMatchObject({ text: '취소', style: 'cancel' });
   expect(request).not.toHaveBeenCalled();
@@ -723,7 +746,7 @@ it('hospital discovery filters both placements, measures visible cards and prese
     ? { regions: [{ provinceCode: '11', provinceName: '서울', districts: ['강남구'] }], specialties: ['내과', '이비인후과', '피부과'] }
     : { hospitals: [hospital], featured, hasMore: false, nextOffset: null });
   const Hospitals = executeComponent('app/services/hospitals.tsx', {
-    '@expo/vector-icons': { Feather: 'Feather' }, 'expo-router': { router: { push } },
+    '@expo/vector-icons': { MaterialIcons: 'MaterialIcons' }, 'expo-router': { router: { push } },
     'react-native': { ActivityIndicator: 'ActivityIndicator', Image: 'Image', Modal: 'Modal', Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', View: 'View', StyleSheet: { create: (styles: unknown) => styles },
       FlatList: (props: Record<string, unknown>) => createElement('FlatList', props, props.ListHeaderComponent as ReactElement,
         ...(props.data as unknown[]).map((item, index) => createElement(React.Fragment, { key: index }, (props.renderItem as (value: unknown) => ReactElement)({ item }))), props.ListFooterComponent as ReactElement) },
@@ -811,10 +834,11 @@ it('hospital detail opens contact even when measurement fails and hides stale de
   const open = jest.fn().mockResolvedValue(undefined);
   const record = jest.fn();
   const Detail = executeComponent('app/services/hospital.tsx', {
-    '@expo/vector-icons': { Feather: 'Feather' }, 'expo-router': { useLocalSearchParams: () => ({ id: hospital.id }) },
-    'react-native': { ActivityIndicator: 'ActivityIndicator', Image: 'Image', ScrollView: 'ScrollView', Text: 'Text', View: 'View' },
-    'react-native-safe-area-context': { useSafeAreaInsets: () => ({ bottom: 0 }) },
-    '@/components/Button': { Button: 'Button' }, '@/components/hospitals/HospitalScreen': { default: 'HospitalScreen', hospitalStyles: {} },
+    '@expo/vector-icons': { MaterialIcons: 'MaterialIcons' }, 'expo-application': { applicationId: 'synthetic.app' },
+    'expo-router': { router: { push: jest.fn() }, useLocalSearchParams: () => ({ id: hospital.id }) },
+    'react-native': { ActivityIndicator: 'ActivityIndicator', Image: 'Image', Platform: { OS: 'android' }, Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', View: 'View', StyleSheet: { create: (styles: unknown) => styles } },
+    '@/components/Button': { Button: 'Button' }, '@/components/hospitals/HospitalScreen': { default: 'HospitalScreen', IconTile: 'IconTile', hospitalStyles: {} },
+    '@/lib/external-url': { formatExternalUrlDisplayText },
     '@/components/service-home': { ServiceIcon: 'ServiceIcon' },
     '@/hooks/use-hospital-exposure': { useHospitalExposure: () => 'synthetic-session', recordHospitalEvent: record },
     '@/lib/open-external-url': { openExternalUrl: open }, '@/lib/theme': { COLORS }, '@/lib/use-read-attempt': { useReadAttempt },
@@ -826,6 +850,14 @@ it('hospital detail opens contact even when measurement fails and hides stale de
   await act(async () => { (button('전화 문의').props.onPress as () => void)(); });
   expect(record).toHaveBeenCalledWith(hospital, 'phone', 'synthetic-session');
   expect(open).toHaveBeenCalledWith('tel:020000000', { preferExternalBrowser: true });
+  // Directions open the Naver Map app first and fall back to its web page when the app is missing.
+  const place = encodeURIComponent('시험병원 시험 주소');
+  await act(async () => { (button('위치·길찾기').props.onPress as () => void)(); });
+  expect(record).toHaveBeenLastCalledWith(hospital, 'directions', 'synthetic-session');
+  expect(open).toHaveBeenLastCalledWith(`nmap://search?query=${place}&appname=synthetic.app`);
+  open.mockRejectedValueOnce(new Error('no app'));
+  await act(async () => { (button('위치·길찾기').props.onPress as () => void)(); });
+  expect(open).toHaveBeenLastCalledWith(`https://map.naver.com/p/search/${place}`, { preferExternalBrowser: true });
   request.mockRejectedValue(new Error('시험 연결 실패'));
   await act(async () => { (button('정보 다시 확인').props.onPress as () => void)(); });
   expect(texts(renderer.root)).toContain('시험 연결 실패');
@@ -887,7 +919,7 @@ it('hospital admin requires publication approvals, blocks duplicate saves and ke
   const guard = jest.fn();
   let rejectSave!: (error: Error) => void;
   const request = jest.fn((action: string) => action === 'get_admin' ? Promise.resolve({ partners: [], applications: [], settlements: [], benefits: [] }) : new Promise((_, reject) => { rejectSave = reject; }));
-  const Manage = executeComponent('app/services/manage.tsx', {
+  const load = (adAdmin: boolean) => executeComponent('app/services/manage.tsx', {
     'expo-crypto': { randomUUID: () => 'synthetic-partner' },
     '@/components/Button': { Button: 'Button' }, '@/components/FormInput': { FormInput: 'FormInput' },
     '@/components/hospitals/HospitalContractFields': { default: 'HospitalContractFields', EMPTY_HOSPITAL_DRAFT: emptyHospital },
@@ -898,21 +930,31 @@ it('hospital admin requires publication approvals, blocks duplicate saves and ke
     '@/hooks/use-session': { useSession: () => ({ hydrated: true, role: 'admin', readOnly: false, staffType: 'admin', appSessionToken: 'synthetic-admin' }) },
     '@/lib/board-comment-request': { createCreationRequestTracker },
     '@/lib/admin-assisted-signup-validation': { getSeoulTodayIsoDate: () => '2026-10-11' }, '@/lib/calendar-date': { parseCalendarDate },
-    '@/lib/platform-api': { PLATFORM_SERVICES: { care: '가족간병', hospital: '제휴병원' }, HOSPITAL_PROVINCES: [{ code: '11', name: '서울' }], platformRequest: request, PlatformApiError: Error },
+    '@/lib/platform-api': { PLATFORM_SERVICES: { care: '가족간병', hospital: '제휴병원' }, HOSPITAL_PROVINCES: [{ code: '11', name: '서울' }], HOSPITAL_AD_ADMIN_ENABLED: adAdmin, platformRequest: request, PlatformApiError: Error },
     '@/lib/use-read-attempt': { useReadAttempt },
   });
   let renderer!: Renderer;
+  // Hospital ad work is handled outside the app: no hospital service choice and no ad report while the flag is off.
+  await act(async () => { renderer = create(createElement(load(false))); });
+  const serviceOptions = () => renderer.root.findAllByType('OptionSheetField').find((node) => node.props.label === '제휴 서비스')!.props.options as { value: string }[];
+  expect(serviceOptions().map((option) => option.value)).toEqual(['care']);
+  expect(renderer.root.findAllByType('HospitalPerformanceReport')).toHaveLength(0);
+  await act(async () => { renderer.unmount(); });
+  const Manage = load(true);
   await act(async () => { renderer = create(createElement(Manage)); });
+  expect(renderer.root.findAllByType('HospitalPerformanceReport')).toHaveLength(1);
   const button = (label: string) => renderer.root.findAllByType('Button').find((node) => node.children.includes(label))!;
   const editor = () => renderer.root.findAllByType('HospitalContractFields')[0];
-  await act(async () => { (button('제휴병원').props.onPress as () => void)(); });
+  const picker = (label: string) => ['OptionSheetField', 'SegmentedControl', 'ChoiceRows'].flatMap((type) => renderer.root.findAllByType(type)).find((node) => node.props.label === label)!;
+  expect(picker('제휴 서비스').props.options).toContainEqual({ value: 'hospital', label: '제휴병원' });
+  await act(async () => { (picker('제휴 서비스').props.onChange as (value: string) => void)('hospital'); });
   await act(async () => {
     for (const [key, value] of Object.entries({ name: '시험 병원', address: '시험 주소', adPeriodStart: '2026-10-01', adPeriodEnd: '2026-10-31', adFee: '10000' })) {
       const input = renderer.root.findAllByType('FormInput').find((node) => node.props.accessibilityLabel === key)!;
       (input.props.onChangeText as (text: string) => void)(value);
     }
     (editor().props.onChange as (value: unknown) => void)({ ...emptyHospital, provinceCode: '11', district: '강남구', specialties: '내과, 재활의학과', verifiedAt: '2026-10-11' });
-    (button('지역 강조').props.onPress as () => void)();
+    (picker('계약 노출 위치').props.onChange as (value: string) => void)('regional_featured');
     (renderer.root.findAllByType('Pressable').find((node) => node.props.accessibilityLabel === '제휴사 활성화')!.props.onPress as () => void)();
   });
   await act(async () => { (button('합의된 제휴사 등록').props.onPress as () => void)(); });
@@ -935,10 +977,12 @@ it('care reservation reuses one key for a retried submit, shows staff answers an
   const statuses = { requested: '접수됨', reviewing: '확인 중', confirmed: '확정', adjusted: '일정 조정', declined: '진행 어려움', cancelled: '취소함' };
   const confirmed = { id: 'synthetic-request', hospitalId: 'synthetic-care-hospital', hospitalName: '시험병원', desiredStart: '2026-10-21', careType: 'full_day',
     contactTime: 'morning', status: 'confirmed', staffNote: '시험 안내', respondedAt: null, createdAt: '2026-10-20T00:00:00Z' };
+  class ApiError extends Error { constructor(message: string, public status?: number) { super(message); } }
   let listed: unknown[] = [];
+  let listFailure: Error | null = null;
   let failSubmit = true;
   const request = jest.fn(async (action: string, ..._args: unknown[]) => {
-    if (action === 'list_hospital_care') return { requests: listed };
+    if (action === 'list_hospital_care') { if (listFailure) throw listFailure; return { requests: listed }; }
     if (failSubmit) { failSubmit = false; throw new Error('시험 연결 실패'); }
     listed = [confirmed];
     return { requestId: confirmed.id, status: 'requested' };
@@ -947,14 +991,15 @@ it('care reservation reuses one key for a retried submit, shows staff answers an
   const registerPush = jest.fn(async () => ({ ok: true }));
   const Screen = executeComponent('app/services/care-request.tsx', {
     '@/lib/notifications': { registerPlatformMemberPushToken: registerPush },
-    '@expo/vector-icons': { Feather: 'Feather' }, 'expo-crypto': { randomUUID: () => `synthetic-key-${++keys}` },
+    '@expo/vector-icons': { MaterialIcons: 'MaterialIcons' }, 'expo-crypto': { randomUUID: () => `synthetic-key-${++keys}` },
     'expo-router': { router: { push: jest.fn() }, useLocalSearchParams: () => ({ hospitalId: 'synthetic-care-hospital' }) },
-    'react-native': { ActivityIndicator: 'ActivityIndicator', Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', View: 'View', StyleSheet: { create: (styles: unknown) => styles } },
-    'react-native-safe-area-context': { useSafeAreaInsets: () => ({ bottom: 0 }) },
-    '@/components/Button': { Button: 'Button' }, '@/components/hospitals/HospitalScreen': { default: 'HospitalScreen', hospitalStyles: {} },
+    'react-native': { ActivityIndicator: 'ActivityIndicator', Alert: { alert: jest.fn() }, Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', View: 'View', StyleSheet: { create: (styles: unknown) => styles } },
+    '@/components/Button': { Button: 'Button' },
+    '@/components/hospitals/HospitalScreen': { default: 'HospitalScreen', CareStatusBadge: 'CareStatusBadge', IconTile: 'IconTile', hospitalStyles: {} },
     '@/hooks/use-session': { useSession: () => ({ hydrated: true, platformSessionToken: 'synthetic-member' }) },
-    '@/lib/hospital-care': { CARE_PRECAUTIONS: ['시험 주의사항'], careStartOptions: () => [{ value: '2026-10-21', label: '내일', weekday: '수' }], formatCareDate: (value: string) => value },
-    '@/lib/platform-api': { CARE_HOSPITAL_ID: 'synthetic-care-hospital', CARE_REQUEST_STATUSES: statuses, CARE_TYPES: careTypes, CONTACT_TIMES: contactTimes, PlatformApiError: Error, platformRequest: request },
+    '@/lib/hospital-care': { CARE_PRECAUTIONS: ['시험 주의사항'], CARE_STATUS_TONES, CARE_WEEKDAYS, careCalendarMonths,
+      careStartOptions: () => [{ value: '2026-10-21', label: '내일', weekday: '수' }], formatCareDate: (value: string) => value, formatCareTime: (value: string) => value },
+    '@/lib/platform-api': { CARE_HOSPITAL_ID: 'synthetic-care-hospital', CARE_REQUEST_STATUSES: statuses, CARE_TYPES: careTypes, CONTACT_TIMES: contactTimes, PlatformApiError: ApiError, platformRequest: request },
     '@/lib/theme': { COLORS }, '@/lib/use-read-attempt': { useReadAttempt },
   });
   let renderer!: Renderer;
@@ -963,8 +1008,8 @@ it('care reservation reuses one key for a retried submit, shows staff answers an
   expect(registerPush).toHaveBeenCalledWith('synthetic-member');
   const submit = () => renderer.root.findAllByType('Button').find((node) => node.children.includes('예약 요청 보내기'))!;
   expect(submit().props.disabled).toBe(true);
-  const choose = (label: string) => (renderer.root.findAllByType('Pressable').find((node) => texts(node).includes(label))!.props.onPress as () => void)();
-  await act(async () => { choose('내일'); choose('24시간 간병'); choose('오전'); });
+  const choose = (label: string) => (renderer.root.findAllByType('Pressable').find((node) => node.props.accessibilityLabel === label || texts(node).includes(label))!.props.onPress as () => void)();
+  await act(async () => { choose('10월 21일 수요일'); choose('24시간 간병'); });
   expect(submit().props.disabled).toBe(false);
   await act(async () => { (submit().props.onPress as () => void)(); });
   expect(texts(renderer.root)).toContain('시험 연결 실패');
@@ -973,17 +1018,23 @@ it('care reservation reuses one key for a retried submit, shows staff answers an
   expect(submits.map(([, payload]) => (payload as { idempotencyKey: string }).idempotencyKey)).toEqual(['synthetic-key-1', 'synthetic-key-1']);
   expect(registerPush).toHaveBeenLastCalledWith('synthetic-member', { requestPermission: true });
   expect(registerPush).toHaveBeenCalledTimes(2);
-  expect(submits[1]).toEqual(['request_hospital_care', { hospitalId: 'synthetic-care-hospital', desiredStart: '2026-10-21', careType: 'full_day', contactTime: 'morning', idempotencyKey: 'synthetic-key-1' }, 'synthetic-member']);
+  expect(submits[1]).toEqual(['request_hospital_care', { hospitalId: 'synthetic-care-hospital', desiredStart: '2026-10-21', careType: 'full_day', contactTime: 'anytime', idempotencyKey: 'synthetic-key-1' }, 'synthetic-member']);
   expect(texts(renderer.root)).toEqual(expect.arrayContaining(['확정', '시험 안내']));
   expect(texts(renderer.root)).not.toContain('시험 주의사항');
   expect(renderer.root.findAllByType('Button').some((node) => node.children.includes('요청 취소'))).toBe(false);
   await act(async () => { choose('간병 시작 전 확인할 것'); });
   expect(texts(renderer.root)).toContain('시험 주의사항');
   await act(async () => { renderer.unmount(); });
+  // A rejected session offers sign-in, not a retry that cannot succeed.
+  listFailure = new ApiError('로그인이 만료되었습니다.', 401);
+  await act(async () => { renderer = create(createElement(Screen)); });
+  const labels = renderer.root.findAllByType('Button').map((node) => node.children.join(''));
+  expect(labels).toContain('로그인');
+  expect(labels).not.toContain('다시 확인하기');
+  await act(async () => { renderer.unmount(); });
 });
 
 it('care request admin orders waiting requests by first-contact due time, shows the countdown and records milestones', async () => {
-  const statuses = { requested: '접수됨', reviewing: '확인 중', confirmed: '확정', adjusted: '일정 조정', declined: '진행 어려움', cancelled: '취소함' };
   const now = Date.now();
   const at = (minutes: number) => new Date(now + minutes * 60000).toISOString();
   const row = (id: string, status: string, dueInMinutes: number, extra: Record<string, unknown> = {}) => ({ id, hospitalId: 'h', hospitalName: '시험병원', desiredStart: '2026-10-21', careType: 'day_time',
@@ -992,33 +1043,49 @@ it('care request admin orders waiting requests by first-contact due time, shows 
   const onRespond = jest.fn();
   const onMark = jest.fn();
   const Admin = executeComponent('components/hospitals/CareRequestAdmin.tsx', {
+    '@expo/vector-icons': { MaterialIcons: 'MaterialIcons' },
     '@/components/Button': { Button: 'Button' }, '@/components/FormInput': { FormInput: 'FormInput' },
-    '@/components/ServiceInformation': { informationStyles: {} }, '@/lib/hospital-care': { formatCareDate: (value: string) => value },
-    '@/lib/platform-api': { CARE_REQUEST_STATUSES: statuses, CARE_TYPES: { full_day: '24시간 간병', day_time: '주간 간병' }, CONTACT_TIMES: { anytime: '언제든' } },
+    '@/components/hospitals/HospitalScreen': { CareStatusBadge: 'CareStatusBadge' },
+    '@/lib/hospital-care': { CARE_STATUS_TONES }, '@/lib/theme': { COLORS },
+    '@/lib/hospital-care-queue': jest.requireActual('../hospital-care-queue'),
   });
   const metrics = { requests: 4, firstContactDue: 3, firstContactOnTime: 2, overdueNow: 1, medianFirstContactMinutes: 18.4, medianDecisionMinutes: 95, confirmed: 1, started: 0 };
   const requests = [row('C', 'confirmed', -600, { firstContactAt: at(-620) }), row('B', 'requested', 20), row('A', 'reviewing', -15)];
   let renderer!: Renderer;
-  await act(async () => { renderer = create(createElement(Admin, { requests, metrics, busy: false, onRespond, onMark })); });
+  // The list arrives after the first render; waiting requests must still be the default view.
+  await act(async () => { renderer = create(createElement(Admin, { requests: [], metrics, busy: false, onRespond, onMark })); });
+  expect(texts(renderer.root)).toContain('받은 예약 요청이 없습니다.');
+  await act(async () => { renderer.update(createElement(Admin, { requests, metrics, busy: false, onRespond, onMark })); });
   const all = texts(renderer.root);
-  expect(all).toContain('간병 예약 요청 · 답변 대기 2건');
-  expect(all).toContain('최근 30일 4건 · 첫 연락 기한 준수 67% · 지금 기한 초과 1건');
+  expect(all).toEqual(expect.arrayContaining(['간병 예약 요청', '2건', '답변 대기', '4건', '67%', '1건', '답변 대기 2', '확정 1', '전체 3']));
   expect(all).toContain('첫 연락 중앙값 18분 · 결정 중앙값 1시간 · 확정 1건 · 시작 0건');
-  expect(all.filter((text) => /^회원[ABC] /.test(text)).map((text) => text[2])).toEqual(['A', 'B', 'C']);
-  expect(all.some((text) => text.startsWith('확인 중 · 첫 연락 기한 1') && text.includes('분 초과'))).toBe(true);
-  expect(all.some((text) => text.startsWith('접수됨 · 첫 연락 1') && text.includes('분 남음'))).toBe(true);
+  const names = () => texts(renderer.root).filter((text) => /^회원[ABC]$/.test(text)).map((text) => text[2]);
+  expect(names()).toEqual(['A', 'B']);
+  expect(all.some((text) => text.startsWith('첫 연락 기한 1') && text.includes('분 초과'))).toBe(true);
+  expect(all.some((text) => text.startsWith('첫 연락 1') && text.includes('분 남음'))).toBe(true);
+  const press = async (label: string) => { await act(async () => {
+    (renderer.root.findAllByType('Pressable').find((node) => node.props.accessibilityLabel === label || texts(node).includes(label))!.props.onPress as () => void)();
+  }); };
+  await press('전체 3');
+  expect(names()).toEqual(['A', 'B', 'C']);
   const buttons = (label: string) => renderer.root.findAllByType('Button').filter((node) => node.children.includes(label));
-  expect(buttons('첫 연락 완료')).toHaveLength(2);
+  // Actions stay folded until staff open one request.
+  expect(buttons('첫 연락 완료')).toHaveLength(0);
+  await press('회원A 요청 열기');
+  expect(buttons('첫 연락 완료')).toHaveLength(1);
   await act(async () => { (buttons('첫 연락 완료')[0].props.onPress as () => void)(); });
   expect(onMark).toHaveBeenCalledWith('A', 'first_contact');
+  await press('회원C 요청 열기');
   await act(async () => { (buttons('간병 시작 확인')[0].props.onPress as () => void)(); });
   expect(onMark).toHaveBeenLastCalledWith('C', 'care_started');
+  await press('회원A 요청 열기');
+  expect(buttons('처리하기')[0].props.disabled).toBe(true);
+  await act(async () => { (renderer.root.findAllByType('ChoiceRows')[0].props.onChange as (value: string) => void)('adjusted'); });
   await act(async () => { (buttons('처리하기')[0].props.onPress as () => void)(); });
-  await act(async () => { (buttons('일정 조정')[0].props.onPress as () => void)(); });
   expect(onRespond).not.toHaveBeenCalled();
   expect(texts(renderer.root)).toContain('일정 조정과 진행 어려움은 회원에게 보낼 안내를 입력해 주세요.');
   await act(async () => { (renderer.root.findAllByType('FormInput')[0].props.onChangeText as (value: string) => void)(' 22일 시작 가능 '); });
-  await act(async () => { (buttons('일정 조정')[0].props.onPress as () => void)(); });
+  await act(async () => { (buttons('처리하기')[0].props.onPress as () => void)(); });
   expect(onRespond).toHaveBeenCalledWith('A', 'adjusted', '22일 시작 가능');
   await act(async () => { renderer.unmount(); });
 });

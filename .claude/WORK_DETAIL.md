@@ -18,6 +18,17 @@
 - 수정(`invite-page/index.html`): Android는 `intent://…#Intent;scheme=hanwhafcpass;package=com.jj8127.Garam_in;S.browser_fallback_url=<Play>;end`, iPhone 카카오톡은 `kakaotalk://web/openExternal?url=<현재 주소>`로 Safari에서 다시 연다. 그 밖(iPhone Safari 등)은 기존 스킴 링크. 앱 쪽 경로 파싱(`lib/referral-deeplink.ts`)은 그대로다.
 - 검증: `lib/__tests__/referral-share.test.ts` 35/35(Android 카카오톡·iPhone 카카오톡 경우 추가). 실제 카카오톡에서의 앱 실행은 미확인.
 
+<a id="20261023-care-requests-admin-web"></a>
+## 2026-10-23 간병 예약 요청 응답을 관리자 웹으로 이전
+
+- 브랜치 `design/moduon-selection-controls-20261022`(worktree `.codex-tmp/moduon-hospital-redesign`). 미푸시·미배포.
+- 웹: `web/src/app/dashboard/care-requests/`(대기열·응답 패널, 1분마다 다시 읽음, 행에는 요청 후 지난 시간만 표시하고 색은 첫 연락 기한 30분 이내 주황·초과 빨강), `web/src/app/api/admin/care-requests/route.ts`(관리자 확인 → `web_app_session` 토큰으로 platform-service 호출, GET은 careRequests·careMetrics만 내보냄), `web/src/lib/care-request-admin.ts`(허용 동작만 변환, 일정 조정·진행 어려움은 안내 필수). 메뉴는 쓰기 권한 관리자에게만 보인다.
+- 앱: `app/services/account.tsx`의 제휴·정산 관리 행을 `PARTNER_ADMIN_IN_APP`으로 숨김. `CareRequestAdmin`·`manage.tsx`는 그대로.
+- 공용: `lib/hospital-care-queue.ts`(상태·형태 이름, 기한 계산, 날짜 표시). `lib/platform-api.ts`·`lib/hospital-care.ts`는 다시 내보낸다.
+- 검증: web tsc·lint·node 테스트 818, 앱 tsc·lint, jest 관련 5파일. 로컬 next dev에서 브라우저 안 가짜 응답으로 대기열·안내 필수 오류·응답 전송·첫 연락 기록·확정 탭·조회 실패·390px 화면을 확인했다. `shared-function-contracts`의 함수 목록 검사는 경로에 `.codex-tmp`가 있어 0건이 되는 worktree 환경 문제로 실패한다.
+- 운영 배포(사용자 승인 "그렇게 배포해"): 운영 직전 배포 `dpl_CWZLuqCfF8KoV5RTP7LPmuYjEEw6`(10-20 10:54 KST, `1dac76a7`)는 이 브랜치의 조상이며 그 뒤 `web/` 변경은 이번 파일뿐이다. 깨끗한 worktree의 `c65863fc`를 저장소 루트에서 `vercel deploy --prod --yes --archive=tgz`(Sentry 업로드 토큰 제외)로 배포했다. `dpl_CNh4EkLQcAaGs2nYhCK1TnA7zu4R` READY, `adminweb-red.vercel.app` alias가 이 배포를 가리킨다. 비로그인 응답: `/auth` 200, `/dashboard`·`/dashboard/care-requests`·`/dashboard/docs` 307→`/auth`, `/api/admin/care-requests` GET·POST 401. 배포 후 Vercel 오류 로그 0건, Sentry garamin-web 최근 30분 이슈 0건. 브랜치 push·앱 OTA는 하지 않았다.
+- 미확인: 운영 관리자 계정으로 실제 platform-service 호출(관리자 세션에 모두온 약관 동의가 없으면 409가 그대로 표시된다).
+
 <a id="20261021-hospital-care-release"></a>
 ## 2026-10-21 모두온 간병 예약 요청 운영 배포
 

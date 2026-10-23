@@ -30,6 +30,7 @@ import { z } from 'zod';
 import { Button } from '@/components/Button';
 import { DaumPostcode } from '@/components/DaumPostcode';
 import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwareWrapper';
+import { OptionSheetField } from '@/components/OptionSheetField';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
@@ -637,23 +638,16 @@ function FcNewScreenContent() {
 
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>기본 정보</Text>
-          <View style={styles.affiliationBox}>
-            {AFFILIATION_OPTIONS.map((opt) => {
-              const active = selectedAffiliation === opt;
-              return (
-                <Pressable
-                  key={opt}
-                  disabled={submitting}
-                  style={[styles.affiliationItem, active && styles.affiliationActive]}
-                  onPress={() => {
-                    setSelectedAffiliation(opt);
-                    setValue('affiliation', opt, { shouldValidate: true });
-                  }}>
-                  <Text style={[styles.affiliationText, active && styles.affiliationTextActive]}>{opt}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          <OptionSheetField
+            label="소속"
+            value={selectedAffiliation}
+            options={AFFILIATION_OPTIONS}
+            disabled={submitting}
+            onChange={(opt) => {
+              setSelectedAffiliation(opt);
+              setValue('affiliation', opt, { shouldValidate: true });
+            }}
+          />
           {formState.errors.affiliation?.message ? (
             <Text style={styles.error}>{formState.errors.affiliation?.message}</Text>
           ) : null}
@@ -1152,31 +1146,6 @@ const styles = StyleSheet.create({
     fontWeight: TYPOGRAPHY.fontWeight.extrabold,
     fontSize: TYPOGRAPHY.fontSize.xl,
     color: COLORS.text.primary
-  },
-  affiliationBox: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: SPACING.sm,
-  },
-  affiliationItem: {
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    borderRadius: RADIUS.md,
-    paddingVertical: SPACING.sm + 2,
-    paddingHorizontal: SPACING.sm + 6,
-    backgroundColor: COLORS.white,
-  },
-  affiliationActive: {
-    borderColor: COLORS.primary,
-    backgroundColor: COLORS.primaryPale
-  },
-  affiliationText: {
-    color: COLORS.text.primary,
-    fontSize: TYPOGRAPHY.fontSize.md
-  },
-  affiliationTextActive: {
-    color: COLORS.primary,
-    fontWeight: TYPOGRAPHY.fontWeight.bold
   },
   field: { gap: SPACING.xs + 2 },
   fieldLabelRow: {

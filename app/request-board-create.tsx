@@ -55,6 +55,8 @@ import {
   isValidRequestBoardCustomerBirthDate,
 } from '@/lib/request-board-customer-input';
 import { REQUEST_BOARD_DRIVING_STATUS_OPTIONS } from '@/lib/request-board-driving-status';
+import { OptionSheetField } from '@/components/OptionSheetField';
+import { SegmentedControl } from '@/components/SelectionControls';
 import {
   buildRequestReadiness,
   describeRequestFanOut,
@@ -1708,43 +1710,11 @@ export default function RequestBoardCreateScreen() {
           onSubmitEditing={() => focusNextInput(jobInputRef)}
         />
       </View>
-      <View style={styles.genderRow}>
-        {(['male', 'female'] as const).map((gender) => (
-          <Pressable
-            key={gender}
-            style={[styles.genderButton, newCustomer.gender === gender && styles.genderButtonActive]}
-            onPress={() => updateCustomerField('gender', gender)}
-          >
-            <Text style={[styles.genderText, newCustomer.gender === gender && styles.genderTextActive]}>
-              {gender === 'male' ? '남' : '여'}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+      <SegmentedControl label="성별" value={newCustomer.gender ?? ''} onChange={(gender) => updateCustomerField('gender', gender)}
+        options={[{ value: 'male', label: '남' }, { value: 'female', label: '여' }]} />
       <View style={styles.stackedField}>
         <Text style={styles.fieldLabel}>피보험자 통신사</Text>
-        <View style={styles.carrierGrid}>
-          {REQUEST_BOARD_CARRIER_OPTIONS.map((carrier) => {
-            const active = newCustomer.carrier === carrier;
-            return (
-              <Pressable
-                key={carrier}
-                style={({ pressed }) => [
-                  styles.carrierButton,
-                  active && styles.carrierButtonActive,
-                  pressed && { opacity: 0.85 },
-                ]}
-                onPress={() => updateCustomerField('carrier', carrier)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-              >
-                <Text style={[styles.carrierText, active && styles.carrierTextActive]}>
-                  {carrier}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        <OptionSheetField hideLabel label="피보험자 통신사" value={newCustomer.carrier ?? ''} options={REQUEST_BOARD_CARRIER_OPTIONS} onChange={(carrier) => updateCustomerField('carrier', carrier)} />
       </View>
       <Pressable
         style={({ pressed }) => [
@@ -1811,28 +1781,7 @@ export default function RequestBoardCreateScreen() {
           />
           <View style={styles.stackedField}>
             <Text style={styles.fieldLabel}>계약자 통신사</Text>
-            <View style={styles.carrierGrid}>
-              {REQUEST_BOARD_CARRIER_OPTIONS.map((carrier) => {
-                const active = newCustomer.policyholderCarrier === carrier;
-                return (
-                  <Pressable
-                    key={carrier}
-                    style={({ pressed }) => [
-                      styles.carrierButton,
-                      active && styles.carrierButtonActive,
-                      pressed && { opacity: 0.85 },
-                    ]}
-                    onPress={() => updateCustomerField('policyholderCarrier', carrier)}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: active }}
-                  >
-                    <Text style={[styles.carrierText, active && styles.carrierTextActive]}>
-                      {carrier}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            <OptionSheetField hideLabel label="계약자 통신사" value={newCustomer.policyholderCarrier ?? ''} options={REQUEST_BOARD_CARRIER_OPTIONS} onChange={(carrier) => updateCustomerField('policyholderCarrier', carrier)} />
           </View>
           <Field
             label="계약자 주소"
@@ -1870,26 +1819,7 @@ export default function RequestBoardCreateScreen() {
       </View>
       <View style={styles.stackedField}>
         <Text style={styles.fieldLabel}>운전 구분</Text>
-        <View style={styles.drivingStatusGrid}>
-          {REQUEST_BOARD_DRIVING_STATUS_OPTIONS.map((option) => {
-            const active = newCustomer.drivingStatus === option.value;
-            return (
-              <Pressable
-                key={option.value}
-                style={({ pressed }) => [
-                  styles.drivingStatusChip,
-                  active && styles.drivingStatusChipActive,
-                  pressed && { opacity: 0.85 },
-                ]}
-                onPress={() => updateCustomerField('drivingStatus', option.value)}
-              >
-                <Text style={[styles.drivingStatusText, active && styles.drivingStatusTextActive]}>
-                  {option.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        <OptionSheetField hideLabel label="운전 구분" value={newCustomer.drivingStatus ?? ''} options={REQUEST_BOARD_DRIVING_STATUS_OPTIONS} onChange={(value) => updateCustomerField('drivingStatus', value)} />
       </View>
       <View style={styles.stackedField}>
         <Text style={styles.fieldLabel}>보험 자격</Text>
@@ -2796,31 +2726,6 @@ const styles = StyleSheet.create({
     minHeight: 92,
     textAlignVertical: 'top',
   },
-  genderRow: {
-    flexDirection: 'row',
-    gap: SPACING.sm,
-  },
-  genderButton: {
-    flex: 1,
-    minHeight: 46,
-    borderRadius: RADIUS.md,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  genderButtonActive: {
-    borderColor: COLORS.primary,
-    backgroundColor: COLORS.primaryPale,
-  },
-  genderText: {
-    color: COLORS.gray[700],
-    fontWeight: '800',
-  },
-  genderTextActive: {
-    color: COLORS.primary,
-  },
   policyholderToggle: {
     minHeight: 72,
     borderRadius: RADIUS.md,
@@ -2881,35 +2786,6 @@ const styles = StyleSheet.create({
     color: COLORS.gray[600],
     fontSize: TYPOGRAPHY.fontSize.sm,
     lineHeight: 20,
-  },
-  carrierGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: SPACING.sm,
-  },
-  carrierButton: {
-    width: '48%',
-    minHeight: 42,
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: SPACING.sm,
-  },
-  carrierButtonActive: {
-    borderColor: COLORS.primary,
-    backgroundColor: COLORS.primaryPale,
-  },
-  carrierText: {
-    color: COLORS.gray[700],
-    fontSize: TYPOGRAPHY.fontSize.sm,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  carrierTextActive: {
-    color: COLORS.primary,
   },
   qualificationGrid: {
     flexDirection: 'row',

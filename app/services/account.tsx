@@ -4,11 +4,12 @@ import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, Text, View } from 'react-native';
 
+import { ActionRows, type ActionRow } from '@/components/SelectionControls';
 import ServiceInformation, { ServiceAction, informationStyles as styles } from '@/components/ServiceInformation';
 import { Button } from '@/components/Button';
 import { usePlatformAccount } from '@/hooks/use-platform-account';
 import { useAppLogout } from '@/hooks/use-app-logout';
-import { PLATFORM_CONSENT_TEXT, PLATFORM_PRIVACY_POLICY_URL, PLATFORM_SERVICES, PLATFORM_TERMS_VERSION, PLATFORM_WITHDRAWAL_VERSION, platformRequest, type PlatformWithdrawal, type PlatformWithdrawalStatus } from '@/lib/platform-api';
+import { PARTNER_ADMIN_IN_APP, PLATFORM_CONSENT_TEXT, PLATFORM_PRIVACY_POLICY_URL, PLATFORM_SERVICES, PLATFORM_TERMS_VERSION, PLATFORM_WITHDRAWAL_VERSION, platformRequest, type PlatformWithdrawal, type PlatformWithdrawalStatus } from '@/lib/platform-api';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { captureAppSessionOwner } from '@/lib/request-board-api';
 import { useReadAttempt } from '@/lib/use-read-attempt';
@@ -16,7 +17,7 @@ import { COLORS, SPACING } from '@/lib/theme';
 import { resetTo } from '@/lib/back-navigation';
 
 export default function ServiceAccount() {
-  const { data, error, needsConsent, canWithdraw, loading, refresh, session, token } = usePlatformAccount();
+  const { data, error, signedOut, needsConsent, canWithdraw, loading, refresh, session, token } = usePlatformAccount();
   const logoutAll = useAppLogout('/', 'service-hub');
   const logoutRef = useRef(logoutAll);
   logoutRef.current = logoutAll;
@@ -103,6 +104,19 @@ export default function ServiceAccount() {
       } },
     ]);
   };
+  const insuranceSettings: ActionRow = { label: '보험 계정 설정', icon: 'manage-accounts', tone: 'violet', onPress: () => router.push('/settings?surface=service-hub') };
+  // Settings-style rows; the account screen keeps one filled button only where a step needs it.
+  const actions: ActionRow[] = [
+    ...(data && !needsConsent ? [
+      { label: '서비스 이용내역', icon: 'receipt-long', tone: 'blue', onPress: () => router.navigate('/services/activity') } as ActionRow,
+      ...(session.role ? [insuranceSettings] : []),
+      ...(PARTNER_ADMIN_IN_APP && session.role === 'admin' && !session.readOnly && session.staffType === 'admin'
+        ? [{ label: '제휴·정산 관리', icon: 'handshake', tone: 'orange', onPress: () => router.navigate('/services/manage') } as ActionRow] : []),
+    ] : []),
+    ...(needsConsent && session.role ? [insuranceSettings] : []),
+    ...(session.isPlatformSignedIn ? [{ label: '로그아웃', icon: 'logout', tone: 'slate', onPress: () => session.logout() } as ActionRow] : []),
+  ];
+  const relogin = () => { session.logout(); resetTo(router, '/services/login'); };
   return <ServiceInformation title="내 정보" account>
     <Text accessibilityRole="header" style={styles.title}>{data ? `${data.member.name}님` : '모두온 계정'}</Text>
     {loading && <Text accessibilityLiveRegion="polite" style={styles.body}>내 정보를 확인하고 있습니다.</Text>}
@@ -122,7 +136,12 @@ export default function ServiceAccount() {
       {consentError && <Text accessibilityRole="alert" style={styles.body}>{consentError}</Text>}
       <Button loading={consenting} disabled={!termsAccepted || consenting || deleteLoading} onPress={acceptTerms} fullWidth>동의하고 계속하기</Button>
     </View>}
-    {error && !needsConsent && <View><Text accessibilityRole="alert" style={styles.body}>{error}</Text><ServiceAction label="다시 확인" onPress={() => void refresh()} />{session.isPlatformSignedIn && <ServiceAction label="다시 로그인" onPress={() => { session.logout(); resetTo(router, '/services/login'); }} />}</View>}
+    {error && !needsConsent && <View><Text accessibilityRole="alert" style={styles.body}>{error}</Text>
+      {/* One filled action: signing in when the session was rejected, otherwise reading again. */}
+      {signedOut ? <ServiceAction label="다시 로그인" onPress={relogin} /> : <>
+        <ServiceAction label="다시 확인" onPress={() => void refresh()} />
+        {session.isPlatformSignedIn && <Button variant="ghost" onPress={relogin}>다시 로그인</Button>}
+      </>}</View>}
     {data && !needsConsent && <>
       <Text style={styles.sectionTitle}>제휴 서비스 혜택</Text>
       <Text style={styles.body}>각 제휴사의 정산이 끝난 뒤 7일 이내에 회사가 정한 비율로 지급합니다. 거래와 정산이 확인된 내역만 표시합니다.</Text>
@@ -134,14 +153,8 @@ export default function ServiceAccount() {
       </View>)}
     </>}
     <View style={accountStyles.actions}>
-      {data && !needsConsent && <>
-        <ServiceAction style={accountStyles.action} label="서비스 이용내역" onPress={() => router.navigate('/services/activity')} />
-        {session.role && <ServiceAction style={accountStyles.action} label="보험 계정 설정" onPress={() => router.push('/settings?surface=service-hub')} />}
-        {session.role === 'admin' && !session.readOnly && session.staffType === 'admin' && <ServiceAction style={accountStyles.action} label="제휴·정산 관리" onPress={() => router.navigate('/services/manage')} />}
-      </>}
-      {session.isPlatformSignedIn && <ServiceAction style={accountStyles.action} label="로그아웃" onPress={() => session.logout()} />}
-      {needsConsent && session.role && <ServiceAction style={accountStyles.action} label="보험 계정 설정" onPress={() => router.push('/settings?surface=service-hub')} />}
-      {session.isPlatformSignedIn && (canWithdraw || deletePending || deletionCheckFailed) && token && <Button variant="outline" loading={deleteLoading} disabled={deleteLoading || consenting} onPress={requestDeletion} fullWidth>{deletionCheckFailed ? '탈퇴 요청 다시 확인' : deletePending ? '탈퇴 처리 재시도' : '공통 회원 탈퇴'}</Button>}
+      {actions.length > 0 && <ActionRows items={actions} />}
+      {session.isPlatformSignedIn && (canWithdraw || deletePending || deletionCheckFailed) && token && <Button variant="ghost" size="sm" loading={deleteLoading} disabled={deleteLoading || consenting} onPress={requestDeletion} textStyle={accountStyles.withdraw}>{deletionCheckFailed ? '탈퇴 요청 다시 확인' : deletePending ? '탈퇴 처리 재시도' : '공통 회원 탈퇴'}</Button>}
       {deleteError && <Text accessibilityRole="alert" style={styles.body}>{deleteError}</Text>}
       <Pressable accessibilityRole="link" style={{ minHeight: 44, justifyContent: 'center' }} onPress={() => {
         void openExternalUrl(PLATFORM_PRIVACY_POLICY_URL).catch(() => setConsentError('개인정보처리방침을 열지 못했습니다. 다시 시도해주세요.'));
@@ -153,5 +166,5 @@ export default function ServiceAccount() {
 
 const accountStyles = {
   actions: { gap: SPACING.md, marginTop: SPACING.sm },
-  action: { marginTop: 0 },
+  withdraw: { color: COLORS.gray[500], fontWeight: '500' as const },
 };

@@ -1,0 +1,343 @@
+/* Queue on the left, answer panel on the right; the panel stays in view while the queue scrolls. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 440px;
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Status tiles double as the queue filter; the icon sits top right as on the 생명/손해 위촉 page. */
+.tile {
+  min-height: 108px;
+}
+
+.tileHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.tileIcon {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #e9e9e6;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.tile[data-hot] .tileIcon {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.queueTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--dashboard-ink);
+}
+
+.queueHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px 12px;
+}
+
+.queue {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Each row leads with the first-contact deadline, the number staff act on. */
+.row {
+  appearance: none;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  color: var(--dashboard-ink);
+  background: transparent;
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  border-radius: 18px;
+  cursor: pointer;
+  transition: background-color 320ms ease;
+}
+
+.row + .row {
+  margin-top: 2px;
+}
+
+.row:hover {
+  background: #fafaf9;
+}
+
+.row[data-active] {
+  background: var(--dashboard-panel);
+}
+
+.row:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+.due {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 60px;
+  border-radius: 14px;
+  background: var(--dashboard-panel);
+  font-variant-numeric: tabular-nums;
+}
+
+.row[data-active] .due:not([data-tone]) {
+  background: #fff;
+}
+
+.dueValue {
+  font-size: 19px;
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.dueUnit {
+  font-size: 12px;
+  color: #8a8984;
+}
+
+.due[data-tone='soon'] {
+  background: #fff1e6;
+  color: #c2470d;
+}
+
+.due[data-tone='late'] {
+  background: #fdeeee;
+  color: #d9473c;
+}
+
+.due[data-tone='soon'] .dueUnit,
+.due[data-tone='late'] .dueUnit {
+  color: inherit;
+}
+
+.who {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nameLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.name {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.careType {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6b6a65;
+  background: var(--dashboard-panel);
+  border-radius: 6px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+.row[data-active] .careType {
+  background: #fff;
+}
+
+/* Status pills in this page are read at a glance, so they are a step larger than the shared pill. */
+.status {
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
+.line {
+  font-size: 14px;
+  color: #6b6a65;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  padding: 40px 12px;
+  text-align: center;
+  color: #8a8984;
+}
+
+.panel {
+  position: sticky;
+  top: 16px;
+}
+
+.panelHead {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.panelName {
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--dashboard-ink);
+}
+
+.phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--dashboard-ink);
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.phone svg {
+  color: #8a8984;
+}
+
+.phone:hover {
+  text-decoration: underline;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  row-gap: 8px;
+  column-gap: 12px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.facts dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #8a8984;
+}
+
+.facts dd {
+  margin: 0;
+  color: var(--dashboard-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Request progress as one row of four steps: done steps carry their time, a missed first contact turns red. */
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  font-size: 13px;
+}
+
+.steps li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 18px;
+  color: #a3a29d;
+  min-width: 0;
+}
+
+/* The track runs from each dot to the next one. */
+.steps li::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 10px;
+  right: 0;
+  height: 2px;
+  background: #e6e5e1;
+}
+
+.steps li:last-child::after {
+  display: none;
+}
+
+.steps li::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #d6d5d0;
+}
+
+.steps li[data-done] {
+  color: var(--dashboard-ink);
+}
+
+.steps li[data-done]::before {
+  background: #1f9d55;
+}
+
+.steps li[data-done]::after {
+  background: #b7e2c6;
+}
+
+.steps li[data-late]::before {
+  background: #d9473c;
+  box-shadow: 0 0 0 3px rgba(217, 71, 60, 0.18);
+}
+
+.steps li[data-late] {
+  color: #d9473c;
+}
+
+.stepLabel {
+  font-weight: 600;
+}
+
+.steps time {
+  font-size: 12px;
+  color: #8a8984;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Solid so nothing shows through while the panel scrolls under it; in the one-column layout the bar stays in place, where pinning it would cover the request. */
+div.decisionBar {
+  background: #fff;
+}
+
+@media (max-width: 1100px) {
+  div.decisionBar {
+    position: static;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row {
+    transition: none;
+  }
+}

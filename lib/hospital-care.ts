@@ -1,4 +1,7 @@
 import { getSeoulTodayIsoDate } from '@/lib/admin-assisted-signup-validation';
+import { CARE_WEEKDAYS } from '@/lib/hospital-care-queue';
+
+export { CARE_WEEKDAYS, formatCareDate, formatCareTime } from '@/lib/hospital-care-queue';
 
 /**
  * Checklist sent with a confirmed care reservation. Draft compiled from public
@@ -20,7 +23,6 @@ export const isHospitalCarePushData = (data: unknown) =>
   typeof data === 'object' && data !== null && (data as { kind?: unknown }).kind === 'hospital_care';
 
 export const CARE_START_DAYS = 30;
-const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
 /** Selectable start dates from today (Seoul) for the next CARE_START_DAYS days. */
 export function careStartOptions(now = new Date()) {
@@ -29,11 +31,39 @@ export function careStartOptions(now = new Date()) {
     const date = new Date(Date.UTC(year, month - 1, day + offset));
     const value = date.toISOString().slice(0, 10);
     const label = offset === 0 ? '오늘' : offset === 1 ? '내일' : `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
-    return { value, label, weekday: WEEKDAYS[date.getUTCDay()] };
+    return { value, label, weekday: CARE_WEEKDAYS[date.getUTCDay()] };
   });
 }
 
-export function formatCareDate(value: string) {
-  const [year, month, day] = value.split('-').map(Number);
-  return `${month}월 ${day}일 (${WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()]})`;
+export type CareCalendarCell = { day: number; value: string | null; today: boolean; sunday: boolean } | null;
+
+/** Month grids (Sunday first) covering the selectable start dates; days outside the window have no value. Weeks that end before the window are left out. */
+export function careCalendarMonths(options: { value: string; label: string }[]) {
+  const selectable = new Set(options.map((option) => option.value));
+  const today = options.find((option) => option.label === '오늘')?.value;
+  return [...new Set(options.map((option) => option.value.slice(0, 7)))].map((key) => {
+    const [year, month] = key.split('-').map(Number);
+    const lead = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+    const days = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const cells: CareCalendarCell[] = Array.from({ length: lead }, () => null);
+    for (let day = 1; day <= days; day++) {
+      const value = `${key}-${String(day).padStart(2, '0')}`;
+      cells.push({ day, value: selectable.has(value) ? value : null, today: value === today, sunday: (lead + day - 1) % 7 === 0 });
+    }
+    const first = options[0]?.value ?? '';
+    const weeks: CareCalendarCell[][] = [];
+    for (let index = 0; index < cells.length; index += 7) weeks.push(cells.slice(index, index + 7));
+    const kept = weeks.filter((week) => week.some((cell) => cell && `${key}-${String(cell.day).padStart(2, '0')}` >= first));
+    return { key, label: `${year}.${String(month).padStart(2, '0')}`, cells: kept.flat() };
+  });
 }
+
+/** One tone per status, shared by the member and staff screens. */
+export const CARE_STATUS_TONES = {
+  requested: { bg: '#f1f3f5', fg: '#374151' },
+  reviewing: { bg: '#e3edff', fg: '#1d4ed8' },
+  adjusted: { bg: '#fff1dc', fg: '#9a3412' },
+  confirmed: { bg: '#dcf5e7', fg: '#047857' },
+  declined: { bg: '#fde4e4', fg: '#b91c1c' },
+  cancelled: { bg: '#f1f3f5', fg: '#4b5563' },
+} as const;
