@@ -9,7 +9,7 @@ import ServiceInformation, { ServiceAction, informationStyles as styles } from '
 import { Button } from '@/components/Button';
 import { usePlatformAccount } from '@/hooks/use-platform-account';
 import { useAppLogout } from '@/hooks/use-app-logout';
-import { PLATFORM_CONSENT_TEXT, PLATFORM_PRIVACY_POLICY_URL, PLATFORM_SERVICES, PLATFORM_TERMS_VERSION, PLATFORM_WITHDRAWAL_VERSION, platformRequest, type PlatformWithdrawal, type PlatformWithdrawalStatus } from '@/lib/platform-api';
+import { PARTNER_ADMIN_IN_APP, PLATFORM_CONSENT_TEXT, PLATFORM_PRIVACY_POLICY_URL, PLATFORM_SERVICES, PLATFORM_TERMS_VERSION, PLATFORM_WITHDRAWAL_VERSION, platformRequest, type PlatformWithdrawal, type PlatformWithdrawalStatus } from '@/lib/platform-api';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { captureAppSessionOwner } from '@/lib/request-board-api';
 import { useReadAttempt } from '@/lib/use-read-attempt';
@@ -110,7 +110,7 @@ export default function ServiceAccount() {
     ...(data && !needsConsent ? [
       { label: '서비스 이용내역', icon: 'receipt-long', tone: 'blue', onPress: () => router.navigate('/services/activity') } as ActionRow,
       ...(session.role ? [insuranceSettings] : []),
-      ...(session.role === 'admin' && !session.readOnly && session.staffType === 'admin'
+      ...(PARTNER_ADMIN_IN_APP && session.role === 'admin' && !session.readOnly && session.staffType === 'admin'
         ? [{ label: '제휴·정산 관리', icon: 'handshake', tone: 'orange', onPress: () => router.navigate('/services/manage') } as ActionRow] : []),
     ] : []),
     ...(needsConsent && session.role ? [insuranceSettings] : []),

@@ -1,5 +1,15 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261023-care-requests-admin-web"></a>
+## 2026-10-23 간병 예약 요청 응답을 관리자 웹으로 이전
+
+- 브랜치 `design/moduon-selection-controls-20261022`(worktree `.codex-tmp/moduon-hospital-redesign`). 미푸시·미배포.
+- 웹: `web/src/app/dashboard/care-requests/`(대기열·응답 패널, 1분마다 다시 읽음, 기한 30분 이내 주황·초과 빨강), `web/src/app/api/admin/care-requests/route.ts`(관리자 확인 → `web_app_session` 토큰으로 platform-service 호출, GET은 careRequests·careMetrics만 내보냄), `web/src/lib/care-request-admin.ts`(허용 동작만 변환, 일정 조정·진행 어려움은 안내 필수). 메뉴는 쓰기 권한 관리자에게만 보인다.
+- 앱: `app/services/account.tsx`의 제휴·정산 관리 행을 `PARTNER_ADMIN_IN_APP`으로 숨김. `CareRequestAdmin`·`manage.tsx`는 그대로.
+- 공용: `lib/hospital-care-queue.ts`(상태·형태 이름, 기한 계산, 날짜 표시). `lib/platform-api.ts`·`lib/hospital-care.ts`는 다시 내보낸다.
+- 검증: web tsc·lint·node 테스트 818, 앱 tsc·lint, jest 관련 5파일. 로컬 next dev에서 브라우저 안 가짜 응답으로 대기열·안내 필수 오류·응답 전송·첫 연락 기록·확정 탭·조회 실패·390px 화면을 확인했다. `shared-function-contracts`의 함수 목록 검사는 경로에 `.codex-tmp`가 있어 0건이 되는 worktree 환경 문제로 실패한다.
+- 미확인: 운영 관리자 계정으로 실제 platform-service 호출(관리자 세션에 모두온 약관 동의가 없으면 409가 그대로 표시된다).
+
 <a id="20261021-hospital-care-release"></a>
 ## 2026-10-21 모두온 간병 예약 요청 운영 배포
 

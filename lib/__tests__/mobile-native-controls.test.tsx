@@ -491,6 +491,7 @@ it('public account offers common login and keeps insurance settings within the c
   let failure: { error: string; signedOut: boolean } = { error: '', signedOut: false };
   const push = jest.fn(); const navigate = jest.fn();
   const openPolicy = jest.fn(async () => undefined);
+  const platformApi = { PLATFORM_PRIVACY_POLICY_URL: 'https://example.test/privacy/', PLATFORM_SERVICES: {}, PARTNER_ADMIN_IN_APP: false, platformRequest: jest.fn() };
   const Account = executeComponent('app/services/account.tsx', {
     '@expo/vector-icons': { Feather: 'Feather' }, '@/components/Button': { Button: 'Button' },
     'expo-clipboard': { setStringAsync: jest.fn() }, '@/lib/messenger-copy-actions': { copyTextWithFeedback: jest.fn(async () => true) }, 'expo-router': { router: { push, navigate } },
@@ -499,7 +500,7 @@ it('public account offers common login and keeps insurance settings within the c
     '@/hooks/use-platform-account': { usePlatformAccount: () => ({ data, loading: false, error: failure.error || null, signedOut: failure.signedOut, session: { ...session, logout: jest.fn() }, token: null, refresh: jest.fn() }) },
     '@/lib/back-navigation': { resetTo: jest.fn() },
     '@/hooks/use-app-logout': { useAppLogout: () => jest.fn() }, 'expo-crypto': { randomUUID: () => '10000000-0000-4000-8000-000000000001' },
-    '@/lib/platform-api': { PLATFORM_PRIVACY_POLICY_URL: 'https://example.test/privacy/', PLATFORM_SERVICES: {}, platformRequest: jest.fn() }, '@/lib/theme': { COLORS, SPACING },
+    '@/lib/platform-api': platformApi, '@/lib/theme': { COLORS, SPACING },
     '@/lib/open-external-url': { openExternalUrl: openPolicy },
     '@/lib/request-board-api': { captureAppSessionOwner: () => () => true }, '@/lib/use-read-attempt': { useReadAttempt },
   });
@@ -533,6 +534,10 @@ it('public account offers common login and keeps insurance settings within the c
   expect(rows().some((row) => row.label === '보험 계정 설정')).toBe(false);
   expect(texts(renderer.root)).toContain('시험 회원님');
   Object.assign(session, { role: 'admin', readOnly: false, staffType: 'admin' });
+  await act(async () => renderer.update(createElement(Account)));
+  // Partner and care request work moved to the admin web; the row returns only with the flag.
+  expect(rows().some((row) => row.label === '제휴·정산 관리')).toBe(false);
+  platformApi.PARTNER_ADMIN_IN_APP = true;
   await act(async () => renderer.update(createElement(Account)));
   await act(async () => { const press = rows().find((row) => row.label === '제휴·정산 관리')!.onPress; press(); press(); });
   expect(navigate.mock.calls.slice(-2)).toEqual([['/services/manage'], ['/services/manage']]);
@@ -1030,7 +1035,6 @@ it('care reservation reuses one key for a retried submit, shows staff answers an
 });
 
 it('care request admin orders waiting requests by first-contact due time, shows the countdown and records milestones', async () => {
-  const statuses = { requested: '접수됨', reviewing: '확인 중', confirmed: '확정', adjusted: '일정 조정', declined: '진행 어려움', cancelled: '취소함' };
   const now = Date.now();
   const at = (minutes: number) => new Date(now + minutes * 60000).toISOString();
   const row = (id: string, status: string, dueInMinutes: number, extra: Record<string, unknown> = {}) => ({ id, hospitalId: 'h', hospitalName: '시험병원', desiredStart: '2026-10-21', careType: 'day_time',
@@ -1042,8 +1046,8 @@ it('care request admin orders waiting requests by first-contact due time, shows 
     '@expo/vector-icons': { MaterialIcons: 'MaterialIcons' },
     '@/components/Button': { Button: 'Button' }, '@/components/FormInput': { FormInput: 'FormInput' },
     '@/components/hospitals/HospitalScreen': { CareStatusBadge: 'CareStatusBadge' },
-    '@/lib/hospital-care': { CARE_STATUS_TONES, formatCareDate: (value: string) => value }, '@/lib/theme': { COLORS },
-    '@/lib/platform-api': { CARE_REQUEST_STATUSES: statuses, CARE_TYPES: { full_day: '24시간 간병', day_time: '주간 간병' } },
+    '@/lib/hospital-care': { CARE_STATUS_TONES }, '@/lib/theme': { COLORS },
+    '@/lib/hospital-care-queue': jest.requireActual('../hospital-care-queue'),
   });
   const metrics = { requests: 4, firstContactDue: 3, firstContactOnTime: 2, overdueNow: 1, medianFirstContactMinutes: 18.4, medianDecisionMinutes: 95, confirmed: 1, started: 0 };
   const requests = [row('C', 'confirmed', -600, { firstContactAt: at(-620) }), row('B', 'requested', 20), row('A', 'reviewing', -15)];

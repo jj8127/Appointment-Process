@@ -53,6 +53,8 @@ export const HOSPITAL_DIRECTORY_SPECIALTIES = [
 export const HOSPITAL_DEMO_ENABLED = process.env.EXPO_PUBLIC_HOSPITAL_DEMO === 'true';
 /** 2026-10-22 user decision: hospital ad registration and ad reports are handled outside the app. The screens stay in code, hidden. */
 export const HOSPITAL_AD_ADMIN_ENABLED = false;
+/** 2026-10-23 user decision: staff answer care requests in the admin web; the app's partner and settlement screen stays in code, hidden. */
+export const PARTNER_ADMIN_IN_APP = false;
 /** The partner hospital that takes care reservations; must match the platform-service allowlist. */
 export const CARE_HOSPITAL_ID = '20000000-0000-4000-8000-000000000001';
 export const acceptsCareRequests = (hospitalId: string) => hospitalId === CARE_HOSPITAL_ID;
@@ -71,13 +73,7 @@ export type PlatformHospitalReport = {
   totals: HospitalMetrics;
 };
 type HospitalMetrics = { impressions: number; detailViews: number; phoneClicks: number; directionsClicks: number };
-export const CARE_REQUEST_STATUSES = { requested: '접수됨', reviewing: '확인 중', confirmed: '확정', adjusted: '일정 조정', declined: '진행 어려움', cancelled: '취소함' } as const;
-export const CARE_TYPES = { full_day: '24시간 간병', day_time: '주간 간병' } as const;
-export const CONTACT_TIMES = { morning: '오전', afternoon: '오후', evening: '저녁', anytime: '언제든' } as const;
-export type HospitalCareRequest = {
-  id: string; hospitalId: string; hospitalName: string; desiredStart: string; careType: keyof typeof CARE_TYPES;
-  contactTime: keyof typeof CONTACT_TIMES; status: keyof typeof CARE_REQUEST_STATUSES; staffNote: string | null; respondedAt: string | null; createdAt: string;
-};
+export { CARE_REQUEST_STATUSES, CARE_TYPES, CONTACT_TIMES, type HospitalCareRequest } from '@/lib/hospital-care-queue';
 
 export class PlatformApiError extends Error {
   constructor(message: string, public readonly code: string, public readonly status?: number,

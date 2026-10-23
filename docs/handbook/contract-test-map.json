@@ -33,7 +33,11 @@
         "supabase/migrations/20261021022245_platform_hospital_care_requests.sql",
         "supabase/migrations/20261021022302_hospital_care_sla_schedule.sql",
         "supabase/functions/_shared/hospital-care-push.ts",
-        "supabase/functions/_shared/__tests__/hospital-care-push.test.ts"
+        "supabase/functions/_shared/__tests__/hospital-care-push.test.ts",
+        "lib/hospital-care-queue.ts",
+        "web/src/app/api/admin/care-requests/",
+        "web/src/app/dashboard/care-requests/",
+        "web/src/lib/care-request-admin.ts"
       ],
       "requires_any": [
         "supabase/tests/platform-membership-sql.test.mjs",
@@ -41,7 +45,8 @@
         "lib/__tests__/platform-api.test.ts",
         "lib/__tests__/mobile-acceptance-runtime.test.ts",
         "lib/__tests__/mobile-native-controls.test.tsx",
-        "lib/__tests__/login-navigation.test.js"
+        "lib/__tests__/login-navigation.test.js",
+        "web/src/lib/care-request-admin.test.ts"
       ]
     },
     {

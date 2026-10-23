@@ -6,69 +6,38 @@ import { Button } from '@/components/Button';
 import { FormInput } from '@/components/FormInput';
 import { CareStatusBadge } from '@/components/hospitals/HospitalScreen';
 import { ChoiceRows } from '@/components/SelectionControls';
-import { CARE_STATUS_TONES, formatCareDate } from '@/lib/hospital-care';
-import { CARE_REQUEST_STATUSES, CARE_TYPES, type HospitalCareRequest } from '@/lib/platform-api';
+import { CARE_STATUS_TONES } from '@/lib/hospital-care';
+import {
+  CARE_DECISIONS, CARE_REQUEST_STATUSES, CARE_TYPES, careMedian, carePercent, careQueue, decisionNeedsNote, elapsedLabel,
+  firstContactLabel, formatCareDate, formatCarePhone, type AdminCareRequest, type CareDecision, type CareMetrics, type CareMilestone,
+} from '@/lib/hospital-care-queue';
 import { COLORS } from '@/lib/theme';
 
-export type AdminCareRequest = HospitalCareRequest & {
-  memberName: string | null; memberPhone: string | null;
-  firstContactDueAt: string; firstContactAt: string | null; decidedAt: string | null; careStartedAt: string | null;
-};
-export type CareMetrics = {
-  requests: number; firstContactDue: number; firstContactOnTime: number; overdueNow: number;
-  medianFirstContactMinutes: number | null; medianDecisionMinutes: number | null; confirmed: number; started: number;
-};
-type Decision = 'reviewing' | 'confirmed' | 'adjusted' | 'declined';
-type Milestone = 'first_contact' | 'care_started';
+export type { AdminCareRequest, CareMetrics } from '@/lib/hospital-care-queue';
 type Tab = 'open' | 'confirmed' | 'all';
-const DECISIONS: Decision[] = ['reviewing', 'confirmed', 'adjusted', 'declined'];
-
-function minutesLabel(minutes: number) {
-  if (minutes < 60) return `${minutes}분`;
-  if (minutes < 1440) return `${Math.floor(minutes / 60)}시간`;
-  return `${Math.floor(minutes / 1440)}일`;
-}
-
-export function elapsedLabel(createdAt: string, now = Date.now()) {
-  return `${minutesLabel(Math.max(0, Math.floor((now - Date.parse(createdAt)) / 60000)))} 경과`;
-}
-
-/** First-contact countdown for an unanswered request; null once staff reached the member. */
-export function firstContactLabel(request: Pick<AdminCareRequest, 'firstContactAt' | 'firstContactDueAt' | 'status'>, now = Date.now()) {
-  if (request.firstContactAt || !['requested', 'reviewing'].includes(request.status)) return null;
-  const left = Math.floor((Date.parse(request.firstContactDueAt) - now) / 60000);
-  return left >= 0 ? `첫 연락 ${minutesLabel(left)} 남음` : `첫 연락 기한 ${minutesLabel(-left)} 초과`;
-}
-
-const formatPhone = (phone: string) => phone.replace(/^(\d{3})(\d{3,4})(\d{4})$/, '$1-$2-$3');
-const percent = (part: number, whole: number) => whole ? `${Math.round((part / whole) * 100)}%` : '-';
-const median = (value: number | null) => value === null ? '-' : minutesLabel(Math.round(value));
 
 /** Waiting requests first, by first-contact due time; a row opens its answer panel in place. */
 export default function CareRequestAdmin({ requests, metrics, busy, onRespond, onMark }: {
   requests: AdminCareRequest[]; metrics: CareMetrics | null; busy: boolean;
-  onRespond: (requestId: string, status: Decision, note: string) => void;
-  onMark: (requestId: string, milestone: Milestone) => void;
+  onRespond: (requestId: string, status: CareDecision, note: string) => void;
+  onMark: (requestId: string, milestone: CareMilestone) => void;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
-  const [decision, setDecision] = useState<Decision | null>(null);
+  const [decision, setDecision] = useState<CareDecision | null>(null);
   const [note, setNote] = useState('');
   const [noteError, setNoteError] = useState<string | null>(null);
-  const open = requests.filter((item) => item.status === 'requested' || item.status === 'reviewing')
-    .sort((a, b) => Date.parse(a.firstContactDueAt) - Date.parse(b.firstContactDueAt));
-  const rest = requests.filter((item) => !open.includes(item));
-  const confirmed = requests.filter((item) => item.status === 'confirmed');
+  const { open, confirmed, all } = careQueue(requests);
   // Until staff pick a tab, show waiting requests when there are any (data may arrive after the first render).
   const [picked, setTab] = useState<Tab | null>(null);
   const tab = picked ?? (open.length ? 'open' : 'all');
-  const shown = tab === 'open' ? open : tab === 'confirmed' ? confirmed : [...open, ...rest];
+  const shown = tab === 'open' ? open : tab === 'confirmed' ? confirmed : all;
   const toggle = (request: AdminCareRequest) => {
     const next = selected === request.id ? null : request.id;
     setSelected(next); setDecision(null); setNote(next ? request.staffNote ?? '' : ''); setNoteError(null);
   };
   const respond = (request: AdminCareRequest) => {
     if (!decision) return;
-    if ((decision === 'adjusted' || decision === 'declined') && !note.trim()) { setNoteError('일정 조정과 진행 어려움은 회원에게 보낼 안내를 입력해 주세요.'); return; }
+    if (decisionNeedsNote(decision) && !note.trim()) { setNoteError('일정 조정과 진행 어려움은 회원에게 보낼 안내를 입력해 주세요.'); return; }
     setNoteError(null);
     onRespond(request.id, decision, note.trim());
   };
@@ -93,7 +62,7 @@ export default function CareRequestAdmin({ requests, metrics, busy, onRespond, o
       </Pressable>
       {isOpen && <View style={local.panel}>
         <View style={local.facts}>
-          {([['연락처', request.memberPhone ? formatPhone(request.memberPhone) : '연락처 없음'], ['시작일', formatCareDate(request.desiredStart)], ['형태', CARE_TYPES[request.careType]]] as const)
+          {([['연락처', request.memberPhone ? formatCarePhone(request.memberPhone) : '연락처 없음'], ['시작일', formatCareDate(request.desiredStart)], ['형태', CARE_TYPES[request.careType]]] as const)
             .map(([label, value]) => <View key={label} style={local.fact}><Text style={local.factLabel}>{label}</Text><Text selectable style={local.factValue}>{value}</Text></View>)}
           {request.staffNote && <View style={local.fact}><Text style={local.factLabel}>안내</Text><Text style={local.factValue}>{request.staffNote}</Text></View>}
         </View>
@@ -101,7 +70,7 @@ export default function CareRequestAdmin({ requests, metrics, busy, onRespond, o
         {request.status === 'confirmed' && !request.careStartedAt && <Button variant="outline" disabled={busy} onPress={() => onMark(request.id, 'care_started')}>간병 시작 확인</Button>}
         {request.status !== 'cancelled' && <>
           <ChoiceRows label="처리 결정" value={decision ?? ''} disabled={busy} onChange={(status) => { setDecision(status); setNoteError(null); }}
-            options={DECISIONS.map((status) => ({ value: status, label: CARE_REQUEST_STATUSES[status], color: CARE_STATUS_TONES[status].fg }))} />
+            options={CARE_DECISIONS.map((status) => ({ value: status, label: CARE_REQUEST_STATUSES[status], color: CARE_STATUS_TONES[status].fg }))} />
           <FormInput label="회원에게 보낼 안내 (확정 시 선택)" accessibilityLabel="회원 안내" value={note} editable={!busy} maxLength={500} multiline
             onChangeText={(value) => { setNote(value); setNoteError(null); }} />
           {noteError && <Text accessibilityRole="alert" style={local.error}>{noteError}</Text>}
@@ -119,10 +88,10 @@ export default function CareRequestAdmin({ requests, metrics, busy, onRespond, o
     {metrics && <>
       <View style={local.stats}>
         <View style={local.stat}><Text style={local.statValue}>{metrics.requests}건</Text><Text style={local.statLabel}>최근 30일</Text></View>
-        <View style={local.stat}><Text style={local.statValue}>{percent(metrics.firstContactOnTime, metrics.firstContactDue)}</Text><Text style={local.statLabel}>기한 준수</Text></View>
+        <View style={local.stat}><Text style={local.statValue}>{carePercent(metrics.firstContactOnTime, metrics.firstContactDue)}</Text><Text style={local.statLabel}>기한 준수</Text></View>
         <View style={local.stat}><Text style={[local.statValue, metrics.overdueNow > 0 && local.overdue]}>{metrics.overdueNow}건</Text><Text style={local.statLabel}>기한 초과</Text></View>
       </View>
-      <Text style={local.medians}>첫 연락 중앙값 {median(metrics.medianFirstContactMinutes)} · 결정 중앙값 {median(metrics.medianDecisionMinutes)} · 확정 {metrics.confirmed}건 · 시작 {metrics.started}건</Text>
+      <Text style={local.medians}>첫 연락 중앙값 {careMedian(metrics.medianFirstContactMinutes)} · 결정 중앙값 {careMedian(metrics.medianDecisionMinutes)} · 확정 {metrics.confirmed}건 · 시작 {metrics.started}건</Text>
     </>}
     {requests.length === 0 ? <Text style={local.empty}>받은 예약 요청이 없습니다.</Text> : <>
       <View style={local.tabs}>{([['open', `답변 대기 ${open.length}`], ['confirmed', `확정 ${confirmed.length}`], ['all', `전체 ${requests.length}`]] as const).map(([key, label]) =>

@@ -1,4 +1,7 @@
 import { getSeoulTodayIsoDate } from '@/lib/admin-assisted-signup-validation';
+import { CARE_WEEKDAYS } from '@/lib/hospital-care-queue';
+
+export { CARE_WEEKDAYS, formatCareDate, formatCareTime } from '@/lib/hospital-care-queue';
 
 /**
  * Checklist sent with a confirmed care reservation. Draft compiled from public
@@ -20,7 +23,6 @@ export const isHospitalCarePushData = (data: unknown) =>
   typeof data === 'object' && data !== null && (data as { kind?: unknown }).kind === 'hospital_care';
 
 export const CARE_START_DAYS = 30;
-const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
 /** Selectable start dates from today (Seoul) for the next CARE_START_DAYS days. */
 export function careStartOptions(now = new Date()) {
@@ -29,19 +31,8 @@ export function careStartOptions(now = new Date()) {
     const date = new Date(Date.UTC(year, month - 1, day + offset));
     const value = date.toISOString().slice(0, 10);
     const label = offset === 0 ? '오늘' : offset === 1 ? '내일' : `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
-    return { value, label, weekday: WEEKDAYS[date.getUTCDay()] };
+    return { value, label, weekday: CARE_WEEKDAYS[date.getUTCDay()] };
   });
-}
-
-export function formatCareDate(value: string) {
-  const [year, month, day] = value.split('-').map(Number);
-  return `${month}월 ${day}일 (${WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()]})`;
-}
-
-/** "10월 22일 14:05" in Seoul time (UTC+9, no daylight saving). */
-export function formatCareTime(value: string) {
-  const date = new Date(Date.parse(value) + 9 * 3600000);
-  return `${date.getUTCMonth() + 1}월 ${date.getUTCDate()}일 ${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')}`;
 }
 
 export type CareCalendarCell = { day: number; value: string | null; today: boolean; sunday: boolean } | null;
@@ -66,8 +57,6 @@ export function careCalendarMonths(options: { value: string; label: string }[]) 
     return { key, label: `${year}.${String(month).padStart(2, '0')}`, cells: kept.flat() };
   });
 }
-
-export const CARE_WEEKDAYS = WEEKDAYS;
 
 /** One tone per status, shared by the member and staff screens. */
 export const CARE_STATUS_TONES = {
