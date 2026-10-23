@@ -69,9 +69,23 @@
       document.getElementById('codeVal').textContent = code;
 
       var openAppButton = document.getElementById('openApp');
-      openAppButton.href = isCare
-        ? 'hanwhafcpass://services/signup?service=care&code=' + encodeURIComponent(code)
-        : 'hanwhafcpass://signup?code=' + encodeURIComponent(code);
+      // In-app browsers (KakaoTalk) and Android webviews ignore bare custom-scheme links.
+      // Android gets an intent URL with a store fallback; iOS KakaoTalk reopens this page in Safari first.
+      var ua = navigator.userAgent || '';
+      var isAndroid = /Android/i.test(ua);
+      var isIOS = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      var isKakao = /KAKAOTALK/i.test(ua);
+      var appPath = isCare
+        ? 'services/signup?service=care&code=' + encodeURIComponent(code)
+        : 'signup?code=' + encodeURIComponent(code);
+      if (isAndroid) {
+        openAppButton.href = 'intent://' + appPath + '#Intent;scheme=hanwhafcpass;package=com.jj8127.Garam_in;S.browser_fallback_url='
+          + encodeURIComponent('https://play.google.com/store/apps/details?id=com.jj8127.Garam_in') + ';end';
+      } else if (isIOS && isKakao) {
+        openAppButton.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(location.href);
+      } else {
+        openAppButton.href = 'hanwhafcpass://' + appPath;
+      }
       openAppButton.style.display = 'flex';
       if (isCare) {
         document.title = '모두온 가족간병 추천 초대';
