@@ -1,5 +1,13 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261023-invite-open-app"></a>
+## 2026-10-23 초대 페이지 "모두온 앱 열기" 버튼 수정
+
+- 증상: 카카오톡으로 받은 `garam-invite.vercel.app/?code=…&service=care`에서 "모두온 앱 열기"를 눌러도 반응 없음(사용자 제보 캡처, 카카오톡 인앱 브라우저).
+- 원인: 앱에는 커스텀 스킴 `hanwhafcpass`만 있고 App Links/Universal Links가 없다. 페이지는 `hanwhafcpass://…` 링크만 걸었고, 카카오톡 인앱 브라우저와 Android 웹뷰는 이런 링크를 처리하지 않는다.
+- 수정(`invite-page/index.html`): Android는 `intent://…#Intent;scheme=hanwhafcpass;package=com.jj8127.Garam_in;S.browser_fallback_url=<Play>;end`, iPhone 카카오톡은 `kakaotalk://web/openExternal?url=<현재 주소>`로 Safari에서 다시 연다. 그 밖(iPhone Safari 등)은 기존 스킴 링크. 앱 쪽 경로 파싱(`lib/referral-deeplink.ts`)은 그대로다.
+- 검증: `lib/__tests__/referral-share.test.ts` 35/35(Android 카카오톡·iPhone 카카오톡 경우 추가). 실제 카카오톡에서의 앱 실행은 미확인.
+
 <a id="20261021-hospital-care-release"></a>
 ## 2026-10-21 모두온 간병 예약 요청 운영 배포
 
