@@ -2,6 +2,7 @@
 
 import { Alert, Button, Container, Group, Loader, SegmentedControl, Stack, Text, Textarea, Title } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
+import { IconPhone } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type CSSProperties } from 'react';
 
@@ -146,10 +147,10 @@ function QueueRow({ item, now, active, onSelect }: { item: AdminCareRequest; now
         <span className={styles.dueValue}>{minutesLabel(elapsed)}</span><span className={styles.dueUnit}>전</span>
       </span>
       <span className={styles.who}>
-        <span className={styles.name}>{item.memberName ?? '회원'}</span>
-        <span className={styles.line}>{item.hospitalName} · {formatCareDate(item.desiredStart)} · {CARE_TYPES[item.careType]}</span>
+        <span className={styles.nameLine}><span className={styles.name}>{item.memberName ?? '회원'}</span><span className={styles.careType}>{CARE_TYPES[item.careType]}</span></span>
+        <span className={styles.line}>{formatCareDate(item.desiredStart)} 시작 · {item.hospitalName}</span>
       </span>
-      <span className={surface.pill} data-color={STATUS_COLOR[item.status]}>{CARE_REQUEST_STATUSES[item.status]}</span>
+      <span className={`${surface.pill} ${styles.status}`} data-color={STATUS_COLOR[item.status]}>{CARE_REQUEST_STATUSES[item.status]}</span>
     </button>
   );
 }
@@ -174,43 +175,51 @@ function AnswerPanel({ item, now, busy, error, onAnswer }: {
     { label: '간병 시작', time: item.careStartedAt ? formatCareTime(item.careStartedAt) : null },
   ];
 
+  const milestone = left !== null ? { key: 'first_contact' as const, label: '첫 연락 완료', color: left < 0 ? 'red' : 'dark' }
+    : item.status === 'confirmed' && !item.careStartedAt ? { key: 'care_started' as const, label: '간병 시작 확인', color: 'dark' } : null;
+
   return (
-    <Stack gap={18}>
-      <Group justify="space-between" align="flex-start" wrap="nowrap">
-        <div>
-          <Title order={2} fz={20} fw={650}>{item.memberName ?? '회원'}</Title>
-          {item.memberPhone ? <a className={styles.phone} href={`tel:${item.memberPhone}`}>{formatCarePhone(item.memberPhone)}</a> : <Text c="dimmed">연락처 없음</Text>}
-        </div>
-        <span className={surface.pill} data-color={STATUS_COLOR[item.status]}>{CARE_REQUEST_STATUSES[item.status]}</span>
-      </Group>
+    <Stack gap={20}>
+      <div className={styles.panelHead}>
+        <Group justify="space-between" align="center" wrap="nowrap">
+          <Title order={2} className={styles.panelName}>{item.memberName ?? '회원'}</Title>
+          <span className={`${surface.pill} ${styles.status}`} data-color={STATUS_COLOR[item.status]}>{CARE_REQUEST_STATUSES[item.status]}</span>
+        </Group>
+        <Group justify="space-between" align="center" gap={10}>
+          {item.memberPhone
+            ? <a className={styles.phone} href={`tel:${item.memberPhone}`}><IconPhone size={16} stroke={2} aria-hidden />{formatCarePhone(item.memberPhone)}</a>
+            : <Text c="dimmed">연락처 없음</Text>}
+          {/* The next staff step sits beside the number it follows; 응답 보내기 stays the one filled button. */}
+          {milestone ? <Button color={milestone.color} radius="xl" size="sm" variant="light" loading={busy}
+            onClick={() => onAnswer({ action: 'mark', requestId: item.id, milestone: milestone.key })}>{milestone.label}</Button> : null}
+        </Group>
+      </div>
+      <ol className={styles.steps} aria-label="진행 상황">
+        {steps.map((step) => <li key={step.label} data-done={step.time ? '' : undefined} data-late={!step.time && step.late ? '' : undefined}>
+          <span className={styles.stepLabel}>{step.label}</span>{step.time ? <time>{step.time}</time> : null}
+        </li>)}
+      </ol>
       <dl className={`${surface.well} ${styles.facts}`}>
-        <dt>병원</dt><dd>{item.hospitalName}</dd>
         <dt>희망 시작</dt><dd>{formatCareDate(item.desiredStart)}</dd>
         <dt>간병 형태</dt><dd>{CARE_TYPES[item.careType]}</dd>
+        <dt>병원</dt><dd>{item.hospitalName}</dd>
         {item.staffNote ? <><dt>보낸 안내</dt><dd>{item.staffNote}</dd></> : null}
       </dl>
-      {/* Secondary to 응답 보내기; turns red once the deadline has passed. */}
-      {left !== null ? <Button color={left < 0 ? 'red' : 'dark'} radius="xl" size="md" variant="light" loading={busy}
-        onClick={() => onAnswer({ action: 'mark', requestId: item.id, milestone: 'first_contact' })}>첫 연락 완료</Button> : null}
-      {item.status === 'confirmed' && !item.careStartedAt ? <Button color="dark" radius="xl" size="md" variant="light" loading={busy}
-        onClick={() => onAnswer({ action: 'mark', requestId: item.id, milestone: 'care_started' })}>간병 시작 확인</Button> : null}
       {answerable ? (
-        <Stack gap={10}>
+        <Stack gap={12}>
           <Text fw={600} size="sm" id="care-decision">처리 결정</Text>
           <SegmentedControl aria-labelledby="care-decision" fullWidth radius="xl" disabled={busy} value={decision ?? ''}
+            color={decision ? STATUS_COLOR[decision] : undefined}
             onChange={(value) => { setDecision(value as CareDecision); setNoteError(null); }}
             data={CARE_DECISIONS.map((value) => ({ value, label: CARE_REQUEST_STATUSES[value] }))} />
           <Textarea label="회원 안내" withAsterisk={decision ? decisionNeedsNote(decision) : false} autosize minRows={3} maxRows={8} maxLength={500}
             value={note} disabled={busy} error={noteError} onChange={(event) => { setNote(event.currentTarget.value); setNoteError(null); }} />
           {error ? <Alert color="red" role="alert">{error}</Alert> : null}
-          <Button color="dark" radius="xl" size="md" disabled={!decision} loading={busy} onClick={send}>응답 보내기</Button>
+          <Group justify="flex-end">
+            <Button color="dark" radius="xl" size="md" px={28} disabled={!decision} loading={busy} onClick={send}>응답 보내기</Button>
+          </Group>
         </Stack>
       ) : null}
-      <ol className={styles.steps} aria-label="진행 상황">
-        {steps.map((step) => <li key={step.label} data-done={step.time ? '' : undefined} data-late={!step.time && step.late ? '' : undefined}>
-          <span>{step.label}</span>{step.time ? <time>{step.time}</time> : <span />}
-        </li>)}
-      </ol>
     </Stack>
   );
 }

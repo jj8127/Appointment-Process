@@ -109,9 +109,36 @@
   gap: 2px;
 }
 
+.nameLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .name {
   font-size: 16px;
   font-weight: 600;
+}
+
+.careType {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6b6a65;
+  background: var(--dashboard-panel);
+  border-radius: 6px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+.row[data-active] .careType {
+  background: #fff;
+}
+
+/* Status pills in this page are read at a glance, so they are a step larger than the shared pill. */
+.status {
+  font-size: 12px;
+  padding: 4px 10px;
 }
 
 .line {
@@ -133,13 +160,32 @@
   top: 16px;
 }
 
-.phone {
-  font-size: 22px;
+.panelHead {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.panelName {
+  font-size: 24px;
   font-weight: 650;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+  color: var(--dashboard-ink);
+}
+
+.phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 16px;
+  font-weight: 600;
   color: var(--dashboard-ink);
   text-decoration: none;
   font-variant-numeric: tabular-nums;
+}
+
+.phone svg {
+  color: #8a8984;
 }
 
 .phone:hover {
@@ -165,29 +211,48 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Request progress: done steps carry their time, the next step stays grey. */
+/* Request progress as one row of four steps: done steps carry their time, a missed first contact turns red. */
 .steps {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  font-size: 14px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  font-size: 13px;
 }
 
 .steps li {
-  display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 18px;
   color: #a3a29d;
+  min-width: 0;
+}
+
+/* The track runs from each dot to the next one. */
+.steps li::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 10px;
+  right: 0;
+  height: 2px;
+  background: #e6e5e1;
+}
+
+.steps li:last-child::after {
+  display: none;
 }
 
 .steps li::before {
   content: '';
-  width: 8px;
-  height: 8px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: #d6d5d0;
 }
@@ -200,11 +265,25 @@
   background: #1f9d55;
 }
 
+.steps li[data-done]::after {
+  background: #b7e2c6;
+}
+
 .steps li[data-late]::before {
   background: #d9473c;
+  box-shadow: 0 0 0 3px rgba(217, 71, 60, 0.18);
+}
+
+.steps li[data-late] {
+  color: #d9473c;
+}
+
+.stepLabel {
+  font-weight: 600;
 }
 
 .steps time {
+  font-size: 12px;
   color: #8a8984;
   font-variant-numeric: tabular-nums;
 }
