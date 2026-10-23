@@ -13,6 +13,7 @@ const enrollmentMigration=await readFile(new URL('../migrations/20261014043557_u
 const withdrawalMigration=await readFile(new URL('../migrations/20261014073458_platform_affiliate_account_withdrawal.sql',import.meta.url),'utf8');
 const checkOtpMigration=await readFile(new URL('../migrations/20261016040348_check_platform_signup_otp.sql',import.meta.url),'utf8');
 const insuranceOnlyWithdrawalMigration=await readFile(new URL('../migrations/20261016090000_platform_insurance_only_withdrawal.sql',import.meta.url),'utf8');
+const careRequestMigration=await readFile(new URL('../migrations/20261021022245_platform_hospital_care_requests.sql',import.meta.url),'utf8');
 const admin='90000000-0000-4000-8000-000000000001';
 const hash=Buffer.alloc(32,3).toString('base64'), salt=Buffer.alloc(16,4).toString('base64');
 async function fixture(seedSql='',withWithdrawal=false) {
@@ -944,5 +945,77 @@ test('insurance registration rejects authority claims, stale common sessions and
     await db.exec('alter table admin_accounts disable trigger platform_admin_phone_guard');
     await db.query(staffInsert,[randomUUID()]);
     await assert.rejects(insuranceEnrollment(db,member2,{phone:'00000000013'}),/forbidden/);
+  }finally{await db.close();}
+});
+
+test('hospital care requests and member push tokens are member owned, retry safe, bounded, answered only by admins and purged on withdrawal',async()=>{
+  const db=await fixture('',true);try {
+    await db.exec(careRequestMigration);
+    const created=await member(db),hospitalId='20000000-0000-4000-8000-000000000001';
+    const today=(await db.query("select (now() at time zone 'Asia/Seoul')::date::text d")).rows[0].d;
+    const input=(overrides={})=>({hospitalId,hospitalName:'Synthetic Partner Hospital',desiredStart:today,careType:'full_day',contactTime:'morning',...overrides});
+    const request=(body,key)=>rpc(db,'select create_hospital_care_request_v1($1,$2,$3) result',[created.memberId,body,key]);
+    const key=randomUUID(),first=await request(input(),key);
+    assert.equal(first.status,'requested');assert.equal(first.created,true);
+    assert.deepEqual(await request(input(),key),{...first,created:false});
+    await assert.rejects(request(input({careType:'day_time'}),key),/idempotency_conflict/);
+    await assert.rejects(request(input({desiredStart:'2020-01-01'}),randomUUID()),/invalid_details/);
+    await assert.rejects(request({...input(),patientCondition:'free text'},randomUUID()),/invalid_details/);
+    await request(input(),randomUUID());await request(input(),randomUUID());
+    await assert.rejects(request(input(),randomUUID()),/care_request_limit/);
+    const respond=(status,note,actor=admin)=>rpc(db,'select respond_hospital_care_request_v1($1,$2,$3,$4) result',[actor,first.requestId,status,note]);
+    await assert.rejects(respond('confirmed',null,randomUUID()),/forbidden/);
+    await assert.rejects(respond('adjusted',' '),/invalid_details/);
+    const confirmed=await respond('confirmed','Synthetic note');
+    assert.equal(confirmed.changed,true);assert.equal(confirmed.memberId,created.memberId);
+    assert.equal((await respond('confirmed','Synthetic note')).changed,false);
+    await assert.rejects(rpc(db,'select cancel_hospital_care_request_v1($1,$2) result',[created.memberId,first.requestId]),/application_unavailable/);
+    await assert.rejects(rpc(db,'select cancel_hospital_care_request_v1($1,$2) result',[randomUUID(),first.requestId]),/application_unavailable/);
+    await request(input(),randomUUID());
+    await db.query("insert into platform_member_push_tokens(expo_push_token,member_id,platform) values('ExponentPushToken[synthetic]',$1,'android')",[created.memberId]);
+    for(const role of ['anon','authenticated']) {
+      await db.exec(`set role ${role}`);
+      await assert.rejects(db.query('select * from platform_hospital_care_requests'),/permission denied/);
+      await assert.rejects(db.query('select * from platform_member_push_tokens'),/permission denied/);
+      await assert.rejects(db.query('select create_hospital_care_request_v1($1,$2,$3)',[created.memberId,input(),randomUUID()]),/permission denied/);
+      await db.exec('reset role');
+    }
+    await rpc(db,'select begin_platform_withdrawal_v1($1,$2,$3) result',[created.memberId,randomUUID(),'c'.repeat(64)]);
+    assert.equal(Number((await db.query('select count(*) n from platform_hospital_care_requests')).rows[0].n),0);
+    assert.equal(Number((await db.query('select count(*) n from platform_member_push_tokens')).rows[0].n),0);
+  }finally{await db.close();}
+});
+
+test('hospital care response time uses Seoul operating hours, records milestones once and reports on-time first contact',async()=>{
+  const db=await fixture();try {
+    await db.exec(careRequestMigration);
+    const due=async(at)=>Number((await db.query("select extract(epoch from hospital_care_first_contact_due_v1($1))*1000 ms",[at])).rows[0].ms);
+    assert.equal(new Date(await due('2026-10-20T10:00:00+09:00')).toISOString(),'2026-10-20T01:30:00.000Z');
+    assert.equal(new Date(await due('2026-10-20T06:10:00+09:00')).toISOString(),'2026-10-19T23:30:00.000Z');
+    assert.equal(new Date(await due('2026-10-20T23:40:00+09:00')).toISOString(),'2026-10-20T23:30:00.000Z');
+    const created=await member(db),hospitalId='20000000-0000-4000-8000-000000000001';
+    const today=(await db.query("select (now() at time zone 'Asia/Seoul')::date::text d")).rows[0].d;
+    const input={hospitalId,hospitalName:'Synthetic Partner Hospital',desiredStart:today,careType:'day_time',contactTime:'anytime'};
+    const make=async()=>(await rpc(db,'select create_hospital_care_request_v1($1,$2,$3) result',[created.memberId,input,randomUUID()])).requestId;
+    const [late,onTime,waiting]=[await make(),await make(),await make()];
+    // Fix history: late was answered after its due time, onTime before it, waiting is still unanswered and past due.
+    await db.query("update platform_hospital_care_requests set created_at=now()-interval '2 hours',first_contact_due_at=now()-interval '90 minutes' where id=any($1)",[[late,waiting]]);
+    await db.query("update platform_hospital_care_requests set created_at=now()-interval '20 minutes',first_contact_due_at=now()+interval '10 minutes' where id=$1",[onTime]);
+    const mark=(id,milestone,actor=admin)=>rpc(db,'select mark_hospital_care_milestone_v1($1,$2,$3) result',[actor,id,milestone]);
+    await assert.rejects(mark(late,'first_contact',randomUUID()),/forbidden/);
+    await assert.rejects(mark(onTime,'care_started'),/application_unavailable/);
+    assert.equal((await mark(late,'first_contact')).changed,true);
+    assert.equal((await mark(late,'first_contact')).changed,false);
+    assert.equal((await db.query('select status from platform_hospital_care_requests where id=$1',[late])).rows[0].status,'reviewing');
+    await rpc(db,'select respond_hospital_care_request_v1($1,$2,$3,$4) result',[admin,onTime,'confirmed',null]);
+    assert.equal((await mark(onTime,'care_started')).changed,true);
+    const claim=()=>rpc(db,'select claim_overdue_hospital_care_v1() result');
+    assert.equal(await claim(),1);
+    assert.equal(await claim(),0);
+    const metrics=await rpc(db,"select get_hospital_care_metrics_v1($1,now()-interval '1 day') result",[admin]);
+    assert.deepEqual({requests:metrics.requests,due:metrics.firstContactDue,onTime:metrics.firstContactOnTime,overdue:metrics.overdueNow,
+      confirmed:metrics.confirmed,started:metrics.started},{requests:3,due:3,onTime:1,overdue:1,confirmed:1,started:1});
+    assert.ok(Number(metrics.medianFirstContactMinutes)>=20 && Number(metrics.medianDecisionMinutes)>=20);
+    await assert.rejects(rpc(db,"select get_hospital_care_metrics_v1($1,now()) result",[randomUUID()]),/forbidden/);
   }finally{await db.close();}
 });

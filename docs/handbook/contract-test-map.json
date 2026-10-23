@@ -29,7 +29,11 @@
         "supabase/migrations/20261015030000_link_restored_fc_common_members.sql",
         "supabase/migrations/20261014130000_platform_service_referrals.sql",
         "supabase/functions/_shared/password-hash.ts",
-        "supabase/functions/_shared/signup-sms.ts"
+        "supabase/functions/_shared/signup-sms.ts",
+        "supabase/migrations/20261021022245_platform_hospital_care_requests.sql",
+        "supabase/migrations/20261021022302_hospital_care_sla_schedule.sql",
+        "supabase/functions/_shared/hospital-care-push.ts",
+        "supabase/functions/_shared/__tests__/hospital-care-push.test.ts"
       ],
       "requires_any": [
         "supabase/tests/platform-membership-sql.test.mjs",

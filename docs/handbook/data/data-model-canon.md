@@ -7,6 +7,10 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
 
+## 2026-10-21 모두온 간병 예약 요청 (운영 적용)
+
+`20261021022245_platform_hospital_care_requests`와 schema mirror는 `platform_hospital_care_requests`(요청·상태·직원 응답·첫 연락 기한과 마일스톤, 회원별 idempotency key)와 `platform_member_push_tokens`를 추가한다. 두 테이블은 RLS를 켜고 anon/authenticated 권한을 회수하며 service_role RPC 8개(생성·취소·응답·마일스톤·기한 계산·기한 초과 청구·지표·탈퇴 정리 trigger)만 쓴다. 환자 건강정보는 저장하지 않는다. 공통 회원이 비활성화되면 trigger가 두 테이블의 행을 지운다. `20261021022302_hospital_care_sla_schedule`은 `request_hospital_care_sla_sweep_v1()`(security definer, 모든 API role 실행 회수)과 pg_cron `hospital-care-sla-sweep`(5분)을 추가하며 Vault `platform_withdrawal_drain_service_key`를 재사용한다. 2026-10-21 운영 DB 적용.
+
 ## 2026-10-16 통합 메신저 1단계 모델 (가람in 운영 적용)
 
 `20261016104031`~`20261016120249` 마이그레이션 8개와 schema mirror가 1단계 모델을 이룬다. `111950`은 백필 뒤에 생긴 방을 첫 메시지에서 연결해 바로 복사하는 수정이고, `120249`는 지운 메시지의 비워진 본문·첨부 필드도 복사본에 옮기는 수정이고(개인정보), `120000`은 그림자 프로필에만 소속이 있는 본부장도 본부에 넣는 수정이다.

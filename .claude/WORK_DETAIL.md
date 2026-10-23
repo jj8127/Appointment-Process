@@ -1,5 +1,16 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261021-hospital-care-release"></a>
+## 2026-10-21 모두온 간병 예약 요청 운영 배포
+
+- 소스: 브랜치 `release/moduon-hospital-care-20261021`(1dac76a7 + e0d877f7 + 4ee61a78 + 0ee1377d), 배포 커밋 0ee1377d. PR https://github.com/jj8127/Appointment-Process/pull/10 → release/all-surfaces-20261004.
+- DB: Supabase MCP로 `platform_hospital_care_requests`(20261021022245), `hospital_care_sla_schedule`(20261021022302) 적용. 테이블 2·RLS·함수 8·trigger 1·API role 권한 0, cron `hospital-care-sla-sweep` */5 성공 확인. 플러그인 MCP는 DELETE가 든 SQL의 확인 창을 데스크톱 앱이 자동 거절해, `skip_elicitations` URL로 별도 등록한 서버를 쓰고 배포 뒤 등록을 지웠다.
+- Edge: `supabase functions deploy platform-service --use-api --no-verify-jwt` → v10 ACTIVE. 인증 없는 `request_hospital_care` 401, 키 없는 sweep 403.
+- OTA: EAS production 환경에는 `EXPO_PUBLIC_HOSPITAL_DEMO`·Sentry DSN이 없어(빌드 프로필 env는 `eas update`에 적용 안 됨) 셸 변수 + `eas env:exec production`으로 export하고 `--skip-bundler`로 플랫폼별 발행. 플래그 켬/끔 대조 빌드 해시(ae74…/163f…)로 반영 확인. 운영 매니페스트 readback 확인.
+- 검증: PGlite SQL 170/170, governance(PR 모드) 대응으로 schema mirror·handbook·contract map 갱신. CI `app` 실패 3파일(exam-bundle-decision, exam-flow, request-board-mobile-ui contract)은 기준선 1dac76a7과 동일. 배포 후 24시간 Sentry 새 이슈 0, platform-service 5xx 0.
+- 법적 쟁점 A·D·F: 2026-10-22 사용자가 위법 없음 확인을 전달했다.
+- 미확인: 실제 기기 OTA 적용, 요청→푸시→응답 실제 흐름, 기한 초과 sweep 실제 HTTP 호출.
+
 <a id="20261020-pending-ui-sweep"></a>
 ## 2026-10-20 버튼 처리 중 표시와 중복 실행 방지(앱·관리자 웹 전체)
 

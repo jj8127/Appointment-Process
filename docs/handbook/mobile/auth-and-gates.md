@@ -7,6 +7,10 @@ source_of_truth: app/services/login.tsx + app/services/signup.tsx + app/login.ts
 
 # Mobile Playbook: Auth And Gates
 
+## 2026-10-21 모두온 회원 로그아웃의 푸시 토큰 정리
+
+`hooks/use-session.tsx`의 로그아웃은 기존 local-first 정리 뒤, 모두온 회원 토큰이 있으면 `unregisterPlatformMemberPushToken`을 기다리지 않고 호출한다. 이 기기가 등록한 회원 Expo 토큰만 지우며, 실패는 `[push] member logout token unregister failed` 경고만 남기고 로그아웃을 막지 않는다. 회귀 근거는 `lib/__tests__/mobile-native-controls.test.tsx`이다.
+
 ## 2026-10-15 보험 추가 정보 안내 화면
 
 `apply-gate`는 2단계 진행 표시, 짧은 제목, 준비할 정보 목록, 필수 동의 카드(내용 보기 펼침)와 하단 고정 버튼으로 구성한다. 설명 문장은 정책상 필요한 동의 내용만 펼침 안에 둔다. 입력 단계는 소속·통신사를 하단 시트 선택 필드로, 이메일은 도메인 추천과 함께 받는다. 빈 칸·잘못된 값은 확인 창 대신 해당 칸 아래 문구와 첫 오류 칸 이동으로 알리며, 동의 누락은 저장 오류 문구로 막는다. 제출·추천인 검증·계정 전환 보호 로직은 바꾸지 않았다.

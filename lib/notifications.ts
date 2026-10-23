@@ -117,6 +117,53 @@ export async function unregisterDevicePushToken(
   return result;
 }
 
+/** Shared by staff and member registration: permission and the Expo token for this device. */
+async function acquireExpoPushToken(
+  providedExpoPushToken?: string,
+  options: { requestPermission?: boolean } = {},
+) {
+  if (Platform.OS === 'web') {
+    return { ok: false, retryable: false, reason: 'unsupported_platform' } as const;
+  }
+  // Expo Go cannot issue push tokens; use an EAS build
+  if (Constants.appOwnership === 'expo') {
+    logger.warn('[push] Expo Go cannot issue push tokens. Please use an EAS build.');
+    return { ok: false, retryable: false, reason: 'unsupported_client' } as const;
+  }
+
+  const Device = await import('expo-device');
+  const Notifications = await import('expo-notifications');
+
+  // The foreground handler and the Android 'alerts' channel are owned by app/_layout.tsx.
+  if (!Device.isDevice) {
+    return { ok: false, retryable: false, reason: 'physical_device_required' } as const;
+  }
+
+  const { status: existingStatus } = await Notifications.getPermissionsAsync();
+  logger.debug('push permission existingStatus', existingStatus);
+  let finalStatus = existingStatus;
+  if (existingStatus !== 'granted' && options.requestPermission === true) {
+    const { status } = await Notifications.requestPermissionsAsync();
+    logger.debug('push permission requested status', status);
+    finalStatus = status;
+  }
+  if (finalStatus !== 'granted') {
+    logger.debug('push permission not granted, skip token register');
+    return { ok: false, retryable: false, reason: 'permission_denied' } as const;
+  }
+
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.expoConfig?.extra?.projectId;
+  const token = providedExpoPushToken
+    ? { data: providedExpoPushToken }
+    : await Notifications.getExpoPushTokenAsync({ projectId });
+  const expoToken = token.data;
+  logger.debug('getExpoPushTokenAsync completed', {
+    projectIdConfigured: Boolean(projectId),
+    reused: Boolean(providedExpoPushToken),
+  });
+  return { ok: true, expoToken } as const;
+}
+
 export async function registerPushToken(
   role: 'admin' | 'fc' | 'manager',
   residentId: string,
@@ -125,47 +172,11 @@ export async function registerPushToken(
   options: { requestPermission?: boolean } = {},
 ): Promise<PushTokenRegistrationResult> {
   try {
-    if (Platform.OS === 'web') {
-      return { ok: false, retryable: false, reason: 'unsupported_platform' };
-    }
     void residentId;
     logger.debug('registerPushToken start', { role });
-    // Expo Go cannot issue push tokens; use an EAS build
-    if (Constants.appOwnership === 'expo') {
-      logger.warn('[push] Expo Go cannot issue push tokens. Please use an EAS build.');
-      return { ok: false, retryable: false, reason: 'unsupported_client' };
-    }
-
-    const Device = await import('expo-device');
-    const Notifications = await import('expo-notifications');
-
-    // The foreground handler and the Android 'alerts' channel are owned by app/_layout.tsx.
-    if (!Device.isDevice) {
-      return { ok: false, retryable: false, reason: 'physical_device_required' };
-    }
-
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    logger.debug('push permission existingStatus', existingStatus);
-    let finalStatus = existingStatus;
-    if (existingStatus !== 'granted' && options.requestPermission === true) {
-      const { status } = await Notifications.requestPermissionsAsync();
-      logger.debug('push permission requested status', status);
-      finalStatus = status;
-    }
-    if (finalStatus !== 'granted') {
-      logger.debug('push permission not granted, skip token register');
-      return { ok: false, retryable: false, reason: 'permission_denied' };
-    }
-
-    const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.expoConfig?.extra?.projectId;
-    const token = providedExpoPushToken
-      ? { data: providedExpoPushToken }
-      : await Notifications.getExpoPushTokenAsync({ projectId });
-    const expoToken = token.data;
-    logger.debug('getExpoPushTokenAsync completed', {
-      projectIdConfigured: Boolean(projectId),
-      reused: Boolean(providedExpoPushToken),
-    });
+    const acquired = await acquireExpoPushToken(providedExpoPushToken, options);
+    if (!acquired.ok) return acquired;
+    const { expoToken } = acquired;
 
     const sessionToken = await getStoredAppSessionToken();
     if (!sessionToken) {
@@ -198,5 +209,40 @@ export async function registerPushToken(
   } catch {
     logger.warn('registerPushToken failed', { reason: 'registration_failed' });
     return { ok: false, retryable: true, reason: 'registration_failed' };
+  }
+}
+
+// The Expo token this device registered for a 모두온 member, so logout removes only it.
+const MEMBER_EXPO_TOKEN_KEY = 'moduon.push.memberExpoToken';
+
+/** Registers this device for 모두온 member push (care reservation answers). */
+export async function registerPlatformMemberPushToken(
+  memberToken: string,
+  options: { requestPermission?: boolean } = {},
+): Promise<PushTokenRegistrationResult> {
+  try {
+    const acquired = await acquireExpoPushToken(undefined, options);
+    if (!acquired.ok) return acquired;
+    const { platformRequest } = await import('./platform-api');
+    await platformRequest('register_push_token', { expoPushToken: acquired.expoToken, platform: Platform.OS }, memberToken);
+    await safeStorage.setItem(MEMBER_EXPO_TOKEN_KEY, acquired.expoToken).catch(() => undefined);
+    return { ok: true, retryable: false, reason: 'registered' };
+  } catch {
+    logger.warn('[push] member register failed', { reason: 'registration_failed' });
+    return { ok: false, retryable: true, reason: 'registration_failed' };
+  }
+}
+
+export async function unregisterPlatformMemberPushToken(memberToken: string): Promise<PushTokenUnregisterResult> {
+  let expoPushToken: string | null = null;
+  try { expoPushToken = (await safeStorage.getItem(MEMBER_EXPO_TOKEN_KEY))?.trim() || null; } catch { /* nothing stored */ }
+  if (!expoPushToken) return { ok: true, retryable: false, reason: 'unregistered' };
+  try {
+    const { platformRequest } = await import('./platform-api');
+    await platformRequest('unregister_push_token', { expoPushToken }, memberToken);
+    await safeStorage.removeItem(MEMBER_EXPO_TOKEN_KEY).catch(() => undefined);
+    return { ok: true, retryable: false, reason: 'unregistered' };
+  } catch {
+    return { ok: false, retryable: true, reason: 'unregister_failed' };
   }
 }

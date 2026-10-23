@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-import { HOSPITAL_DEMO_ENABLED, PlatformApiError, platformRequest, type PlatformHospital, type PlatformHospitalList, type PlatformHospitalRegions } from '../platform-api';
+import { CARE_HOSPITAL_ID, HOSPITAL_DEMO_ENABLED, PlatformApiError, platformRequest, type PlatformHospital, type PlatformHospitalList, type PlatformHospitalRegions } from '../platform-api';
 import { supabase } from '../supabase';
 
 jest.mock('../supabase', () => ({ supabase: { functions: { invoke: jest.fn() } } }));
@@ -7,6 +7,7 @@ jest.mock('react-native', () => ({ Image: { resolveAssetSource: (source: number)
 jest.mock('@/assets/images/hospital-demo/general-clinic.png', () => 1);
 jest.mock('@/assets/images/hospital-demo/dental-clinic.png', () => ({ uri: 'asset:/hospital-2.png' }));
 jest.mock('@/assets/images/hospital-demo/clinic-exterior.png', () => 'asset:/hospital-3.png');
+jest.mock('@/assets/images/hospital-demo/goodmorning-cheongju-exterior.jpg', () => 'asset:/partner-exterior.jpg');
 const invoke = supabase.functions.invoke as jest.Mock;
 const hospital = {
   id: '10000000-0000-4000-8000-000000000001', name: '합성 시험 병원', region: '서울 마포구', provinceCode: '11', provinceName: '서울', district: '마포구',
@@ -209,19 +210,23 @@ describe('explicit local hospital demo', () => {
     else process.env.EXPO_PUBLIC_HOSPITAL_DEMO = previous;
   });
   beforeEach(() => demoInvoke.mockReset());
-  it('provides offline regions, specialties, featured photos and a complete fictional directory', async () => {
+  it('provides offline regions, specialties, featured photos, the real partner and a fictional directory', async () => {
     const regions = await request<PlatformHospitalRegions>('get_hospital_regions');
     const list = await request<PlatformHospitalList>('list_hospitals');
     expect(regions.specialties).toEqual(['한방병원', '정형외과', '안과', '치과', '성형외과', '건강검진센터']);
     expect(regions.regions.find((region) => region.provinceCode === '11')?.districts).toContain('강남구');
-    expect(list.hospitals).toHaveLength(12);
-    expect(list.hospitals.every((item) => item.specialties.length === 1 && regions.specialties.includes(item.specialties[0]))).toBe(true);
-    expect(regions.specialties.map((specialty) => list.hospitals.filter((item) => item.specialties.includes(specialty)).length)).toEqual([2, 2, 2, 2, 2, 2]);
+    expect(regions.regions.find((region) => region.provinceCode === '43')?.districts).toEqual(['청주시']);
+    const [partner, ...samples] = list.hospitals;
+    expect(partner).toMatchObject({ id: CARE_HOSPITAL_ID, name: '굿모닝한방병원 청주', address: '충북 청주시 상당구 무심동로 22 방서타워 2~4층', phone: '043-288-0001', photoUrl: 'asset:/partner-exterior.jpg', specialties: ['한방병원'] });
+    expect(list.featured[0].id).toBe(CARE_HOSPITAL_ID);
+    expect(samples).toHaveLength(12);
+    expect(samples.every((item) => item.specialties.length === 1 && regions.specialties.includes(item.specialties[0]))).toBe(true);
+    expect(regions.specialties.map((specialty) => samples.filter((item) => item.specialties.includes(specialty)).length)).toEqual([2, 2, 2, 2, 2, 2]);
     expect(list.featured).toHaveLength(5);
-    expect(list.hospitals.every((item) => item.phone === null && item.websiteUrl === null && item.address?.includes('가상 주소') && item.photoUrl && item.adPlacement === 'regional_list')).toBe(true);
+    expect(samples.every((item) => item.phone === null && item.websiteUrl === null && item.address?.includes('가상 주소') && item.photoUrl && item.adPlacement === 'regional_list')).toBe(true);
     expect(list.featured.every((item) => item.adPlacement === 'regional_featured')).toBe(true);
-    expect(new Set(list.featured.slice(0, 3).map((item) => item.photoUrl)).size).toBe(3);
-    expect(new Set(list.hospitals.map((item) => item.photoUrl)).size).toBe(3);
+    expect(new Set(list.featured.slice(1, 4).map((item) => item.photoUrl)).size).toBe(3);
+    expect(new Set(samples.map((item) => item.photoUrl)).size).toBe(3);
     expect(list).toMatchObject({ hasMore: false, nextOffset: null });
     expect(demoInvoke).not.toHaveBeenCalled();
   });
@@ -244,7 +249,7 @@ describe('explicit local hospital demo', () => {
     expect(first).toMatchObject({ hasMore: true, nextOffset: 5 });
     expect(second).toMatchObject({ hasMore: true, nextOffset: 10 });
     expect(last).toMatchObject({ hasMore: false, nextOffset: null });
-    expect(new Set([...first.hospitals, ...second.hospitals, ...last.hospitals].map((item) => item.id)).size).toBe(12);
+    expect(new Set([...first.hospitals, ...second.hospitals, ...last.hospitals].map((item) => item.id)).size).toBe(13);
     const detail = await request<{ hospital: PlatformHospital }>('get_hospital', { hospitalId: first.hospitals[0].id });
     expect(detail.hospital).toMatchObject({ name: first.hospitals[0].name, photoUrl: first.hospitals[0].photoUrl });
     await expect(request('get_hospital', { hospitalId: '10000000-0000-4000-8000-000000000099' })).rejects.toMatchObject({ code: 'hospital_not_found', status: 404 });
@@ -256,5 +261,15 @@ describe('explicit local hospital demo', () => {
     demoInvoke.mockResolvedValue({ data: { ok: true }, error: null });
     await request('apply', { serviceKey: 'care' }, 'synthetic-token');
     expect(demoInvoke).toHaveBeenCalledWith('platform-service', { body: { action: 'apply', serviceKey: 'care' }, headers: { 'x-app-session-token': 'synthetic-token' } });
+  });
+  it('sends care reservations to the server and validates their responses', async () => {
+    const created = { ok: true, requestId: hospital.id, status: 'requested' };
+    demoInvoke.mockResolvedValue({ data: created, error: null });
+    await expect(request('request_hospital_care', { hospitalId: CARE_HOSPITAL_ID }, 'synthetic-token')).resolves.toEqual(created);
+    demoInvoke.mockResolvedValue({ data: { ok: true, requests: [{ id: hospital.id, hospitalId: CARE_HOSPITAL_ID, hospitalName: '굿모닝한방병원 청주',
+      desiredStart: '2026-10-21', careType: 'night', contactTime: 'morning', status: 'requested', staffNote: null, respondedAt: null, createdAt: '2026-10-20T00:00:00Z' }] }, error: null });
+    await expect(request('list_hospital_care', {}, 'synthetic-token')).rejects.toMatchObject({ code: 'invalid_response' });
+    demoInvoke.mockResolvedValue({ data: null, error: { context: new Response(JSON.stringify({ ok: false, code: 'invalid_details' }), { status: 400 }) } });
+    await expect(request('request_hospital_care', {}, 'synthetic-token')).rejects.toMatchObject({ code: 'invalid_details', message: '예약 정보를 확인해 주세요.' });
   });
 });

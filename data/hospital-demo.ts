@@ -1,12 +1,14 @@
 import { Image } from 'react-native';
-import type { PlatformHospital } from '@/lib/platform-api';
+import { CARE_HOSPITAL_ID, type PlatformHospital } from '@/lib/platform-api';
 
-// Fictional directory embedded in explicitly enabled local preview builds.
+// Fictional directory embedded in explicitly enabled local preview builds,
+// led by the one real partner hospital that accepts care reservations.
+const assetUri = (source: number | string | { uri: string }) => typeof source === 'number' ? Image.resolveAssetSource(source).uri : typeof source === 'string' ? source : source.uri;
 const photos = [
   require('@/assets/images/hospital-demo/general-clinic.png'),
   require('@/assets/images/hospital-demo/dental-clinic.png'),
   require('@/assets/images/hospital-demo/clinic-exterior.png'),
-].map((source) => typeof source === 'number' ? Image.resolveAssetSource(source).uri : typeof source === 'string' ? source : source.uri);
+].map(assetUri);
 
 const entries = [
   { name: '온한방병원', provinceCode: '11', provinceName: '서울', district: '강남구', specialties: ['한방병원'], description: '한방 진료와 회복 상담을 한 공간에서 안내합니다.', photo: 0 },
@@ -23,7 +25,19 @@ const entries = [
   { name: '이음건강검진센터', provinceCode: '30', provinceName: '대전', district: '중구', specialties: ['건강검진센터'], description: '검진 프로그램과 방문 전 준비 사항을 안내합니다.', photo: 2 },
 ];
 
-export const HOSPITAL_DEMO: PlatformHospital[] = entries.map(({ photo, ...entry }, index) => ({
+const partner: PlatformHospital = {
+  id: CARE_HOSPITAL_ID, name: '굿모닝한방병원 청주', provinceCode: '43', provinceName: '충북', district: '청주시', region: '충북 청주시',
+  specialties: ['한방병원'],
+  description: '365일 입원·외래 양한방 협진 한방병원입니다. 1·2·3인실 위주 병동과 전 병실 모션베드를 갖추고 있으며, 건물 지하 1층에 전용 주차장이 있습니다.',
+  address: '충북 청주시 상당구 무심동로 22 방서타워 2~4층',
+  // Details from the hospital homepage, used with the hospital's permission.
+  phone: '043-288-0001', websiteUrl: 'https://gmcheongju.com/',
+  photoUrl: assetUri(require('@/assets/images/hospital-demo/goodmorning-cheongju-exterior.jpg')),
+  openingHours: '평일 09:00–20:00 (점심 13:00–14:00) · 주말·공휴일 09:00–15:00 · 365일 진료', verifiedAt: '2026-10-20',
+  adPlacement: 'regional_featured', revision: 0, measurementToken: 'local-hospital-demo',
+};
+
+export const HOSPITAL_DEMO: PlatformHospital[] = [partner, ...entries.map(({ photo, ...entry }, index): PlatformHospital => ({
   ...entry,
   id: `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
   region: `${entry.provinceName} ${entry.district}`,
@@ -34,4 +48,4 @@ export const HOSPITAL_DEMO: PlatformHospital[] = entries.map(({ photo, ...entry 
   verifiedAt: null,
   adPlacement: index < 3 || index % 3 === 0 ? 'regional_featured' : 'regional_list',
   revision: 0, measurementToken: 'local-hospital-demo',
-}));
+}))];
