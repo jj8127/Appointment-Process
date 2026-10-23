@@ -1,5 +1,15 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261023-notification-replay-invite-draft"></a>
+## 2026-10-23 "대상을 열 수 없음" 반복과 초대 링크 가입 경고
+
+- 알림 반복: 처리한 알림 응답 키를 메모리(2초)에서만 기억해, Android가 다시 실행할 때 돌려주는 이전 알림 응답이 앱을 열 때마다 다시 처리됐다(추론). `createConsumedNotificationResponseStore`(`lib/notification-bootstrap.ts`)로 최근 50개 키를 safe-storage에 남겨 다음 실행에서 건너뛴다.
+- 일시 실패: 알림 열기 권한 확인의 `request_failed`(네트워크·세션 지연)를 "대상 없음"으로 보지 않고 오류 없이 알림함으로 보낸다(`app/_layout.tsx`, `app/apply-gate.tsx`, `app/identity.tsx`). `unauthorized`·`target_mismatch`는 기존 안내 유지.
+- 전수조사: 서버의 Expo 푸시 발신 9곳(fc-notify 4, group-chat, docs-deadline-reminder, 관리자 웹 2, hospital-care)은 모두 앱 파서를 통과한다. 형식 오류로 뜨는 경로는 없었다.
+- 가입 경고: 링크가 Expo Router로 가입 화면을 연 뒤 초대 처리 코드가 같은 화면으로 replace하면서, 자동으로 채운 추천 코드가 작성 중 내용으로 잡혔다. 공통 가입(`app/services/signup.tsx`)은 추천 코드를, 보험 `apply-gate`는 사용자가 바꾸지 않은 추천인 검색어를 draft에서 뺐다.
+- 로그인 후 코드: 가입 화면의 "이미 계정이 있어요"가 가족간병 코드를 로그인으로 넘기고, 로그인 뒤 `/services/care?code=`로 보낸다. `FamilyCareReferrer`는 입력칸을 초대 코드로 채운다.
+- 검증: 영향 suite 318/318, tsc·lint 통과. 전체 jest 실패 27건(20파일)은 기준 커밋 2eab33ec 같은 조건에서 동일(새 실패 0). web 테스트는 이 worktree에 web/node_modules가 없어 실행 불가. 실제 기기 확인 안 함.
+
 <a id="20261023-invite-open-app"></a>
 ## 2026-10-23 초대 페이지 "모두온 앱 열기" 버튼 수정
 
