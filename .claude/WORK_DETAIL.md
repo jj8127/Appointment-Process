@@ -1,5 +1,17 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261024-anon-lockdown-stage0"></a>
+## 2026-10-24 공개 anon 키 노출 차단 0·0b단계 (로컬 검증, 미적용)
+
+- 운영 사실(카탈로그·집계만 조회): anon이 fc_profiles SELECT 66컬럼(803행), fc_documents CRUD, notices 삭제, fc-documents 버킷 목록·내려받기·업로드, notice-attachments ALL, chat-uploads 쓰기, generate_temp_id 실행 권한을 가진다. pg_default_acl이 새 표·시퀀스·함수에 anon/authenticated 권한을 자동으로 준다. Auth 자가 가입이 켜져 있다(disable_signup=false, google·email). 10-10~10-24 fc-documents 접근은 앱(react-native anon list)과 서버(service role)뿐이고 anon 서명 URL은 0건이다.
+- 0단계 `supabase/migrations/20261024120000_revoke_unused_anon_privileges.sql`: public 표·시퀀스 전체 회수와 기본 권한 회수 후 허용목록만 다시 준다. fc_profiles SELECT 42컬럼(INSERT/UPDATE는 표 단위 유지: RLS가 anon을 0행으로 막고 4.2.19 이하가 오류 없는 0행 갱신에 기댐), fc_documents SELECT 7·INSERT/UPDATE 6컬럼과 anon 쓰기 가드 트리거(pending·reviewer_note null·자기 폴더 경로, 4.2.17 이하 삭제 tombstone 허용, fc_id/doc_type 변경 금지), exam_registrations SELECT 15컬럼, exam_rounds/locations SELECT, group_chat_messages SELECT(현재 앱·관리자 웹 구독 필터). anon 삭제 정책 6개 삭제, generate_temp_id는 service_role 전용. notice-attachments는 INSERT(이름 `^((images|files)/)?[0-9]{13}_`)와 SELECT만, 버킷 50MB 제한. chat-uploads 정책 4개 삭제. `set local lock_timeout = '3s'`.
+- 0b단계 `supabase/migrations/20261024120100_close_anon_document_reads.sql`: "fc-documents anon read"를 업로드 작업(`object.upload`, `upload_update`, `sign_upload_url`, `upload_signed`)에서만 참인 SELECT 정책으로 바꾼다(Storage는 INSERT 뒤 RETURNING을 쓰므로 업로드에 SELECT가 필요함, `storage.allow_any_operation`은 운영에 있음). Supabase Auth 세션용 정책 4개 삭제. 영향: 앱 안 서류 열기(FC 본인 서류, 한화 PDF, 직원 모바일)는 기존 '열기 실패' 알림이 뜬다. 관리자 웹은 service role이라 영향 없음.
+- 검증: `supabase/tests/anon-privilege-revoke-sql.test.mjs` 8/8(운영 정책 원문·권한·기본 권한을 재현한 fixture, 현재 앱 쿼리 형태 재생, 마이그레이션 2회 적용), `anon-document-storage-sql.test.mjs` 4/4(운영 storage.operation·allow_any_operation 정의 재현). 마이그레이션을 비운 대조 실행에서 변경을 확인하는 테스트는 실패. 전체 sql-pglite 185/185.
+- 독립 반박 검토 2건(앱 버전 8개 전수, Realtime·Storage·트리거·서버 경로): 회귀 없음. 지적 반영: 기본 권한 회수, lock_timeout, 공지 첨부 이름·크기 제한, 주석 3곳.
+- 검토 중 발견한 기존 버그(이번 변경과 무관): 현재 OTA·스토어 앱의 서류 업로드는 파일과 fc_documents 행을 저장한 뒤 fc_profiles 상태 갱신이 RLS로 0행이 되어 영수증 확인(`requireMutationRowReceipt`)에서 오류 알림을 띄우고 관리자 알림을 건너뛴다(app/docs-upload.tsx:462-469). 1단계 서버 제출 경로에서 고친다.
+- 롤백: 하네스 `anon-access-lockdown-20261024/rollback-stage0-0b.sql`(적용 전 운영 권한·정책 스냅샷 복원, 실행 검증은 안 함).
+- 미적용: 운영 마이그레이션, Auth 가입 차단, push.
+
 <a id="20261024-fc-self-service-hotfix"></a>
 ## 2026-10-24 FC 본인 제출 함수 3개 긴급 배포
 

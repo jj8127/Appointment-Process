@@ -2,10 +2,17 @@ doc_id: SHARED-SECURITY-SECRET-OPS
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-10-01
+last_verified: 2026-10-24
 source_of_truth: env contracts + reset-password functions + assisted-password functions + supabase/functions/_shared/board.ts + supabase/functions/exam-payment-proof/index.ts + supabase/functions/fc-notify/index.ts + supabase/migrations/*internal_messenger_summary_v1.sql + supabase/migrations/20260810070757_admin_assisted_signup_v1.sql + web/src/lib/server-session.ts + web/src/app/api/admin/exam-applicants/* + web/src/app/api/fc-notify/route.ts + web/src/app/api/board/route.ts + admin service-role callers
 
 # Security And Secret Operations
+
+## 2026-10-24 공개 anon 키 경계 (0·0b단계 로컬, 운영 미적용)
+
+- anon 키는 앱 번들과 `NEXT_PUBLIC_` env에 공개되어 있으므로 인증 수단이 아니다. verify_jwt=true인 함수도 anon JWT로 통과한다. 사용자 데이터 접근은 서명된 앱 세션(`x-app-session-token`)을 검증한 Edge Function이나 직원 세션을 검증한 관리자 웹 서버만 한다.
+- 본문의 전화번호·ID로 대상을 고르는 함수를 만들지 않는다. 대상은 세션 actor에서 정한다(2026-10-24 fc-consent·fc-submit-appointment·fc-submit-hanwha-commission 사고).
+- Supabase Auth는 쓰지 않는다. 자가 가입은 꺼야 한다(2026-10-24 기준 켜져 있음, 사용자 결정 대기). authenticated 역할에 의존하는 정책과 권한을 새로 만들지 않는다.
+- 남은 노출과 단계 계획은 하네스 `fc--anon-access-lockdown-20261024`에 있다.
 
 ## 2026-10-19 푸시 수신자·토큰 등록 경계
 
