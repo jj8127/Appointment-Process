@@ -1,5 +1,21 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261024-prod-baseline-alignment"></a>
+## 2026-10-24 로컬 최신과 운영 출시 상태 맞추기
+
+- 운영 출시 상태(읽기 전용 조회): Android 4.2.21(versionCode 101)·iOS 4.2.22(build 116) 바이너리 소스 0eb09c25, production OTA 9a6185d4(android group f79eb33a, ios group b8025f14), 관리자 웹 c65863fc(`dpl_CNh4EkLQ…`), 초대 페이지 cd9ee755로 추론(`dpl_DEZbsBzW…`, 운영 index.html 내용 일치). 모두 7dd906e8의 조상이고, 7dd906e8까지 네이티브·web/·invite-page/ 변경은 없다.
+- 정렬 브랜치: worktree `.codex-tmp/align-prod-20261024`(autocrlf=false로 LF 체크아웃), 기준 origin/release/all-surfaces-20261004 7dd906e8. 로컬 release 브랜치(56694ea6, origin과 5/86으로 갈라짐)에만 있던 a9a85cde·2299d877·56694ea6을 `-x`로 cherry-pick했다. 운영 DB에 20261020021524가 적용되어 있고, 운영 platform-service v11 index.ts blob(7783ff3d)이 56694ea6과 같다. c5e486d4는 e0d877f7로 대체되어 제외했다.
+- 마이그레이션: 운영 `schema_migrations` 130개와 정렬 브랜치의 버전 파일 130개가 정확히 같다(타임스탬프 없는 파일 2개는 CLI가 건너뜀).
+- config.toml: 운영에서 `verify_jwt=false`인 invite(공개 HTML)와 device-token-register(앱 세션 서명 확인)를 선언했다. 선언 없이 기본값으로 재배포하면 JWT 검증이 켜져 초대 링크와 푸시 토큰 등록이 깨질 수 있다.
+- Edge Function 대조(운영 55개, `get_edge_function` 소스를 LF로 맞춰 HEAD와 파일별 비교):
+  - bundle 전체가 같음 2개: admin-action, invite.
+  - index.ts는 같고 `_shared` 모듈만 옛 버전 33개(board-* 18개, platform-service 등).
+  - 운영 index.ts가 git 이력의 옛 버전인 17개: fc-consent, fc-submit-appointment, set-admin-password, validate-referral-code(8-05 배포), get-fc-referral-code, refresh-app-session, search-fc-for-referral, sync-request-board-session, update-my-recommender(10-04), complete-assisted-password, fc-submit-hanwha-commission, get-my-invitees, get-my-referral-code, notification-preferences, search-signup-referral, user-presence(10-13), get-referral-tree(10-18, c837f29d 계열). 저장소 쪽에 세션 기반 actor 확인 같은 강화가 있으나 운영에 나가지 않았다(예: fc-consent의 `requireFcSelfServiceActor`).
+  - 운영 index.ts가 git 이력에 없는 3개(모두 10-19 배포): fc-notify v111, docs-deadline-reminder v15, device-token-register v9. 운영 bundle 전체를 `recovered/prod-edge-20261024` 브랜치의 `.recovered/prod-edge-20261024/<slug>/`에 보존했다(55개 전부, MANIFEST.json 포함).
+  - messenger-garamlink-sync는 저장소에만 있고 운영에 배포되지 않았다. 운영에 적용된 마이그레이션 20261016110100이 이 함수를 부르는 cron을 등록한다.
+- 검증: SQL pglite suite 173/173, `supabase/functions/__tests__/ux-priority-one-handlers.test.mjs` 34/34, `messenger-garamlink-sync.test.node.ts` 9/9, `lib/__tests__/platform-api.test.ts` 39/39.
+- 하지 않음: push, PR, Edge Function 재배포, OTA, cron 변경. 메인 체크아웃(다른 세션의 미커밋 변경 4개)은 건드리지 않았다.
+
 <a id="20261023-hospital-redesign-ota"></a>
 ## 2026-10-23 제휴병원·간병 예약 재디자인 앱 배포
 

@@ -22,3 +22,11 @@ verify_jwt = true
 # that transport and the app token signature plus canonical account generation.
 [functions.verify-app-session]
 verify_jwt = true
+
+# Public invite landing page opened from shared links; it serves HTML only.
+[functions.invite]
+verify_jwt = false
+
+# Authentication is the signed custom app session, checked inside this function.
+[functions.device-token-register]
+verify_jwt = false

@@ -1,5 +1,9 @@
 # 작업 로그
 
+## 2026-10-24 로컬 최신과 운영 출시 상태 맞추기
+
+전체 검토 기준을 정하려고 운영(스토어·OTA·Vercel·Supabase)과 로컬 브랜치를 대조했다. 정렬 브랜치 `align/prod-baseline-20261024`는 origin/release/all-surfaces-20261004(7dd906e8)에 운영에서 이미 실행 중인데 push되지 않았던 커밋 3개(시험 등록 복구 마이그레이션, platform-service v11 소스)를 얹었다. 운영 JWT 검증 설정 2개(invite, device-token-register)도 config.toml에 적었다. 마이그레이션 130개는 운영과 같다. Edge Function 55개 중 bundle이 같은 것은 2개뿐이다. 17개는 운영이 저장소의 옛 버전을 실행하고, 3개(fc-notify v111, docs-deadline-reminder v15, device-token-register v9)는 git에 없는 소스로 배포되어 있어 `recovered/prod-edge-20261024`에 보존했다. 운영 배포·push는 하지 않았다. [→ 상세](WORK_DETAIL.md#20261024-prod-baseline-alignment)
+
 ## 2026-10-23 제휴병원·간병 예약 재디자인 앱 배포
 
 디자인 세션 브랜치(`design/moduon-selection-controls-20261022`)를 운영 기준선(PR 10·11 병합 후)과 합쳐 production OTA로 냈다. 관리자 웹 간병 예약 화면은 디자인 세션이 이미 운영 배포했다. [→ 상세](WORK_DETAIL.md#20261023-hospital-redesign-ota)

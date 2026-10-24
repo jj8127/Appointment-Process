@@ -1,5 +1,10 @@
 # 실수 기록 (Mistakes Only)
 
+## 2026-10-24 커밋하지 않은 작업 트리에서 Edge Function을 운영 배포함
+
+- 재현: 2026-10-19 fc-notify v111, docs-deadline-reminder v15, device-token-register v9가 git 이력 어디에도 없는 소스로 배포됐다. 10-20~21에는 운영 DB 마이그레이션 20261020021524와 platform-service v11이 로컬 전용 커밋(a9a85cde, 2299d877, 56694ea6)으로 나갔지만 push와 작업 기록이 없었다. 운영 함수 55개 중 53개가 release 브랜치와 다르고, 그중 3개는 비교할 소스가 git에 없다. 다음 배포자가 release 브랜치로 재배포하면 검토하지 않은 운영 동작이 말없이 사라진다.
+- 규칙: Edge Function과 마이그레이션은 깨끗한 worktree의 push된 커밋에서만 배포하고 SHA를 WORK_LOG에 적는다. 배포 직후 `get_edge_function` 소스를 그 커밋과 비교하고, 다르면 성공으로 보고하지 않는다.
+
 ## 2026-10-23 실패한 cd 뒤의 git 명령이 메인 체크아웃에서 커밋함
 
 - 재현: 한 줄의 `&&` 체인(임시 worktree 삭제 → `cd <작업 worktree>` → heredoc)이 앞 단계 실패로 멈췄는데, 다음 줄의 `git add`/`git commit`은 체인 밖이라 이전 작업 디렉터리(메인 체크아웃)에서 실행돼 다른 세션의 dirty `.claude/WORK_LOG.md`를 커밋했다(push 전 `reset --soft`와 `restore --staged`로 되돌림).
