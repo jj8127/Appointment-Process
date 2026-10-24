@@ -7,7 +7,7 @@ source_of_truth: supabase/schema.sql + supabase/functions/board-attachment-* + m
 
 # Data Handbook: Storage And Attachments
 
-## 2026-10-24 공개 키 Storage 경계 (로컬, 운영 미적용)
+## 2026-10-24 공개 키 Storage 경계 (2026-10-24 운영 적용)
 
 - `fc-documents`(비공개): `20261024120100_close_anon_document_reads` 뒤 anon SELECT는 업로드 작업(`object.upload`, `object.upload_update`, `object.sign_upload_url`, `object.upload_signed`)의 RETURNING에서만 참이다. anon은 목록·내려받기·서명 URL 발급을 할 수 없다. 서류 열람은 서버가 소유를 확인한 뒤 service role로 서명한다(관리자 웹은 이미 이 방식). Supabase Auth 세션용 정책은 없다.
 - `notice-attachments`(공개): anon은 이름 `^((images|files)/)?[0-9]{13}_`인 객체를 올리고(upsert 없음) 볼 수만 있다. 덮어쓰기·이동·삭제는 없다. 버킷 크기 제한 50MB.

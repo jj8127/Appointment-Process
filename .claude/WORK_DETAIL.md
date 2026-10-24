@@ -1,7 +1,7 @@
 # 작업 상세 로그 (Work Detail)
 
 <a id="20261024-anon-lockdown-stage0"></a>
-## 2026-10-24 공개 anon 키 노출 차단 0·0b단계 (로컬 검증, 미적용)
+## 2026-10-24 공개 anon 키 노출 차단 0·0b단계 운영 적용
 
 - 운영 사실(카탈로그·집계만 조회): anon이 fc_profiles SELECT 66컬럼(803행), fc_documents CRUD, notices 삭제, fc-documents 버킷 목록·내려받기·업로드, notice-attachments ALL, chat-uploads 쓰기, generate_temp_id 실행 권한을 가진다. pg_default_acl이 새 표·시퀀스·함수에 anon/authenticated 권한을 자동으로 준다. Auth 자가 가입이 켜져 있다(disable_signup=false, google·email). 10-10~10-24 fc-documents 접근은 앱(react-native anon list)과 서버(service role)뿐이고 anon 서명 URL은 0건이다.
 - 0단계 `supabase/migrations/20261024120000_revoke_unused_anon_privileges.sql`: public 표·시퀀스 전체 회수와 기본 권한 회수 후 허용목록만 다시 준다. fc_profiles SELECT 42컬럼(INSERT/UPDATE는 표 단위 유지: RLS가 anon을 0행으로 막고 4.2.19 이하가 오류 없는 0행 갱신에 기댐), fc_documents SELECT 7·INSERT/UPDATE 6컬럼과 anon 쓰기 가드 트리거(pending·reviewer_note null·자기 폴더 경로, 4.2.17 이하 삭제 tombstone 허용, fc_id/doc_type 변경 금지), exam_registrations SELECT 15컬럼, exam_rounds/locations SELECT, group_chat_messages SELECT(현재 앱·관리자 웹 구독 필터). anon 삭제 정책 6개 삭제, generate_temp_id는 service_role 전용. notice-attachments는 INSERT(이름 `^((images|files)/)?[0-9]{13}_`)와 SELECT만, 버킷 50MB 제한. chat-uploads 정책 4개 삭제. `set local lock_timeout = '3s'`.
@@ -10,7 +10,10 @@
 - 독립 반박 검토 2건(앱 버전 8개 전수, Realtime·Storage·트리거·서버 경로): 회귀 없음. 지적 반영: 기본 권한 회수, lock_timeout, 공지 첨부 이름·크기 제한, 주석 3곳.
 - 검토 중 발견한 기존 버그(이번 변경과 무관): 현재 OTA·스토어 앱의 서류 업로드는 파일과 fc_documents 행을 저장한 뒤 fc_profiles 상태 갱신이 RLS로 0행이 되어 영수증 확인(`requireMutationRowReceipt`)에서 오류 알림을 띄우고 관리자 알림을 건너뛴다(app/docs-upload.tsx:462-469). 1단계 서버 제출 경로에서 고친다.
 - 롤백: 하네스 `anon-access-lockdown-20261024/rollback-stage0-0b.sql`(적용 전 운영 권한·정책 스냅샷 복원, 실행 검증은 안 함).
-- 미적용: 운영 마이그레이션, Auth 가입 차단, push.
+- 운영 적용(사용자 승인 "0단계+0b단계 모두", "적용 명령을 네가 실행해 줘"): 깨끗한 worktree `.codex-tmp/anon-lockdown-20261024`, 커밋 6ab1cc85에서 `npx supabase@2.122.0 db push --linked --yes`(07:59:55~08:00:01Z). MCP apply_migration은 파괴적 SQL 확인 창 자동 거절로 실패했다(운영 변화 없음 확인). schema_migrations에 20261024120000·20261024120100이 파일 버전 그대로 기록됐다. 적용 직전 카탈로그 스냅샷(07:26:49Z)과 롤백 SQL은 하네스에 있다.
+- 배포 소스 예외: 사용자가 이 브랜치 push를 선택하지 않아 6ab1cc85는 로컬에만 있다(MISTAKES 2026-10-24 규칙의 예외, 사용자 결정).
+- 적용 후 확인: 카탈로그(anon 표 권한 4개만 남음, fc_profiles SELECT 42컬럼, 민감 컬럼 거부, authenticated 0, 기본 권한에서 anon 제거, 가드 트리거 1, 삭제 정책 0, 공지 첨부 50MB). 공개 키 시험 22/22: 현재 앱 조회 형태 5종 200, 민감 컬럼·select *·서류 삭제·공지·신원 표·게시판 뷰·generate_temp_id 42501, 서류 버킷 목록 0개, 서류·공지 첨부 업로드 서명 200(객체 생성 없음), 잘못된 공지 이름 거부, Realtime 구독 4종 SUBSCRIBED. 적용 후 10분 동안 실제 사용자 401 없음(토요일 저부하로 표본 적음), Sentry 최근 1시간 새 이슈 0.
+- 남은 일: Auth 가입 끄기(대시보드, 사용자), 1단계 서버 서명 경로(앱 안 서류 열기 복구).
 
 <a id="20261024-fc-self-service-hotfix"></a>
 ## 2026-10-24 FC 본인 제출 함수 3개 긴급 배포

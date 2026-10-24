@@ -7,7 +7,7 @@ source_of_truth: env contracts + reset-password functions + assisted-password fu
 
 # Security And Secret Operations
 
-## 2026-10-24 공개 anon 키 경계 (0·0b단계 로컬, 운영 미적용)
+## 2026-10-24 공개 anon 키 경계 (0·0b단계 2026-10-24 운영 적용)
 
 - anon 키는 앱 번들과 `NEXT_PUBLIC_` env에 공개되어 있으므로 인증 수단이 아니다. verify_jwt=true인 함수도 anon JWT로 통과한다. 사용자 데이터 접근은 서명된 앱 세션(`x-app-session-token`)을 검증한 Edge Function이나 직원 세션을 검증한 관리자 웹 서버만 한다.
 - 본문의 전화번호·ID로 대상을 고르는 함수를 만들지 않는다. 대상은 세션 actor에서 정한다(2026-10-24 fc-consent·fc-submit-appointment·fc-submit-hanwha-commission 사고).
