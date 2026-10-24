@@ -15,6 +15,7 @@ import { drainMessengerAttachmentCleanup } from '../_shared/messenger-attachment
 import { fcRetirementBlockedResponse, retireFcBeforeAccountDeletion } from '../_shared/request-board-fc-retirement.ts';
 import {
   buildFcDocWorkflowResetPayload,
+  FC_DOCUMENT_STAGE_STATUSES,
   isFcStatus,
   parseFcStatusUpdateExtra,
 } from '../../../lib/fc-status.ts';
@@ -553,14 +554,32 @@ function readFcDocumentField(value: unknown, maxLength: number): string | null {
   return typeof value === 'string' && value.trim() && value.length <= maxLength ? value : null;
 }
 
+/**
+ * Storage request URLs collapse '.'/'..' segments, also percent-encoded ones, and anon can store
+ * any value under its own folder prefix. Only plain object keys reach a service-role Storage call.
+ */
+function isPlainFcDocumentPath(storagePath: string): boolean {
+  return !/[%\\?#\u0000-\u001f\u007f]/.test(storagePath)
+    && storagePath.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..');
+}
+
+/** "<fcId>/<name>": the layout every FC document upload uses. */
+function isFcFolderObjectPath(storagePath: string, fcId: string): boolean {
+  const objectName = storagePath.slice(fcId.length + 1);
+  return storagePath.startsWith(`${fcId}/`) && !!objectName && !objectName.includes('/') && isPlainFcDocumentPath(storagePath);
+}
+
 /** A path is signable only while an FC document row or that FC's Hanwha PDF field names it. */
 async function findFcDocumentPathOwner(storagePath: string, fcId?: string): Promise<string | null> {
-  let documentQuery = supabase.from('fc_documents').select('fc_id').eq('storage_path', storagePath);
-  if (fcId) documentQuery = documentQuery.eq('fc_id', fcId);
-  const { data: documents, error: documentError } = await documentQuery.limit(1);
-  if (documentError) throw documentError;
-  if (!Array.isArray(documents)) throw new Error('fc_document_query_contract_invalid');
-  if (documents[0]?.fc_id) return String(documents[0].fc_id);
+  // An FC's own document rows count only inside that FC's folder.
+  if (!fcId || isFcFolderObjectPath(storagePath, fcId)) {
+    let documentQuery = supabase.from('fc_documents').select('fc_id').eq('storage_path', storagePath);
+    if (fcId) documentQuery = documentQuery.eq('fc_id', fcId);
+    const { data: documents, error: documentError } = await documentQuery.limit(1);
+    if (documentError) throw documentError;
+    if (!Array.isArray(documents)) throw new Error('fc_document_query_contract_invalid');
+    if (documents[0]?.fc_id) return String(documents[0].fc_id);
+  }
 
   let profileQuery = supabase.from('fc_profiles').select('id').eq('hanwha_commission_pdf_path', storagePath);
   if (fcId) profileQuery = profileQuery.eq('id', fcId);
@@ -570,10 +589,20 @@ async function findFcDocumentPathOwner(storagePath: string, fcId?: string): Prom
   return profiles[0]?.id ? String(profiles[0].id) : null;
 }
 
-async function signFcDocumentPath(storagePath: string, fcId?: string) {
-  if (storagePath === 'deleted' || !(await findFcDocumentPathOwner(storagePath, fcId))) {
-    return fail('Document not found', 404);
-  }
+/** Staff open a Hanwha PDF they just uploaded; approval records its path later. */
+async function isStaffHanwhaPdfDraft(storagePath: string, fcId: string): Promise<boolean> {
+  if (!isFcFolderObjectPath(storagePath, fcId)) return false;
+  const { data: profile, error } = await supabase.from('fc_profiles').select('id').eq('id', fcId).maybeSingle();
+  if (error) throw error;
+  return !!profile?.id && await fcDocumentObjectExists(storagePath);
+}
+
+async function signFcDocumentPath(storagePath: string, fcId?: string, draftFcId?: string | null) {
+  const signable = storagePath !== 'deleted' && isPlainFcDocumentPath(storagePath) && (
+    !!(await findFcDocumentPathOwner(storagePath, fcId))
+    || (!!draftFcId && await isStaffHanwhaPdfDraft(storagePath, draftFcId))
+  );
+  if (!signable) return fail('Document not found', 404);
   const { data, error } = await supabase.storage
     .from(FC_DOCUMENTS_BUCKET)
     .createSignedUrl(storagePath, FC_DOCUMENT_SIGNED_URL_SECONDS);
@@ -1381,7 +1410,8 @@ serve(async (req: Request) => {
     if (action === 'signFcDocument') {
       const storagePath = readFcDocumentField(payload.storagePath, 1024);
       if (!storagePath) return fail('storagePath is required');
-      return await signFcDocumentPath(storagePath);
+      // Only writers pick a Hanwha PDF draft; read-only managers sign recorded paths.
+      return await signFcDocumentPath(storagePath, undefined, isAdmin ? readFcDocumentField(payload.fcId, 64) : null);
     }
     // The app client is anon, so FC document reads and uploads run on server-signed Storage URLs.
     if (action === 'signOwnDocument' || action === 'prepareOwnDocumentUpload' || action === 'submitOwnDocument') {
@@ -1411,8 +1441,7 @@ serve(async (req: Request) => {
       const storagePath = readFcDocumentField(payload.storagePath, 1024);
       const fileName = readFcDocumentField(payload.fileName, 255);
       if (!storagePath || !fileName) return fail('storagePath and fileName are required');
-      const objectName = storagePath.slice(ownFcId.length + 1);
-      if (!storagePath.startsWith(`${ownFcId}/`) || !objectName || objectName.includes('/')) {
+      if (!isFcFolderObjectPath(storagePath, ownFcId)) {
         return fail('Unauthorized: upload path does not belong to the signed FC', 403);
       }
       if (!(await fcDocumentObjectExists(storagePath))) return fail('Uploaded file not found', 409);
@@ -1434,14 +1463,27 @@ serve(async (req: Request) => {
       if (documentError) throw documentError;
       requireMutationRowReceipt(documentReceipt, documentMutation);
 
-      const { data: profileReceipt, error: profileError } = await supabase
+      // Only a documents-stage profile moves to docs-pending. Earlier and later stages keep their
+      // status and workflow fields; moving back from a later stage stays a staff reset.
+      const { data: movedProfile, error: profileError } = await supabase
         .from('fc_profiles')
         .update({ status: 'docs-pending' })
         .eq('id', ownFcId)
+        .in('status', [...FC_DOCUMENT_STAGE_STATUSES])
         .select('id,status')
         .maybeSingle();
       if (profileError) throw profileError;
-      requireMutationRowReceipt(profileReceipt, { id: ownFcId, status: 'docs-pending' });
+      let profileReceipt = movedProfile;
+      if (!profileReceipt) {
+        const { data: keptProfile, error: keptProfileError } = await supabase
+          .from('fc_profiles')
+          .select('id,status')
+          .eq('id', ownFcId)
+          .maybeSingle();
+        if (keptProfileError) throw keptProfileError;
+        profileReceipt = keptProfile;
+      }
+      requireMutationRowReceipt(profileReceipt, movedProfile ? { id: ownFcId, status: 'docs-pending' } : { id: ownFcId });
 
       return json({ ok: true, document: documentReceipt, profile: profileReceipt });
     }

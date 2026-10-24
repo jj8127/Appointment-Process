@@ -834,6 +834,24 @@ describe('mobile route regressions moved from the Edge fixture', () => {
     expect(alert).toHaveBeenCalledWith('파일 열기 실패', '링크 생성에 실패했습니다.'); expect(openExternalUrl).toHaveBeenCalledTimes(1);
   });
 
+  it('staff dashboard opens a recorded path and a just-picked Hanwha PDF draft through signFcDocument', async () => {
+    const alert = jest.fn(); const openBrowserAsync = jest.fn(async () => undefined); const setOpeningPath = jest.fn();
+    let signed = true;
+    const invokeAdminAction = jest.fn(async () => { if (!signed) throw new Error('Document not found'); return { signedUrl: 'https://synthetic.invalid/signed' }; });
+    const openFile = routeHandler<(path?: string, draftFcId?: string) => Promise<void>>('app/dashboard.tsx', 'openFile', {
+      residentId: '00000000003', openingFileRef: { current: false }, setOpeningPath, invokeAdminAction, WebBrowser: { openBrowserAsync }, Alert: { alert },
+    });
+    await openFile('synthetic-fc/doc.pdf');
+    await openFile('synthetic-fc/dawichok-draft.pdf', 'synthetic-fc');
+    expect(invokeAdminAction.mock.calls).toEqual([
+      ['00000000003', 'signFcDocument', { storagePath: 'synthetic-fc/doc.pdf' }],
+      ['00000000003', 'signFcDocument', { storagePath: 'synthetic-fc/dawichok-draft.pdf', fcId: 'synthetic-fc' }],
+    ]);
+    expect(openBrowserAsync).toHaveBeenCalledTimes(2); expect(setOpeningPath).toHaveBeenLastCalledWith(null);
+    signed = false; await openFile('synthetic-fc/dawichok-draft.pdf', 'synthetic-fc');
+    expect(alert).toHaveBeenCalledWith('열기 실패', 'URL 생성 실패: 버킷 설정을 확인해주세요.'); expect(openBrowserAsync).toHaveBeenCalledTimes(2);
+  });
+
   it('failed messenger response preserves the old draft beside newly typed input', async () => {
     let input = 'sent draft'; let files = [{ uri: 'synthetic-old' }]; const pending = deferred<{ success: boolean }>(); const send = jest.fn(() => { input = 'next draft'; return pending.promise; }); const alert = jest.fn(); const busy = { current: false };
     const conv = { id: 'synthetic-conversation', primaryConversationId: 1, type: 'direct' };

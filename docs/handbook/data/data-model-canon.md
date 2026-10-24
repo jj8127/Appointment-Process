@@ -9,7 +9,7 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 ## 2026-10-24 API 역할 권한 허용목록 (2026-10-24 운영 적용)
 
-`20261024120000_revoke_unused_anon_privileges`와 schema mirror는 public의 모든 표·뷰·시퀀스에서 anon/authenticated 권한을 회수하고, postgres가 이후 만드는 표·시퀀스의 기본 권한도 회수한다. 앱이 자체 세션을 쓰므로 클라이언트 요청은 anon으로 들어온다. anon에 다시 주는 것은 설치된 앱 버전이 실제로 읽고 쓰는 것뿐이다: fc_profiles SELECT 42컬럼(인증 해시·resident_id_hash·admin_memo·가입 증표·추천 관리 컬럼 제외)과 표 단위 INSERT/UPDATE(RLS가 0행으로 막음), fc_documents SELECT 7·INSERT/UPDATE 6컬럼, exam_registrations SELECT 15컬럼, exam_rounds/exam_locations SELECT, group_chat_messages SELECT(Realtime 필터 확인용, RLS가 행을 숨김). fc_documents의 anon 쓰기는 trigger `fc_documents_anon_write_guard`가 pending·자기 폴더 경로·tombstone으로 제한한다. 새 표를 만들 때 anon/authenticated 권한은 자동으로 생기지 않으며, 필요하면 근거와 함께 명시적으로 grant한다.
+`20261024120000_revoke_unused_anon_privileges`와 schema mirror는 public의 모든 표·뷰·시퀀스에서 anon/authenticated 권한을 회수하고, postgres가 이후 만드는 표·시퀀스의 기본 권한도 회수한다. 앱이 자체 세션을 쓰므로 클라이언트 요청은 anon으로 들어온다. anon에 다시 주는 것은 설치된 앱 버전이 실제로 읽고 쓰는 것뿐이다: fc_profiles SELECT 42컬럼(인증 해시·resident_id_hash·admin_memo·가입 증표·추천 관리 컬럼 제외)과 표 단위 INSERT/UPDATE(RLS가 0행으로 막음), fc_documents SELECT 7·INSERT/UPDATE 6컬럼, exam_registrations SELECT 15컬럼, exam_rounds/exam_locations SELECT, group_chat_messages SELECT(Realtime 필터 확인용, RLS가 행을 숨김). fc_documents의 anon 쓰기는 trigger `fc_documents_anon_write_guard`가 pending·자기 폴더 경로·tombstone으로 제한한다. `20261024120200_restrict_anon_document_path_shape`(로컬, 운영 미적용)는 경로를 `<fc_id>/` 아래 한 조각 이름으로 좁힌다. 이름에 `/`·`%`·`\`·`?`·`#`·제어 문자를 쓸 수 없고 `.`·`..`도 안 된다. 기존 행은 바뀌지 않는다. 새 표를 만들 때 anon/authenticated 권한은 자동으로 생기지 않으며, 필요하면 근거와 함께 명시적으로 grant한다.
 
 ## 2026-10-21 모두온 간병 예약 요청 (운영 적용)
 

@@ -246,6 +246,15 @@ async function extractIfBranch(file, condition, context) {
   vm.runInContext(compiled, scope);
   return scope.run;
 }
+async function loadFcStatus() {
+  const source = await readFile(new URL('lib/fc-status.ts', root), 'utf8');
+  const module = { exports: {} };
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  vm.runInNewContext(compiled, { module, exports: module.exports });
+  return module.exports;
+}
 async function loadUxMutationContract() {
   const source = await readFile(new URL('supabase/functions/_shared/ux-mutation-contract.ts', root), 'utf8');
   const module = { exports: {} };
@@ -833,13 +842,15 @@ function fcDocumentDatabase() {
           if (row) Object.assign(row, query.payload); else state[table].push(row = { ...query.payload });
           return [row];
         }
-        const rows = state[table].filter((row) => query.filters.every(([field, value]) => row[field] === value));
+        const rows = state[table].filter((row) => query.filters.every(([field, value, operator]) =>
+          (operator === 'in' ? value.includes(row[field]) : row[field] === value)));
         if (query.mode === 'update') rows.forEach((row) => Object.assign(row, query.payload));
         return rows;
       };
       const builder = {
         select(fields) { query.selected = fields; return builder; },
         eq(field, value) { query.filters.push([field, value]); return builder; },
+        in(field, values) { query.filters.push([field, [...values], 'in']); return builder; },
         upsert(payload, options) { Object.assign(query, { mode: 'upsert', payload, options }); writes.push({ table, mode: 'upsert', payload, options }); return builder; },
         update(payload) { Object.assign(query, { mode: 'update', payload }); writes.push({ table, mode: 'update', payload, filters: query.filters }); return builder; },
         limit: async (count) => ({ data: run().slice(0, count).map(pick), error: null }),
@@ -871,15 +882,18 @@ function fcDocumentDatabase() {
 async function adminActionDocumentClient(database, session) {
   const file = 'supabase/functions/admin-action/index.ts';
   const { requireMutationRowReceipt } = await loadUxMutationContract();
+  const { FC_DOCUMENT_STAGE_STATUSES } = await loadFcStatus();
   const context = {
     corsHeaders: {}, serviceKey: 'synthetic-service-key', supabase: database, Response, crypto: webcrypto, requireMutationRowReceipt,
+    FC_DOCUMENT_STAGE_STATUSES,
     parseAppSessionTokenDetailed: async () => ({ ok: true, payload: session }),
     verifyAdmin: async () => session.role === 'admin',
     verifyManager: async () => session.role === 'manager',
     getFcIdsForPhone: async () => [],
   };
   for (const name of ['FC_DOCUMENTS_BUCKET', 'FC_DOCUMENT_SIGNED_URL_SECONDS', 'json', 'fail', 'cleanPhone', 'readFcDocumentField',
-    'findFcDocumentPathOwner', 'signFcDocumentPath', 'rejectUnuploadableOwnDocument', 'fcDocumentObjectExists', 'handler']) {
+    'isPlainFcDocumentPath', 'isFcFolderObjectPath', 'findFcDocumentPathOwner', 'fcDocumentObjectExists', 'isStaffHanwhaPdfDraft',
+    'signFcDocumentPath', 'rejectUnuploadableOwnDocument', 'handler']) {
     context[name] = await extract(file, name, context);
   }
   return async (action, payload) => {
@@ -958,8 +972,99 @@ test('FC upload uses a server-made folder path and a retried verified submission
     ['fc_documents', 'upsert', 'fc_id,doc_type'], ['fc_profiles', 'update', null],
   ]);
   assert.deepEqual(plain(writes[1].payload), { status: 'docs-pending' });
-  assert.deepEqual(writes[1].filters, [['id', FC_A]]);
+  assert.deepEqual(plain(writes[1].filters), [
+    ['id', FC_A], ['status', ['docs-requested', 'docs-pending', 'docs-submitted', 'docs-rejected'], 'in'],
+  ]);
   assert.equal(state.fc_profiles.find((row) => row.id === FC_B).status, 'docs-requested');
+});
+
+// Storage request URLs collapse '.'/'..' segments (also percent-encoded), so a stored value
+// like "<own>/../<other>/x.pdf" would sign another member's object.
+const CRAFTED_PATHS = [
+  `${FC_A}/../${FC_B}/other.pdf`, `${FC_A}/./own.pdf`, `${FC_A}/%2e%2e/${FC_B}/other.pdf`, `${FC_A}/%2E%2E/${FC_B}/other.pdf`,
+  `${FC_A}/..%2f${FC_B}%2fother.pdf`, `${FC_A}//own.pdf`, `/${FC_A}/own.pdf`, `${FC_A}/..\\${FC_B}\\other.pdf`,
+  `${FC_A}/.\t./${FC_B}/other.pdf`, `${FC_A}/own.pdf?download`, `${FC_A}/own.pdf#x`, `${FC_A}/`,
+];
+
+test('document signing and submission refuse dot-segment and encoded paths before any Storage call', async () => {
+  const { database, state, writes, storageCalls } = fcDocumentDatabase();
+  // Values anon could store on its own rows under the old prefix-only write guard.
+  CRAFTED_PATHS.forEach((storagePath, index) => state.fc_documents.push({
+    fc_id: FC_A, doc_type: `synthetic-crafted-${index}`, storage_path: storagePath, file_name: 'x.pdf', status: 'pending', reviewer_note: null,
+  }));
+  state.fc_documents.push({
+    fc_id: FC_A, doc_type: 'synthetic-nested', storage_path: `${FC_A}/nested/own.pdf`, file_name: 'x.pdf', status: 'pending', reviewer_note: null,
+  });
+  state.fc_profiles[0].hanwha_commission_pdf_path = `hanwha-url-pdf/${FC_A}/../../${FC_B}/other.pdf`;
+  const fc = await adminActionDocumentClient(database, { phone: '00000000001', role: 'fc', fcId: FC_A });
+  const manager = await adminActionDocumentClient(database, { phone: '00000000002', role: 'manager' });
+  const admin = await adminActionDocumentClient(database, { phone: '00000000003', role: 'admin', staffType: 'admin' });
+
+  for (const storagePath of [...CRAFTED_PATHS, state.fc_profiles[0].hanwha_commission_pdf_path]) {
+    assert.equal((await fc('signOwnDocument', { storagePath })).status, 404, storagePath);
+    assert.equal((await manager('signFcDocument', { storagePath })).status, 404, storagePath);
+    assert.equal((await admin('signFcDocument', { storagePath, fcId: FC_A })).status, 404, storagePath);
+  }
+  // An FC signs only single objects in its own folder; staff still open a nested row path.
+  assert.equal((await fc('signOwnDocument', { storagePath: `${FC_A}/nested/own.pdf` })).status, 404);
+  assert.equal((await admin('signFcDocument', { storagePath: `${FC_A}/nested/own.pdf` })).status, 200);
+  assert.deepEqual(storageCalls.map(({ kind, path }) => [kind, path]), [['sign', `${FC_A}/nested/own.pdf`]]);
+
+  storageCalls.length = 0;
+  for (const storagePath of [...CRAFTED_PATHS, `${FC_A}/..`, `${FC_A}/.`, `${FC_A}/%2e%2e`]) {
+    assert.equal((await fc('submitOwnDocument', { docType: 'synthetic-id', storagePath, fileName: 'x.pdf' })).status, 403, storagePath);
+  }
+  assert.deepEqual(storageCalls, []);
+  assert.deepEqual(writes, []);
+});
+
+test('an FC submission moves only a documents-stage profile to docs-pending', async () => {
+  for (const [current, expected] of [
+    ['docs-rejected', 'docs-pending'], ['docs-submitted', 'docs-pending'],
+    ['allowance-consented', 'allowance-consented'], ['docs-approved', 'docs-approved'],
+    ['hanwha-commission-review', 'hanwha-commission-review'], ['final-link-sent', 'final-link-sent'],
+  ]) {
+    const { database, state } = fcDocumentDatabase();
+    const profile = state.fc_profiles[0];
+    Object.assign(profile, { status: current, appointment_url: 'https://synthetic.invalid/appointment' });
+    const fc = await adminActionDocumentClient(database, { phone: '00000000001', role: 'fc', fcId: FC_A });
+
+    const submitted = await fc('submitOwnDocument', { docType: 'synthetic-id', storagePath: `${FC_A}/uploaded.pdf`, fileName: 'synthetic.pdf' });
+    assert.equal(submitted.status, 200, current);
+    assert.deepEqual(submitted.body.profile, { id: FC_A, status: expected }, current);
+    assert.equal(profile.status, expected, current);
+    // Later workflow fields stay as staff left them.
+    assert.equal(profile.appointment_url, 'https://synthetic.invalid/appointment', current);
+    assert.equal(state.fc_documents.find((row) => row.fc_id === FC_A && row.doc_type === 'synthetic-id').storage_path, `${FC_A}/uploaded.pdf`);
+  }
+});
+
+test('staff open a just-picked Hanwha PDF draft only as a writer, for an existing object in that FC folder', async () => {
+  const { database, state, storageCalls } = fcDocumentDatabase();
+  const draft = `${FC_A}/dawichok-1729700000000-abc.pdf`;
+  const FC_C = '10000000-0000-4000-8000-00000000000c';
+  state.objects.push(draft, `${FC_C}/dawichok-1.pdf`);
+  const fc = await adminActionDocumentClient(database, { phone: '00000000001', role: 'fc', fcId: FC_A });
+  const manager = await adminActionDocumentClient(database, { phone: '00000000002', role: 'manager' });
+  const admin = await adminActionDocumentClient(database, { phone: '00000000003', role: 'admin', staffType: 'admin' });
+
+  const signed = await admin('signFcDocument', { storagePath: draft, fcId: FC_A });
+  assert.equal(signed.status, 200);
+  assert.equal(signed.body.signedUrl, `https://synthetic.invalid/signed/${draft}`);
+  assert.deepEqual(storageCalls.map(({ kind, path, folder }) => [kind, path ?? folder]), [['list', FC_A], ['sign', draft]]);
+
+  storageCalls.length = 0;
+  for (const [client, action, payload] of [
+    [admin, 'signFcDocument', { storagePath: draft }],
+    [admin, 'signFcDocument', { storagePath: draft, fcId: FC_B }],
+    [admin, 'signFcDocument', { storagePath: `${FC_A}/dawichok-missing.pdf`, fcId: FC_A }],
+    [admin, 'signFcDocument', { storagePath: `${FC_C}/dawichok-1.pdf`, fcId: FC_C }],
+    [manager, 'signFcDocument', { storagePath: draft, fcId: FC_A }],
+    [fc, 'signOwnDocument', { storagePath: draft, fcId: FC_A }],
+  ]) {
+    assert.equal((await client(action, payload)).status, 404, JSON.stringify(payload));
+  }
+  assert.equal(storageCalls.some(({ kind }) => kind === 'sign'), false);
 });
 
 async function bridgeSyncFixture({ role = 'fc', data, error = null, parsed, token = 'synthetic-bridge' } = {}) {

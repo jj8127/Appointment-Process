@@ -139,7 +139,7 @@ describe('admin-action privileged authentication boundary', () => {
     );
   });
 
-  it('confirms an FC document submission only with the submitted row and that FC docs-pending status', async () => {
+  it('confirms an FC document submission only with the submitted row and that FC docs-pending or kept status', async () => {
     const payload = { docType: 'synthetic-doc', storagePath: 'fc-1/synthetic.pdf', fileName: 'synthetic.pdf' };
     const document = {
       fc_id: 'fc-1', doc_type: 'synthetic-doc', storage_path: 'fc-1/synthetic.pdf',
@@ -152,11 +152,15 @@ describe('admin-action privileged authentication boundary', () => {
     });
 
     await expect(submit({ ok: true, document, profile })).resolves.toMatchObject({ document, profile });
+    // Members outside the documents stage keep their status.
+    const kept = { id: 'fc-1', status: 'hanwha-commission-review' };
+    await expect(submit({ ok: true, document, profile: kept })).resolves.toMatchObject({ document, profile: kept });
     for (const data of [
       { ok: true, document: { ...document, storage_path: 'fc-1/other.pdf' }, profile },
       { ok: true, document: { ...document, status: 'approved' }, profile },
       { ok: true, document, profile: { ...profile, id: 'fc-2' } },
       { ok: true, document, profile: { ...profile, status: 'docs-requested' } },
+      { ok: true, document, profile: { ...profile, status: 'synthetic-unknown' } },
       { ok: true, document: { ...document, fc_id: undefined }, profile: { status: 'docs-pending' } },
     ]) {
       await expect(submit(data)).rejects.toThrow(/unverified/);

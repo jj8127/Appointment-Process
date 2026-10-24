@@ -1571,7 +1571,8 @@ export default function DashboardScreen() {
     return filtered;
   }, [processedRows, statusFilter, subFilter, filterOptions, affiliationFilter]);
 
-  const openFile = async (path?: string) => {
+  // draftFcId: a Hanwha PDF picked here exists only in Storage until approval records its path.
+  const openFile = async (path?: string, draftFcId?: string) => {
     if (!path) {
       Alert.alert('열기 실패', '저장된 파일이 없습니다.');
       return;
@@ -1582,7 +1583,11 @@ export default function DashboardScreen() {
     try {
       let signedUrl: string;
       try {
-        ({ signedUrl } = await invokeAdminAction<{ signedUrl: string }>(residentId ?? '', 'signFcDocument', { storagePath: path }));
+        ({ signedUrl } = await invokeAdminAction<{ signedUrl: string }>(
+          residentId ?? '',
+          'signFcDocument',
+          draftFcId ? { storagePath: path, fcId: draftFcId } : { storagePath: path },
+        ));
       } catch {
         Alert.alert('열기 실패', 'URL 생성 실패: 버킷 설정을 확인해주세요.');
         return;
@@ -2596,7 +2601,7 @@ export default function DashboardScreen() {
               </Pressable>
               <Pressable
                 style={[styles.actionButtonSecondary, (!hanwhaPdfPath || openingPath !== null) && styles.actionButtonDisabled]}
-                onPress={() => openFile(hanwhaPdfPath ?? undefined)}
+                onPress={() => openFile(hanwhaPdfPath ?? undefined, hanwhaDraft ? fc.id : undefined)}
                 disabled={!hanwhaPdfPath || openingPath !== null}
               >
                 <Feather name="file-text" size={16} color={CHARCOAL} />

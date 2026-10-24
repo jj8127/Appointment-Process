@@ -53,6 +53,8 @@ describe('priority security hardening source contracts', () => {
     }
     expect(readRepoFile('app/hanwha-commission.tsx')).toContain("'signOwnDocument'");
     expect(readRepoFile('app/dashboard.tsx')).toContain("'signFcDocument'");
+    // A just-picked Hanwha PDF is not recorded yet, so its open button names the FC for the server draft check.
+    expect(readRepoFile('app/dashboard.tsx')).toMatch(/openFile\(hanwhaPdfPath \?\? undefined, hanwhaDraft \? fc\.id : undefined\)/);
   });
 
   it('retires web push subscriptions only for the verified server-session actor', () => {

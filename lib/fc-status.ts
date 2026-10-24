@@ -17,6 +17,14 @@ export const FC_STATUSES = [
 
 export type FcStatus = (typeof FC_STATUSES)[number];
 
+/** A member is still collecting documents; an FC submission moves these to docs-pending. */
+export const FC_DOCUMENT_STAGE_STATUSES: readonly FcStatus[] = [
+  'docs-requested',
+  'docs-pending',
+  'docs-submitted',
+  'docs-rejected',
+];
+
 export type FcStatusUpdateExtra = Record<string, string | boolean | null>;
 
 const ALLOWANCE_STATUS_EXTRA_FIELDS = new Set([

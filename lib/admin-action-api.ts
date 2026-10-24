@@ -1,3 +1,4 @@
+import { FC_DOCUMENT_STAGE_STATUSES, isFcStatus } from './fc-status';
 import { getStoredAppSessionToken } from './request-board-api';
 import { supabase } from './supabase';
 import {
@@ -95,7 +96,11 @@ export async function invokeAdminActionWithDeps<
       reviewer_note: null,
     });
     if (typeof document.fc_id !== 'string' || !document.fc_id) throw new Error('mutation_receipt_unverified');
-    requireMutationRowReceipt(data.profile, { id: document.fc_id, status: 'docs-pending' });
+    // A documents-stage profile must now be docs-pending; earlier and later stages keep their status.
+    const { status } = requireMutationRowReceipt(data.profile, { id: document.fc_id });
+    if (!isFcStatus(status) || (status !== 'docs-pending' && FC_DOCUMENT_STAGE_STATUSES.includes(status))) {
+      throw new Error('mutation_receipt_unverified');
+    }
   }
 
   return data as { ok: true } & T;

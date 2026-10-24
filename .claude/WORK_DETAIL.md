@@ -1,5 +1,15 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261024-anon-stage1-review-fixes"></a>
+## 2026-10-24 서류 서명 경로 검토 지적 반영 (로컬 커밋, 미배포)
+
+- 경로 모양(차단 요인): `signOwnDocument`·`signFcDocument`는 행이 가리키는 값이면 모양을 보지 않고 서명했다. 0단계 가드는 `<fc_id>/` 접두만 보므로 anon이 자기 행에 `<본인>/../<다른 FC>/x.pdf`나 `%2e%2e` 형태를 저장할 수 있고, Storage 요청 URL은 점 조각을 접는다. 그래서 다른 FC 파일이 서명될 수 있었다. 이제 admin-action `isPlainFcDocumentPath`가 서명과 제출 전에 빈 조각, `.`·`..` 조각, 맨 앞 `/`, `%`·`\`·`?`·`#`·제어 문자를 거부한다(서명 404, 제출 403). FC 본인 서류 행은 경로가 `<fcId>/<이름>`일 때만 인정한다(`isFcFolderObjectPath`, 제출 검사와 공용). 현재 형식 `<fcId>/<이름>.pdf`, `hanwha-url-pdf/<fcId>/<시각>-<n>.pdf`는 통과한다.
+- DB 가드: 지적은 `20261024120000`의 가드를 고치라고 했다. 그러나 0·0b단계는 2026-10-24 08:00Z 운영에 적용되었다(기록 7ac094ee, `security/anon-lockdown-20261024` 브랜치). 적용된 파일을 고치면 운영과 어긋나므로 새 마이그레이션 `20261024120200_restrict_anon_document_path_shape`(+ schema mirror)로 나눴다. anon 쓰기 경로를 `<fc_id>/` 아래 한 조각 이름으로 좁히고 묘비는 유지한다. 모든 앱 버전의 경로 형식은 통과한다. 운영 적용은 별도 승인이며 admin-action 배포·OTA 순서와 무관하다.
+- 상태 되돌림(주요): `submitOwnDocument`가 늘 `docs-pending`을 썼다. 운영에서 그동안 이 변경이 한 번도 적용되지 않았고, anon은 아무 doc_type의 pending 행을 넣을 수 있으므로 뒤 단계 FC가 스스로 상태를 되돌릴 수 있었다. 이제 `.in('status', FC_DOCUMENT_STAGE_STATUSES)` 조건으로 서류 단계(`docs-requested`·`docs-pending`·`docs-submitted`·`docs-rejected`)일 때만 바꾸고, 0행이면 현재 `{ id, status }`를 읽어 돌려준다. 다른 단계는 상태와 뒤 단계 값을 그대로 둔다. 뒤 단계에서 되돌리는 것은 직원 처리(`syncProfileAfterDocMutation`, `updateStatus`)가 초기화 값과 함께 한다. 단계 목록은 `lib/fc-status.ts`의 `FC_DOCUMENT_STAGE_STATUSES`이고, 앱 `invokeAdminAction`은 서류 단계인데 `docs-pending`이 아닌 응답과 알 수 없는 상태를 거부한다.
+- 한화 PDF 초안(주요): 직원 모바일 대시보드에서 방금 고른 PDF는 승인 전에는 DB에 없어 `signFcDocument`가 404였다. 이제 관리자(쓰기 권한)가 `fcId`를 보내면 경로가 `<fcId>/<이름>`이고 그 프로필이 있고 객체가 있을 때만 서명한다(`isStaffHanwhaPdfDraft`, 기존 `fcDocumentObjectExists` 재사용). 본부장과 FC는 이 예외를 쓰지 않는다. `app/dashboard.tsx` `openFile`은 초안을 열 때만 `fcId`를 보낸다.
+- 검증: `ux-priority-one-handlers.test.mjs` 39/39(새 3개: 점 조각·인코딩·빈 조각·`?`·`#`·탭 경로 12종을 FC·본부장·관리자 서명과 FC 제출에서 거부하고 Storage 호출·쓰기 없음, 서류 단계 2개는 `docs-pending`·다른 단계 4개는 상태와 `appointment_url` 유지, 초안 서명 조건 6종). 변형 대조: 경로 검사 끄기, 단계 조건 빼기, 초안 예외 빼기·본부장 허용·객체 확인 빼기, 본인 폴더 조건 빼기에서 각각 해당 테스트가 실패. `anon-privilege-revoke-sql.test.mjs` 8/8(새 가드: 11종 거부, 현재 형식 통과, 재실행). 새 마이그레이션을 빼면 2개 실패. sql-pglite 185/185, edge-node 148/148, edge-deno 102/102, `deno check` 통과. jest `mobile-acceptance-runtime`·`admin-action-auth-boundary`·`workflow-step-regression`·`admin-action-fc-self-profile` 201/201(대시보드 초안 열기 `fcId` 전달·실패 문구, 유지 상태 receipt 허용·서류 단계 비`docs-pending` 거부). `priority-security-hardening` 새 연결 검사 통과(기존 실패 2건은 기준과 같음). `admin-action-canonical-notification-target`·`exam-bundle-decision-contract`의 실패 4건도 기준(HEAD)과 같다. `npm run typecheck` 통과. eslint는 기존 esm.sh 해석 오류 1건만.
+- 남은 위험: 관리자 웹 `signDoc`(web/, 이 작업에서 바꾸지 않음)은 경로를 디코딩해 저장값과 비교한 뒤 서명한다. 새 가드 적용 전에 저장된 점 조각 행이 있으면 관리자가 한 FC 서류를 열 때 다른 FC 파일이 보일 수 있다. 적용 전 운영에서 규칙에 맞지 않는 `fc_documents.storage_path` 행 수만 읽기 전용으로 세고, web `signDoc`에도 같은 검사를 넣는 후속이 필요하다.
+
 <a id="20261024-anon-stage1-documents"></a>
 ## 2026-10-24 앱 서류 열기·FC 업로드를 서버 서명 URL로 전환 (로컬 커밋, 미배포)
 

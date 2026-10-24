@@ -8,6 +8,7 @@ import test from 'node:test';
 
 const { PGlite } = createRequire(import.meta.url)(process.env.PGLITE_MODULE_PATH ?? '@electric-sql/pglite');
 const migration = await readFile(new URL('../migrations/20261024120000_revoke_unused_anon_privileges.sql', import.meta.url), 'utf8');
+const pathGuard = await readFile(new URL('../migrations/20261024120200_restrict_anon_document_path_shape.sql', import.meta.url), 'utf8');
 const schema = await readFile(new URL('../schema.sql', import.meta.url), 'utf8');
 
 const FC_A = '30000000-0000-4000-8000-00000000000a';
@@ -184,6 +185,8 @@ async function withDb(run) {
     await db.exec(PRODUCTION_FIXTURE);
     await db.exec(migration);
     await db.exec(migration); // re-runnable
+    await db.exec(pathGuard);
+    await db.exec(pathGuard);
     await run(db);
   } finally {
     await db.close();
@@ -268,6 +271,15 @@ test('anon submits its own pending document but cannot approve, repoint or delet
     await assert.rejects(upsert(`${FC_A}/x.pdf`, 'approved'), /only pending submissions/);
     await assert.rejects(upsert(`${FC_A}/x.pdf`, 'pending', "'ok'"), /only pending submissions/);
     await assert.rejects(upsert(`${FC_B}/x.pdf`), /under the member folder/);
+    // Storage URLs collapse dot segments, so only one plain object name under the folder passes.
+    for (const path of [`${FC_A}/../${FC_B}/x.pdf`, `${FC_A}/..`, `${FC_A}/.`, `${FC_A}/%2e%2e%2f${FC_B}%2fx.pdf`,
+      `${FC_A}/sub/x.pdf`, `${FC_A}/`, `${FC_A}//x.pdf`, `${FC_A}/a\\b.pdf`, `${FC_A}/x.pdf?download`, `${FC_A}/x.pdf#x`,
+      `${FC_A}/.\t.`]) {
+      await assert.rejects(upsert(path), /under the member folder/, path);
+    }
+    for (const path of [`${FC_A}/hanwha-1729700000000-k3j.pdf`, `${FC_A}/dawichok-1729700000000-k3j.pdf`, `${FC_A}/a.b..pdf`]) {
+      await upsert(path);
+    }
     await assert.rejects(anon(db, `update public.fc_documents set fc_id = '${FC_B}' where fc_id = '${FC_A}'`), /immutable/);
     await assert.rejects(anon(db, `update public.fc_documents set status = 'approved' where fc_id = '${FC_A}'`), /only pending/);
     await assert.rejects(anon(db, `delete from public.fc_documents where fc_id = '${FC_A}'`), /permission denied/);
@@ -367,6 +379,8 @@ test('notice attachments are upload-only and chat uploads are closed; document s
   });
 });
 
-test('schema snapshot includes the complete stage 0 migration', () => {
-  assert.ok(schema.replaceAll('\r\n', '\n').includes(migration.replaceAll('\r\n', '\n')));
+test('schema snapshot includes the complete stage 0 migration and the path guard', () => {
+  for (const sql of [migration, pathGuard]) {
+    assert.ok(schema.replaceAll('\r\n', '\n').includes(sql.replaceAll('\r\n', '\n')));
+  }
 });
