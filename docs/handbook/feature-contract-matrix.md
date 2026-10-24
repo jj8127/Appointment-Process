@@ -2,10 +2,16 @@ doc_id: FC-FEATURE-CONTRACT-MATRIX
 owner_repo: fc-onboarding-app
 owner_area: cross-surface contracts
 audience: developer, operator
-last_verified: 2026-09-07
+last_verified: 2026-10-24
 source_of_truth: code + tests + request_board/docs/handbook/feature-contract-matrix.md
 
 # Feature Contract Matrix
+
+## 2026-10-24 FC 서류 저장 경로 (로컬, 운영 미배포)
+
+| Domain | Contract | Primary sources | Regression evidence |
+| --- | --- | --- | --- |
+| 서류 서명·업로드 경로 | service role 서명 전 경로 모양 규칙은 하나다(`isPlainFcDocumentPath`: admin-action, 관리자 웹 `signDoc`). 새 경로는 이 규칙을 통과한다: FC `<fcId>/<uuid>.pdf`(서버 발급), 모바일 직원 초안 `<fcId>/dawichok-<ms>-<base36>.pdf`, 관리자 웹 `hanwha-url-pdf/<fcId>/<시각>-<n>-<정리한 이름>`. 직원 초안 예외는 그 이름에만 쓴다. FC 제출은 같은 FC의 다른 기록이 가리키는 파일을 연결하지 않는다. anon은 승인된 서류 행을 바꾸지 못한다 | `supabase/functions/_shared/fc-document-path.ts`, `supabase/functions/admin-action/index.ts`, `web/src/app/api/admin/fc/route.ts`, `supabase/migrations/20261024120200_restrict_anon_document_path_shape.sql`, `backend/admin-operations-api.md` | `supabase/functions/__tests__/ux-priority-one-handlers.test.mjs`, `supabase/tests/anon-privilege-revoke-sql.test.mjs`, `web/src/lib/admin-document-session-runtime.test.mjs`, `web/src/lib/ux-priority-one-runtime.test.mjs`, `lib/__tests__/mobile-acceptance-runtime.test.ts` |
 
 ## 2026-10-11 공통 회원·제휴 계약
 

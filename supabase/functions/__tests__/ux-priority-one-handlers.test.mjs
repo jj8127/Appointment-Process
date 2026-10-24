@@ -842,7 +842,7 @@ function fcDocumentDatabase() {
           return [row];
         }
         const rows = state[table].filter((row) => query.filters.every(([field, value, operator]) =>
-          (operator === 'in' ? value.includes(row[field]) : row[field] === value)));
+          (operator === 'in' ? value.includes(row[field]) : operator === 'neq' ? row[field] !== value : row[field] === value)));
         if (query.mode === 'update') rows.forEach((row) => Object.assign(row, query.payload));
         return rows;
       };
@@ -850,6 +850,7 @@ function fcDocumentDatabase() {
         select(fields) { query.selected = fields; return builder; },
         eq(field, value) { query.filters.push([field, value]); return builder; },
         in(field, values) { query.filters.push([field, [...values], 'in']); return builder; },
+        neq(field, value) { query.filters.push([field, value, 'neq']); return builder; },
         upsert(payload, options) { Object.assign(query, { mode: 'upsert', payload, options }); writes.push({ table, mode: 'upsert', payload, options }); return builder; },
         update(payload) { Object.assign(query, { mode: 'update', payload }); writes.push({ table, mode: 'update', payload, filters: query.filters }); return builder; },
         limit: async (count) => ({ data: run().slice(0, count).map(pick), error: null }),
@@ -893,7 +894,7 @@ async function adminActionDocumentClient(database, session) {
   // The admin web signDoc route uses the same path-shape rule.
   context.isPlainFcDocumentPath = await extract('supabase/functions/_shared/fc-document-path.ts', 'isPlainFcDocumentPath', context);
   for (const name of ['FC_DOCUMENTS_BUCKET', 'FC_DOCUMENT_SIGNED_URL_SECONDS', 'json', 'fail', 'cleanPhone', 'readFcDocumentField',
-    'isFcFolderObjectPath', 'findFcDocumentPathOwner', 'fcDocumentObjectExists', 'isStaffHanwhaPdfDraft',
+    'isFcFolderObjectPath', 'findFcDocumentPathOwner', 'fcDocumentObjectExists', 'STAFF_HANWHA_PDF_DRAFT_NAME', 'isStaffHanwhaPdfDraft',
     'signFcDocumentPath', 'rejectUnuploadableOwnDocument', 'handler']) {
     context[name] = await extract(file, name, context);
   }
@@ -1040,11 +1041,43 @@ test('an FC submission moves only a documents-stage profile to docs-pending', as
   }
 });
 
-test('staff open a just-picked Hanwha PDF draft only as a writer, for an existing object in that FC folder', async () => {
+test('an FC submission cannot link a file another record of that FC already names', async () => {
+  const { database, state, writes, storageCalls } = fcDocumentDatabase();
+  const hanwhaPdf = `${FC_A}/dawichok-1729700000000-abc.pdf`;
+  state.fc_profiles[0].hanwha_commission_pdf_path = hanwhaPdf;
+  state.objects.push(hanwhaPdf);
+  state.fc_documents.push({
+    fc_id: FC_A, doc_type: 'synthetic-second', storage_path: null, file_name: null, status: 'pending', reviewer_note: null,
+  });
+  const fc = await adminActionDocumentClient(database, { phone: '00000000001', role: 'fc', fcId: FC_A });
+  const submit = (docType, storagePath) => fc('submitOwnDocument', { docType, storagePath, fileName: 'synthetic.pdf' });
+
+  // removeOwnDocument would later queue a shared file for deletion.
+  for (const [docType, storagePath] of [['synthetic-second', `${FC_A}/own.pdf`], ['synthetic-id', hanwhaPdf], ['synthetic-second', hanwhaPdf]]) {
+    const refused = await submit(docType, storagePath);
+    assert.equal(refused.status, 409, `${docType} ${storagePath}`);
+    assert.equal(refused.body.message, 'Uploaded file is already linked to another record');
+  }
+  assert.deepEqual(writes, []);
+  assert.deepEqual(storageCalls, []);
+
+  // A retried submission keeps its own path, and a fresh upload links normally.
+  assert.equal((await submit('synthetic-id', `${FC_A}/own.pdf`)).status, 200);
+  assert.equal((await submit('synthetic-second', `${FC_A}/uploaded.pdf`)).status, 200);
+  assert.deepEqual(state.fc_documents.filter((row) => row.fc_id === FC_A).map((row) => [row.doc_type, row.storage_path]), [
+    ['synthetic-id', `${FC_A}/own.pdf`], ['synthetic-approved', `${FC_A}/approved.pdf`], ['synthetic-second', `${FC_A}/uploaded.pdf`],
+  ]);
+});
+
+test('staff open a just-picked Hanwha PDF draft only as a writer, for an existing app-named object in that FC folder', async () => {
   const { database, state, storageCalls } = fcDocumentDatabase();
   const draft = `${FC_A}/dawichok-1729700000000-abc.pdf`;
   const FC_C = '10000000-0000-4000-8000-00000000000c';
-  state.objects.push(draft, `${FC_C}/dawichok-1.pdf`);
+  // Objects that exist but do not have the name app/dashboard.tsx gives a draft.
+  const unnamed = [`${FC_A}/uploaded.pdf`, `${FC_A}/hanwha-1729700000000-k3j.pdf`, `${FC_A}/dawichok-172970000000-abc.pdf`,
+    `${FC_A}/dawichok-1729700000000-ABC.pdf`, `${FC_A}/dawichok-1729700000000-.pdf`, `${FC_A}/dawichok-1729700000000-abc.pdf.pdf`,
+    `${FC_A}/xdawichok-1729700000000-abc.pdf`];
+  state.objects.push(draft, `${FC_C}/dawichok-1729700000001-abc.pdf`, ...unnamed);
   const fc = await adminActionDocumentClient(database, { phone: '00000000001', role: 'fc', fcId: FC_A });
   const manager = await adminActionDocumentClient(database, { phone: '00000000002', role: 'manager' });
   const admin = await adminActionDocumentClient(database, { phone: '00000000003', role: 'admin', staffType: 'admin' });
@@ -1058,14 +1091,24 @@ test('staff open a just-picked Hanwha PDF draft only as a writer, for an existin
   for (const [client, action, payload] of [
     [admin, 'signFcDocument', { storagePath: draft }],
     [admin, 'signFcDocument', { storagePath: draft, fcId: FC_B }],
-    [admin, 'signFcDocument', { storagePath: `${FC_A}/dawichok-missing.pdf`, fcId: FC_A }],
-    [admin, 'signFcDocument', { storagePath: `${FC_C}/dawichok-1.pdf`, fcId: FC_C }],
+    [admin, 'signFcDocument', { storagePath: `${FC_A}/dawichok-1729700000002-missing.pdf`, fcId: FC_A }],
+    [admin, 'signFcDocument', { storagePath: `${FC_C}/dawichok-1729700000001-abc.pdf`, fcId: FC_C }],
     [manager, 'signFcDocument', { storagePath: draft, fcId: FC_A }],
     [fc, 'signOwnDocument', { storagePath: draft, fcId: FC_A }],
   ]) {
     assert.equal((await client(action, payload)).status, 404, JSON.stringify(payload));
   }
   assert.equal(storageCalls.some(({ kind }) => kind === 'sign'), false);
+
+  storageCalls.length = 0;
+  for (const storagePath of unnamed) {
+    assert.equal((await admin('signFcDocument', { storagePath, fcId: FC_A })).status, 404, storagePath);
+  }
+  assert.deepEqual(storageCalls, []);
+  // A recorded path of another shape still opens through its row.
+  state.fc_profiles[0].hanwha_commission_pdf_path = unnamed[1];
+  assert.equal((await admin('signFcDocument', { storagePath: unnamed[1], fcId: FC_A })).status, 200);
+  assert.deepEqual(storageCalls.map(({ kind, path }) => [kind, path]), [['sign', unnamed[1]]]);
 });
 
 async function bridgeSyncFixture({ role = 'fc', data, error = null, parsed, token = 'synthetic-bridge' } = {}) {

@@ -4,7 +4,9 @@
 -- such as "<fc_id>/../<other fc_id>/x.pdf" could make service-role signers (admin-action,
 -- admin web) sign another member's file. Every app version writes "<fc_id>/<name>.pdf"
 -- or the 'deleted' tombstone, which still pass. Rows written before this keep their
--- values; admin-action refuses such paths before signing.
+-- values; admin-action and the admin web signDoc route refuse such paths before signing.
+-- An approved row is read-only to anon: a PostgREST upsert would otherwise replace a
+-- reviewed document. Every app version refuses approved re-uploads and deletions first.
 -- Re-runnable: the guard function is replaced in place and keeps its trigger.
 
 -- Fail fast instead of queueing API traffic behind the function lock.
@@ -24,6 +26,9 @@ begin
   end if;
   if tg_op = 'UPDATE' and (new.fc_id is distinct from old.fc_id or new.doc_type is distinct from old.doc_type) then
     raise exception 'fc_documents_anon_write_guard: fc_id and doc_type are immutable' using errcode = '42501';
+  end if;
+  if tg_op = 'UPDATE' and old.status = 'approved' then
+    raise exception 'fc_documents_anon_write_guard: approved documents are read-only' using errcode = '42501';
   end if;
   if new.status is distinct from 'pending' or new.reviewer_note is not null then
     raise exception 'fc_documents_anon_write_guard: only pending submissions' using errcode = '42501';

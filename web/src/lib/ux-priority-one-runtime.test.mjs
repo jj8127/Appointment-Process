@@ -1156,6 +1156,40 @@ test('Hanwha PDF deletion requires the database clear receipt after storage remo
   await assert.rejects(handler(), /admin_fc_delete_hanwha_pdf_mutation_receipt_invalid/);
 });
 
+test('Hanwha PDF upload paths pass the signer path rule for any picked file name', async () => {
+  const branch = extractIfBranch(
+    'app/api/admin/fc/route.ts',
+    "action === 'createHanwhaPdfUploadUrl' || action === 'deleteHanwhaPdf'",
+  );
+  const signedPaths = [];
+  const upload = (fileName) => execute(`async () => { ${branch} }`, {
+    action: 'createHanwhaPdfUploadUrl',
+    payload: { fcId: 'synthetic-fc', fileName },
+    validateHanwhaPdfPayload: () => ({ ok: true, fcId: 'synthetic-fc', fileName }),
+    requireFcProfileScope: async () => null,
+    sessionCheck: { session: { role: 'admin' } },
+    badRequest: (error) => ({ error }),
+    dayjs: require('dayjs'),
+    NextResponse: { json: (body) => body },
+    adminSupabase: { storage: { from: (bucket) => ({
+      createSignedUploadUrl: async (path) => {
+        signedPaths.push([bucket, path]);
+        return { data: { signedUrl: 'https://storage.example.test/upload', path }, error: null };
+      },
+    }) } },
+  })();
+
+  const response = await upload('50%#1.pdf');
+  assert.equal(response.fileName, '50_1.pdf');
+  assert.match(response.storagePath, /^hanwha-url-pdf\/synthetic-fc\/\d{8}-\d{6}-\d+-50_1\.pdf$/);
+  for (const fileName of ['a%2e%2e#b', 'q?x/y\\z.pdf', 'tab\tname.pdf', 'line\r\nbreak.pdf', 'ctrl\u0001name.pdf', 'del\u007f.pdf', '..', '%']) {
+    const { storagePath, fileName: storedName } = await upload(fileName);
+    assert.ok(isPlainFcDocumentPath(storagePath), JSON.stringify(fileName));
+    assert.match(storedName, /\.pdf$/);
+  }
+  assert.ok(signedPaths.every(([bucket]) => bucket === 'fc-documents'));
+});
+
 test('admin FC date routes reject impossible calendar dates before database mutation', async () => {
   let databaseCalls = 0;
   const common = {

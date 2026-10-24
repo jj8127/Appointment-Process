@@ -542,8 +542,9 @@ async function runAdminFcAction(
 
       if (action === 'createHanwhaPdfUploadUrl') {
         const resolvedFileName = String(fileName).trim() || 'dawichok-url.pdf';
+        // The name becomes the last path segment; signers refuse '%', '#' and control characters.
         const safeFileName = resolvedFileName
-          .replace(/[\\/:*?"<>|\r\n]+/g, '_')
+          .replace(/[\\/:*?"<>|%#\u0000-\u001f\u007f]+/g, '_')
           .replace(/\s+/g, ' ')
           .trim();
         const normalizedFileName =

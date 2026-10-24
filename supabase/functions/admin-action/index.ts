@@ -581,9 +581,14 @@ async function findFcDocumentPathOwner(storagePath: string, fcId?: string): Prom
   return profiles[0]?.id ? String(profiles[0].id) : null;
 }
 
+/** The name app/dashboard.tsx gives a Hanwha PDF it uploads: "dawichok-<epoch ms>-<base36>.pdf". */
+const STAFF_HANWHA_PDF_DRAFT_NAME = /^dawichok-\d{13}-[a-z0-9]+\.pdf$/;
+
 /** Staff open a Hanwha PDF they just uploaded; approval records its path later. */
 async function isStaffHanwhaPdfDraft(storagePath: string, fcId: string): Promise<boolean> {
-  if (!isFcFolderObjectPath(storagePath, fcId)) return false;
+  // Other objects in the folder are signable only while a row names them.
+  if (!isFcFolderObjectPath(storagePath, fcId)
+    || !STAFF_HANWHA_PDF_DRAFT_NAME.test(storagePath.slice(fcId.length + 1))) return false;
   const { data: profile, error } = await supabase.from('fc_profiles').select('id').eq('id', fcId).maybeSingle();
   if (error) throw error;
   return !!profile?.id && await fcDocumentObjectExists(storagePath);
@@ -1435,6 +1440,20 @@ serve(async (req: Request) => {
       if (!storagePath || !fileName) return fail('storagePath and fileName are required');
       if (!isFcFolderObjectPath(storagePath, ownFcId)) {
         return fail('Unauthorized: upload path does not belong to the signed FC', 403);
+      }
+      // A file another record of this FC names stays theirs: removing this document later
+      // would queue that file for deletion.
+      const [otherDocuments, hanwhaProfile] = await Promise.all([
+        supabase.from('fc_documents').select('doc_type').eq('fc_id', ownFcId).eq('storage_path', storagePath)
+          .neq('doc_type', docType).limit(1),
+        supabase.from('fc_profiles').select('id').eq('id', ownFcId).eq('hanwha_commission_pdf_path', storagePath)
+          .maybeSingle(),
+      ]);
+      if (otherDocuments.error) throw otherDocuments.error;
+      if (hanwhaProfile.error) throw hanwhaProfile.error;
+      if (!Array.isArray(otherDocuments.data)) throw new Error('fc_document_query_contract_invalid');
+      if (otherDocuments.data.length > 0 || hanwhaProfile.data?.id) {
+        return fail('Uploaded file is already linked to another record', 409);
       }
       if (!(await fcDocumentObjectExists(storagePath))) return fail('Uploaded file not found', 409);
 

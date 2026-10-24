@@ -291,8 +291,15 @@ test('anon submits its own pending document but cannot approve, repoint or delet
     // Review stays with service role.
     await asRole(db, 'service_role', `update public.fc_documents set status = 'approved', reviewer_note = 'ok'
       where fc_id = '${FC_A}'`);
+    // An approved row is read-only to anon: no upsert replaces it and no tombstone clears it.
+    await assert.rejects(upsert(`${FC_A}/replacement.pdf`), /approved documents are read-only/);
+    await assert.rejects(anon(db, `update public.fc_documents set storage_path = 'deleted', file_name = 'deleted.pdf',
+      status = 'pending', reviewer_note = null where fc_id = '${FC_A}' and doc_type = 'id_card'`), /approved documents are read-only/);
     const { rows } = await db.query(`select storage_path, status from public.fc_documents where fc_id = '${FC_A}'`);
     assert.deepEqual(rows, [{ storage_path: 'deleted', status: 'approved' }]);
+    // A document staff send back for a new upload accepts the next submission again.
+    await asRole(db, 'service_role', `update public.fc_documents set status = 'rejected' where fc_id = '${FC_A}'`);
+    assert.equal((await upsert(`${FC_A}/replacement.pdf`)).rows[0].status, 'pending');
   });
 });
 
