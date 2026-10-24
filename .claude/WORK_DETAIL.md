@@ -17,7 +17,7 @@
   - 삭제·복원(14:09Z): 앱 삭제 버튼 → admin-action 200, 서버 Storage DELETE 200, 객체 0·정리 대기열 0. 이어서 같은 함수로 요청 목록을 비우고 상태를 draft로 되돌렸다. 최종 상태는 시험 전 스냅샷과 같다(draft, 마감 null, 서류·객체·대기열 0). 관리자 알림 2건은 남겼다(사용자 동의).
   - 확인하지 못한 것: 관리자 기기의 push 수신(fc-notify가 push 결과를 기록하지 않음), action 이름(로그에 본문 없음, 하위 요청 모양으로 추정), 관리자 실세션 signDoc, iOS.
   - 본 김에 찾은 것(이번 배포와 무관, 검토 보고서로 넘김): fc-notify가 열린 클라이언트에서 약 4초마다 2건씩 호출된다. 홈 로드 때 `get-my-referral-allowance` 403, 로그인 직전 `device-token-register` DELETE 401이 있다. 유일한 제출 서류를 지워도 상태가 `docs-pending`으로 남는다. 앱은 여전히 `fc_profiles`·`fc_documents`를 anon으로 읽는다(1단계 나머지 범위).
-- 화면 수정(로컬 커밋, 다음 OTA 전 미배포): 서류 삭제 중 44px 아이콘 버튼 안에 "삭제 중" 글자가 줄바꿈되어 아이콘과 겹쳤다. `app/docs-upload.tsx` 삭제 버튼은 이제 삭제 중에 열기·업로드 버튼과 같은 `BrandedLoadingSpinner`(sm, 18px)를 아이콘 자리에 보이고, 접근성 이름 "서류 삭제"와 busy 상태를 가진다. `npm run typecheck` 통과, `mobile-acceptance-runtime` 165/165. 수정 뒤 화면 캡처는 운영 업로드·삭제를 다시 해야 해서 하지 않았다.
+- 화면 수정(브랜치 push, 다음 OTA에 묶어 배포 예정, 미배포): 서류 삭제 중 44px 아이콘 버튼 안에 "삭제 중" 글자가 줄바꿈되어 아이콘과 겹쳤다. `app/docs-upload.tsx` 삭제 버튼은 이제 삭제 중에 열기·업로드 버튼과 같은 `BrandedLoadingSpinner`(sm, 18px)를 아이콘 자리에 보이고, 접근성 이름 "서류 삭제"와 busy 상태를 가진다. `npm run typecheck` 통과, `mobile-acceptance-runtime` 165/165. 수정 뒤 화면 캡처는 운영 업로드·삭제를 다시 해야 해서 하지 않았다.
 - 미확인(남음): 관리자 실세션 signDoc, iOS 실기기. 앱은 다시 열 때 새 OTA를 받으며, 그 전의 앱은 0b단계 뒤처럼 앱 안 서류 열기가 실패한다.
 
 <a id="20261024-anon-stage1-hardening"></a>
