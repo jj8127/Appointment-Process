@@ -299,6 +299,7 @@
       "severity": "contract",
       "prefixes": [
         "supabase/functions/_shared/commission.ts",
+        "supabase/functions/_shared/fc-document-path.ts",
         "supabase/functions/admin-action/",
         "supabase/functions/__tests__/admin-action-appointment-update.contract.test.js",
         "supabase/functions/__tests__/admin-action-fc-self-profile.contract.test.ts",

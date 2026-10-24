@@ -5,6 +5,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { classifyFcNotifyDeliveryResult } from '../../../lib/fc-notify-delivery-result.ts';
+import { isPlainFcDocumentPath } from '../../../supabase/functions/_shared/fc-document-path.ts';
 import { requireExamTransitionReceipt } from '../../../supabase/functions/_shared/ux-mutation-contract.ts';
 import { isBoardSuccess } from './upstream-response-policy.ts';
 import { createCreationRequestTracker } from './creation-request.ts';
@@ -725,6 +726,7 @@ test('admin FC document reads fail closed when Supabase returns null without an 
     action: 'signDoc',
     payload: { fcId: 'synthetic-fc', path: 'documents/synthetic.pdf' },
     normalizeFcDocumentStoragePath: (value) => value,
+    isPlainFcDocumentPath,
     requireFcProfileScope: async () => null,
     requireSupabaseRows,
     sessionCheck: { session: { role: 'admin' } },

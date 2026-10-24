@@ -1,5 +1,15 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261024-anon-stage1-minor-fixes"></a>
+## 2026-10-24 서류 업로드 이름·오류 문구와 관리자 웹 signDoc 경로 검사 (로컬 커밋, 미배포)
+
+- 파일 이름: `submitOwnDocument`는 공백뿐이거나 255자를 넘는 `fileName`을 거부하는데, 이 검사는 파일을 올린 뒤에 실행된다. `app/docs-upload.tsx` `normalizeDocumentFileName`이 prepare 전에 이름을 맞춘다(앞뒤 공백 제거, 비면 `document.pdf`, 기존 `.pdf`/`.PDF` 유지·없으면 `.pdf` 추가, 255자 제한, 잘린 자리의 반쪽 서로게이트 제거). 같은 값을 submit에 보내므로 앱 receipt의 `file_name` 정확 비교가 그대로 맞는다. 하나의 `fileName` 변수라 직원 업로드 행에도 같은 이름이 쓰인다. 서버 검사는 그대로다.
+- 오류 문구: admin-action 호출이 HTTP 오류로 끝나면 클라이언트는 영어 일반 메시지(`Edge Function returned a non-2xx status code`)나 receipt 코드를 받는다. 업로드 처리기는 prepare·submit 실패를 표시해 두고 `오류` 알림에 그 처리기의 기존 기본 문구 `업로드 실패`를 쓴다. 저장소 업로드 실패 등 다른 단계의 메시지와 로그는 그대로다. 새 안내 문구는 없다.
+- 관리자 웹 `signDoc`(`web/src/app/api/admin/fc/route.ts`): `normalizeFcDocumentStoragePath`가 경로를 디코딩한 뒤, DB 조회와 서명 전에 admin-action과 같은 규칙으로 빈 조각, `.`·`..` 조각, 맨 앞 `/`, `%`·`\`·`?`·`#`·제어 문자를 거부한다(404 `Document not found`). 이전 기록의 남은 위험(점 조각 저장값이 다른 FC 파일을 서명)을 웹에서도 막는다. 규칙은 `supabase/functions/_shared/fc-document-path.ts` `isPlainFcDocumentPath` 하나로 옮겼다. web은 이미 `@shared/supabase/functions/_shared/*`를 가져오고 admin-action은 `../_shared/*`를 쓰므로 두 쪽이 같은 파일을 쓴다. `path-owner-map.json`(backend-admin-ops)과 `contract-test-map.json`(files-links-sensitive-data)에 이 파일을 등록했다.
+- 테스트: `lib/__tests__/mobile-acceptance-runtime.test.ts`의 `routeHandler`가 함수 선언도 실행하게 했다. 새 동작 테스트는 이름 정규화 8종(서버 `readFcDocumentField(…, 255)`가 모두 받음), FC 업로드 실패 단계 4종(prepare·submit 실패는 `업로드 실패`, 저장소 실패는 원래 메시지, 300자 이름은 251자+`.pdf`로 submit), 직원 업로드 2종(`createSignedUploadUrl` → 업로드 → `fc_documents` upsert → 알림, admin-action 호출 없음, receipt 불일치면 알림 없음), `uploadToSignedDocumentUrl`(웹은 path·token으로 `uploadToSignedUrl`, 네이티브 204 통과·300/500 실패), 한화 PDF `resolvePdfUrl`(`signOwnDocument` 경로, 실패 시 고정 문구)이다. 대시보드 `openFile`의 `signFcDocument`·초안 `fcId`는 기존 동작 테스트가 이미 다룬다. 그래서 `priority-security-hardening`의 `'signOwnDocument'`·`'signFcDocument'` toContain 2개와 `ux-priority-one-handlers`의 `requireMutationRowReceipt` 소스 정규식 2개를 지웠다. 부정 경계 정규식과 대시보드 버튼 연결 정규식은 남겼다. 웹 `admin-document-session-runtime.test.mjs`에 저장값이 같은 위험 경로 11종 × (fcId 있음/없음)이 404이고 서명 호출이 없는 테스트를 더했다.
+- 검증: `node --test supabase/functions/__tests__/ux-priority-one-handlers.test.mjs` 39/39. jest `mobile-acceptance-runtime` 165/165, `admin-action-auth-boundary` 15/15, `priority-security-hardening` 19/21(실패 2건은 기준 HEAD e88648f7과 같음), 관련 9개 suite 222/224(같은 2건). 웹 `admin-document-session-runtime`·`ux-priority-one-runtime` 88/88, web-node 819/819, edge-node 148/148, edge-deno 102/102. `npm run typecheck`, `web` `tsc --noEmit -p .`, `deno check`(admin-action, 공용 파일) 통과. eslint: web 깨끗, 루트는 기존 esm.sh 해석 오류 1건만. 변형 대조: 이름 정규화 빼기, 문구 되돌리기, 서로게이트 처리 빼기, 웹 업로드 token 빼기, 네이티브 상태 검사 완화, 공용 규칙 끄기(admin-action·웹 테스트 각각 1건), 웹 검사 끄기에서 해당 테스트가 실패.
+- 미확인: 실기기·웹 업로드, 실제 Storage 서명, 운영 배포(admin-action, 관리자 웹, OTA). 운영 `fc_documents.storage_path`·`hanwha_commission_pdf_path`에 규칙에 맞지 않는 값이 있는지 읽기 전용 확인은 아직 하지 않았다(운영 접근은 별도 승인).
+
 <a id="20261024-anon-stage1-review-fixes"></a>
 ## 2026-10-24 서류 서명 경로 검토 지적 반영 (로컬 커밋, 미배포)
 

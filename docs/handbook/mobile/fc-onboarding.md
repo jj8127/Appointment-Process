@@ -123,7 +123,7 @@ Home and home-lite delegate navigation to focused `useAppLogout` after local ses
 - 총무는 `allowance_date`가 있어야 모바일/웹 관리자 화면에서 `입력 완료 / 사전 심사 요청 완료 / 승인 완료`를 진행할 수 있고, 본부장은 같은 화면을 read-only로 본다
 - 파생 라벨은 `allowance_date` 유무를 우선 반영하므로, 날짜가 비어 있으면 입력 완료/사전 심사/승인 조작은 저장되지 않고 `FC 보증보험 조회 동의일 미입력`이 유지된다
 - 서류 승인 뒤에는 바로 4단계 `생명/손해 위촉`이 아니라 3단계 `hanwha-commission`(`다위촉 URL`)이 열린다
-- 서류 화면과 `hanwha-commission`의 파일 열기는 admin-action 서명 URL(`signOwnDocument`, 직원은 `signFcDocument`)을 쓴다. FC 서류 업로드는 `prepareOwnDocumentUpload` → 서명 URL 업로드 → `submitOwnDocument` 순서이며, 서버가 서류 행과 `docs-pending` 상태를 기록한 뒤에만 관리자 알림을 보낸다. 화면 문구는 바뀌지 않았다.
+- 서류 화면과 `hanwha-commission`의 파일 열기는 admin-action 서명 URL(`signOwnDocument`, 직원은 `signFcDocument`)을 쓴다. FC 서류 업로드는 `prepareOwnDocumentUpload` → 서명 URL 업로드 → `submitOwnDocument` 순서이며, 서버가 서류 행과 `docs-pending` 상태를 기록한 뒤에만 관리자 알림을 보낸다. 파일 이름은 prepare 전에 맞춘다(앞뒤 공백 제거, 비면 `document.pdf`, `.pdf` 유지, 255자 제한). prepare·submit 호출이 실패하면(예: 승인된 서류 409) `오류` 알림은 그 화면의 기본 문구 `업로드 실패`를 보여 준다. 화면 문구는 바뀌지 않았다.
 - 총무가 다위촉 탭에 PDF를 첨부하면 FC는 `hanwha-commission` 화면에서 그 파일을 바로 열람/다운로드할 수 있다. 단, 다음 단계(`appointment`) 잠금 해제는 여전히 `다위촉 승인 + PDF 등록`이 모두 끝난 뒤에만 이뤄진다.
 - 다위촉 URL 승인과 PDF 등록이 끝나야 4단계 `appointment`(`생명/손해 위촉`)가 열린다
 - `appointment` 화면에서 FC가 생명/손해 위촉 완료일을 제출하면 성공 피드백은 네이티브 Alert가 아니라 앱 toast로 표시한다. 제출 성공 직후 화면 상태를 다시 읽기 때문에 Android native dialog와 리렌더를 겹치게 만들면 안 된다.

@@ -12,6 +12,7 @@ import {
 import type { NotificationTargetV1 } from '../_shared/notification-target.ts';
 import { validatePersistedNotificationForDelivery } from '../_shared/persisted-notification-delivery.ts';
 import { drainMessengerAttachmentCleanup } from '../_shared/messenger-attachment-service.ts';
+import { isPlainFcDocumentPath } from '../_shared/fc-document-path.ts';
 import { fcRetirementBlockedResponse, retireFcBeforeAccountDeletion } from '../_shared/request-board-fc-retirement.ts';
 import {
   buildFcDocWorkflowResetPayload,
@@ -552,15 +553,6 @@ const FC_DOCUMENT_SIGNED_URL_SECONDS = 300;
 /** Exact stored values only: callers echo storage_path and doc_type as read, and receipts compare them. */
 function readFcDocumentField(value: unknown, maxLength: number): string | null {
   return typeof value === 'string' && value.trim() && value.length <= maxLength ? value : null;
-}
-
-/**
- * Storage request URLs collapse '.'/'..' segments, also percent-encoded ones, and anon can store
- * any value under its own folder prefix. Only plain object keys reach a service-role Storage call.
- */
-function isPlainFcDocumentPath(storagePath: string): boolean {
-  return !/[%\\?#\u0000-\u001f\u007f]/.test(storagePath)
-    && storagePath.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..');
 }
 
 /** "<fcId>/<name>": the layout every FC document upload uses. */

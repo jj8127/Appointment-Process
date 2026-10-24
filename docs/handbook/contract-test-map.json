@@ -611,6 +611,7 @@
         "app/docs-upload.tsx",
         "web/src/lib/admin-file-open.ts",
         "web/src/lib/admin-fc-doc-storage.ts",
+        "supabase/functions/_shared/fc-document-path.ts",
         "web/src/app/api/admin/resident-numbers/",
         "web/src/hooks/use-resident-number.ts",
         "web/src/lib/resident-number-display.ts",

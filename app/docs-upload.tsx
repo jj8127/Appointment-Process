@@ -84,6 +84,22 @@ const DOC_WORKFLOW_RESET_FIELDS = {
 
 const randomKey = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
+const DOCUMENT_FILE_NAME_MAX_LENGTH = 255;
+
+// submitOwnDocument refuses a blank or longer name only after the file is uploaded, so fit it first.
+function normalizeDocumentFileName(name: string | null | undefined): string {
+  const trimmed = name?.trim() || 'document.pdf';
+  const hasPdfExtension = /\.pdf$/i.test(trimmed);
+  const extension = hasPdfExtension ? trimmed.slice(-4) : '.pdf';
+  let base = hasPdfExtension ? trimmed.slice(0, -4) : trimmed;
+  if (base.length + extension.length > DOCUMENT_FILE_NAME_MAX_LENGTH) {
+    base = base.slice(0, DOCUMENT_FILE_NAME_MAX_LENGTH - extension.length);
+    // Do not keep half of a surrogate pair at the cut.
+    if (/[\uD800-\uDBFF]$/.test(base)) base = base.slice(0, -1);
+  }
+  return base + extension;
+}
+
 type SignedDocumentUpload = { path: string; token: string; signedUrl: string };
 
 async function createStaffDocumentUpload(fcId: string): Promise<SignedDocumentUpload> {
@@ -406,10 +422,17 @@ function DocsUploadScreenContent() {
     uploadingRef.current = true;
     setUploadingType(type as string);
     let uploadStateCleared = false;
+    // admin-action failures (such as the 409 for an approved document) carry no user copy.
+    let adminActionFailed = false;
+    const markAdminActionFailure = (error: unknown): never => {
+      adminActionFailed = true;
+      throw error;
+    };
     try {
       logger.debug('[upload] start', { docType: type, size: asset.size, mimeType: asset.mimeType });
       const contentType = asset.mimeType ?? 'application/pdf';
-      const fileName = asset.name ?? 'document.pdf';
+      // The submission receipt compares file_name exactly, so prepare and submit share this value.
+      const fileName = normalizeDocumentFileName(asset.name);
       // FCs upload to a server-issued path and the server records the submission and status.
       const upload = isAdmin
         ? await createStaffDocumentUpload(fc.id)
@@ -417,7 +440,7 @@ function DocsUploadScreenContent() {
           residentId ?? '',
           'prepareOwnDocumentUpload',
           { docType: type },
-        )).upload;
+        ).catch(markAdminActionFailure)).upload;
       await uploadToSignedDocumentUrl(upload, asset.uri, contentType);
       const objectPath = upload.path;
 
@@ -448,7 +471,7 @@ function DocsUploadScreenContent() {
           docType: type,
           storagePath: objectPath,
           fileName,
-        });
+        }).catch(markAdminActionFailure);
       }
       const markUploaded = (doc: DocItem): DocItem =>
         doc.type === type
@@ -528,7 +551,7 @@ function DocsUploadScreenContent() {
       });
     } catch (err: any) {
       logger.warn('[upload] failed', { bucket: BUCKET, error: err?.message ?? err });
-      Alert.alert('오류', err?.message ?? '업로드 실패');
+      Alert.alert('오류', adminActionFailed ? '업로드 실패' : err?.message ?? '업로드 실패');
     } finally {
       if (!uploadStateCleared) {
         uploadingRef.current = false;

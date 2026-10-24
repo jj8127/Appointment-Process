@@ -17,19 +17,21 @@ import { buildExamPhoneCandidates, normalizeExamSingle } from '../exam-display';
 import { createCreationRequestTracker } from '../board-comment-request';
 import { buildStoredSignupReferral, getSignupReferralSelectionError, hasValidStoredSignupReferral } from '../signup-referral';
 import { normalizeLicenseStatuses } from '../license-statuses';
+import { requireMutationRowReceipt } from '../../supabase/functions/_shared/ux-mutation-contract';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 const root = join(__dirname, '../..');
 
-// Execute each actual route callback with controlled I/O. The callback body is
+// Execute each actual route callback or module function with controlled I/O. The body is
 // not copied into the test, so its failure handling and synchronous guards run.
 function routeHandler<T = Handler>(path: string, name: string, dependencies: Record<string, unknown>): T {
   const file = ts.createSourceFile(path, readFileSync(join(root, path), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  let expression: ts.Expression | undefined;
+  let expression: ts.Expression | ts.FunctionDeclaration | undefined;
   const visit = (node: ts.Node) => {
     if (ts.isVariableDeclaration(node) && node.name.getText(file) === name && node.initializer) {
       expression = ts.isCallExpression(node.initializer) ? node.initializer.arguments[0] : node.initializer;
     }
+    if (ts.isFunctionDeclaration(node) && node.name?.getText(file) === name) expression = node;
     ts.forEachChild(node, visit);
   };
   visit(file);
@@ -792,32 +794,156 @@ describe('mobile route regressions moved from the Edge fixture', () => {
     expect(loadAllDocuments).toHaveBeenCalledWith('synthetic-profile'); expect(alert).not.toHaveBeenCalled();
   });
 
-  it.each([true, false])('FC document upload goes through the server path and notifies only after submission (submit ok=%s)', async (submitOk) => {
-    const upload = { path: 'synthetic-fc/server.pdf', token: 'synthetic-token', signedUrl: 'https://synthetic.invalid/upload' };
-    const calls: string[] = []; const alert = jest.fn(); const presentPostCommitNotificationDelivery = jest.fn();
-    const invokeAdminAction = jest.fn(async (_phone: string, action: string) => {
-      calls.push(action);
-      if (action === 'submitOwnDocument' && !submitOk) throw new Error('synthetic submit failed');
-      return action === 'prepareOwnDocumentUpload' ? { upload } : {};
-    });
-    const uploadToSignedDocumentUrl = jest.fn(async () => { calls.push('upload'); });
-    const sendNotificationAndPush = jest.fn(async () => { calls.push('notify'); return { confirmed: true }; });
-    const supabase = { from: jest.fn(), storage: { from: jest.fn() } };
-    await routeHandler<(type: string) => Promise<void>>('app/docs-upload.tsx', 'handlePick', {
+  const docsUploadHelper = <T,>(name: string, dependencies: Record<string, unknown> = {}) =>
+    routeHandler<T>('app/docs-upload.tsx', name, dependencies);
+  const normalizeDocumentFileName = docsUploadHelper<(name?: string | null) => string>('normalizeDocumentFileName', {
+    DOCUMENT_FILE_NAME_MAX_LENGTH: docsUploadHelper<number>('DOCUMENT_FILE_NAME_MAX_LENGTH'),
+  });
+  const signedUpload = { path: 'synthetic-fc/server.pdf', token: 'synthetic-token', signedUrl: 'https://synthetic.invalid/upload' };
+  function documentPickContext(overrides: Record<string, unknown>) {
+    const calls: string[] = [];
+    return {
+      calls,
       fc: { id: 'synthetic-fc', name: 'Synthetic' }, docs: [{ type: 'synthetic-doc', status: 'pending' }], isAdmin: false, residentId: '00000000002',
-      pickingRef: { current: false }, uploadingRef: { current: false }, Alert: { alert }, setUploadingType: jest.fn(), setDocs: jest.fn(),
+      pickingRef: { current: false }, uploadingRef: { current: false }, Alert: { alert: jest.fn() }, setUploadingType: jest.fn(), setDocs: jest.fn(),
       DocumentPicker: { getDocumentAsync: async () => ({ canceled: false, assets: [{ uri: 'file:///synthetic.pdf', name: 'synthetic.pdf', mimeType: 'application/pdf' }] }) },
-      BUCKET: 'fc-documents', logger: { debug: jest.fn(), warn: jest.fn() }, invokeAdminAction, uploadToSignedDocumentUrl, createStaffDocumentUpload: jest.fn(), supabase,
-      requireMutationRowReceipt: jest.fn(), sendNotificationAndPush, combineFcNotifyDeliveryResults: (results: unknown[]) => results[0], presentPostCommitNotificationDelivery,
-    })('synthetic-doc');
+      BUCKET: 'fc-documents', logger: { debug: jest.fn(), warn: jest.fn() }, normalizeDocumentFileName, requireMutationRowReceipt,
+      invokeAdminAction: jest.fn(), createStaffDocumentUpload: jest.fn(), supabase: { from: jest.fn(), storage: { from: jest.fn() } },
+      uploadToSignedDocumentUrl: jest.fn(async () => { calls.push('upload'); }),
+      sendNotificationAndPush: jest.fn(async () => { calls.push('notify'); return { confirmed: true }; }),
+      combineFcNotifyDeliveryResults: (results: unknown[]) => results[0], presentPostCommitNotificationDelivery: jest.fn(),
+      ...overrides,
+    };
+  }
 
-    expect(invokeAdminAction).toHaveBeenNthCalledWith(1, '00000000002', 'prepareOwnDocumentUpload', { docType: 'synthetic-doc' });
-    expect(uploadToSignedDocumentUrl).toHaveBeenCalledWith(upload, 'file:///synthetic.pdf', 'application/pdf');
-    expect(invokeAdminAction).toHaveBeenNthCalledWith(2, '00000000002', 'submitOwnDocument', { docType: 'synthetic-doc', storagePath: upload.path, fileName: 'synthetic.pdf' });
-    expect(supabase.from).not.toHaveBeenCalled(); expect(supabase.storage.from).not.toHaveBeenCalled();
-    expect(calls).toEqual(submitOk ? ['prepareOwnDocumentUpload', 'upload', 'submitOwnDocument', 'notify', 'notify'] : ['prepareOwnDocumentUpload', 'upload', 'submitOwnDocument']);
-    if (submitOk) expect(presentPostCommitNotificationDelivery).toHaveBeenCalledWith(expect.objectContaining({ successTitle: '등록 완료' }));
-    else expect(alert).toHaveBeenCalledWith('오류', 'synthetic submit failed');
+  it('document file names fit the submitOwnDocument limit and keep a .pdf extension', () => {
+    // The server check that rejects a name only after the upload.
+    const serverAccepts = routeHandler<(value: unknown, maxLength: number) => string | null>(
+      'supabase/functions/admin-action/index.ts', 'readFcDocumentField', {},
+    );
+    for (const [raw, expected] of [
+      [undefined, 'document.pdf'], ['   ', 'document.pdf'], ['  scan.pdf  ', 'scan.pdf'], ['scan', 'scan.pdf'], ['SCAN.PDF', 'SCAN.PDF'],
+      [`${'x'.repeat(300)}.pdf`, `${'x'.repeat(251)}.pdf`], ['x'.repeat(300), `${'x'.repeat(251)}.pdf`],
+      // A cut through an emoji drops its first half instead of keeping a lone surrogate.
+      [`${'😀'.repeat(200)}.pdf`, `${'😀'.repeat(125)}.pdf`],
+    ] as const) {
+      const fileName = normalizeDocumentFileName(raw);
+      expect(fileName).toBe(expected);
+      expect(serverAccepts(fileName, 255)).toBe(fileName);
+    }
+  });
+
+  it.each([
+    [null, null], ['prepareOwnDocumentUpload', '업로드 실패'], ['upload', 'synthetic storage failure'], ['submitOwnDocument', '업로드 실패'],
+  ])('FC document upload goes through the server path and notifies only after submission (failing step=%s)', async (failingStep, alertText) => {
+    const longName = `  ${'가'.repeat(300)}.pdf `;
+    const fileName = `${'가'.repeat(251)}.pdf`;
+    const context = documentPickContext({
+      DocumentPicker: { getDocumentAsync: async () => ({ canceled: false, assets: [{ uri: 'file:///synthetic.pdf', name: longName, mimeType: 'application/pdf' }] }) },
+    });
+    context.invokeAdminAction.mockImplementation(async (_phone: string, action: string) => {
+      context.calls.push(action);
+      // admin-action HTTP failures reach the app as this generic client error.
+      if (action === failingStep) throw new Error('Edge Function returned a non-2xx status code');
+      return action === 'prepareOwnDocumentUpload' ? { upload: signedUpload } : {};
+    });
+    context.uploadToSignedDocumentUrl.mockImplementation(async () => {
+      context.calls.push('upload');
+      if (failingStep === 'upload') throw new Error('synthetic storage failure');
+    });
+    await routeHandler<(type: string) => Promise<void>>('app/docs-upload.tsx', 'handlePick', context)('synthetic-doc');
+
+    const steps = ['prepareOwnDocumentUpload', 'upload', 'submitOwnDocument'];
+    expect(context.calls).toEqual(failingStep ? steps.slice(0, steps.indexOf(failingStep) + 1) : [...steps, 'notify', 'notify']);
+    expect(context.invokeAdminAction).toHaveBeenNthCalledWith(1, '00000000002', 'prepareOwnDocumentUpload', { docType: 'synthetic-doc' });
+    if (failingStep !== 'prepareOwnDocumentUpload') {
+      expect(context.uploadToSignedDocumentUrl).toHaveBeenCalledWith(signedUpload, 'file:///synthetic.pdf', 'application/pdf');
+    }
+    if (!failingStep || failingStep === 'submitOwnDocument') {
+      // The client receipt compares file_name with exactly this value.
+      expect(context.invokeAdminAction).toHaveBeenNthCalledWith(2, '00000000002', 'submitOwnDocument', { docType: 'synthetic-doc', storagePath: signedUpload.path, fileName });
+    }
+    expect(context.supabase.from).not.toHaveBeenCalled(); expect(context.supabase.storage.from).not.toHaveBeenCalled();
+    if (failingStep) expect(context.Alert.alert).toHaveBeenCalledWith('오류', alertText);
+    else expect(context.presentPostCommitNotificationDelivery).toHaveBeenCalledWith(expect.objectContaining({ successTitle: '등록 완료' }));
+  });
+
+  it.each([true, false])('staff document upload signs its own path, records the row, then notifies without FC actions (receipt matches=%s)', async (receiptMatches) => {
+    const calls: string[] = [];
+    let upserted: Record<string, unknown> | undefined;
+    const createSignedUploadUrl = jest.fn(async (path: string) => {
+      calls.push('createSignedUploadUrl');
+      return { data: { path, token: 'synthetic-token', signedUrl: 'https://synthetic.invalid/upload' }, error: null };
+    });
+    const documents: Record<'upsert' | 'select' | 'maybeSingle', jest.Mock> = {
+      upsert: jest.fn((payload: Record<string, unknown>) => { calls.push('fc_documents upsert'); upserted = payload; return documents; }),
+      select: jest.fn(() => documents),
+      maybeSingle: jest.fn(async () => ({ data: receiptMatches ? upserted : { ...upserted, storage_path: 'synthetic-fc/other.pdf' }, error: null })),
+    };
+    const supabase = { from: jest.fn(() => documents), storage: { from: jest.fn(() => ({ createSignedUploadUrl })) } };
+    const logger = { debug: jest.fn(), warn: jest.fn() };
+    const context = documentPickContext({
+      isAdmin: true, residentId: '00000000003', supabase, logger,
+      createStaffDocumentUpload: docsUploadHelper('createStaffDocumentUpload', { supabase, BUCKET: 'fc-documents', randomKey: () => 'synthetic-key', logger }),
+    });
+    context.uploadToSignedDocumentUrl.mockImplementation(async () => { calls.push('upload'); });
+    context.sendNotificationAndPush.mockImplementation(async () => { calls.push('notify'); return { confirmed: true }; });
+    await routeHandler<(type: string) => Promise<void>>('app/docs-upload.tsx', 'handlePick', context)('synthetic-doc');
+
+    const path = 'synthetic-fc/synthetic-key.pdf';
+    expect(calls).toEqual(['createSignedUploadUrl', 'upload', 'fc_documents upsert', ...(receiptMatches ? ['notify', 'notify'] : [])]);
+    expect(context.invokeAdminAction).not.toHaveBeenCalled();
+    expect(supabase.storage.from).toHaveBeenCalledWith('fc-documents'); expect(createSignedUploadUrl).toHaveBeenCalledWith(path);
+    expect(context.uploadToSignedDocumentUrl).toHaveBeenCalledWith({ path, token: 'synthetic-token', signedUrl: 'https://synthetic.invalid/upload' }, 'file:///synthetic.pdf', 'application/pdf');
+    expect(supabase.from.mock.calls).toEqual([['fc_documents']]);
+    expect(documents.upsert).toHaveBeenCalledWith(
+      { fc_id: 'synthetic-fc', doc_type: 'synthetic-doc', storage_path: path, file_name: 'synthetic.pdf', status: 'pending', reviewer_note: null },
+      { onConflict: 'fc_id,doc_type' },
+    );
+    if (receiptMatches) expect(context.presentPostCommitNotificationDelivery).toHaveBeenCalledWith(expect.objectContaining({ successTitle: '등록 완료' }));
+    else expect(context.Alert.alert).toHaveBeenCalledWith('오류', 'mutation_receipt_unverified');
+  });
+
+  it('signed document upload sends the path and token on web and fails a non-2xx native PUT', async () => {
+    const uploadToSignedUrl = jest.fn(async () => ({ data: { path: signedUpload.path }, error: null as Error | null }));
+    const supabase = { storage: { from: jest.fn(() => ({ uploadToSignedUrl })) } };
+    const fetch = jest.fn(async () => ({ blob: async () => ({ arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer }) }));
+    const FileSystem = { uploadAsync: jest.fn(async () => ({ status: 200 })), FileSystemUploadType: { BINARY_CONTENT: 'synthetic-binary' } };
+    const upload = (OS: string) => docsUploadHelper<(target: typeof signedUpload, uri: string, contentType: string) => Promise<void>>(
+      'uploadToSignedDocumentUrl', { Platform: { OS }, fetch, supabase, FileSystem, BUCKET: 'fc-documents', logger: { warn: jest.fn() } },
+    )(signedUpload, 'blob:synthetic', 'application/pdf');
+
+    await upload('web');
+    expect(fetch).toHaveBeenCalledWith('blob:synthetic'); expect(supabase.storage.from).toHaveBeenCalledWith('fc-documents');
+    expect(uploadToSignedUrl).toHaveBeenCalledWith(signedUpload.path, signedUpload.token, new Uint8Array([1, 2, 3]), { contentType: 'application/pdf' });
+    uploadToSignedUrl.mockResolvedValueOnce({ data: null as unknown as { path: string }, error: new Error('synthetic storage failure') });
+    await expect(upload('web')).rejects.toThrow('synthetic storage failure');
+    expect(FileSystem.uploadAsync).not.toHaveBeenCalled();
+
+    for (const [status, accepted] of [[204, true], [300, false], [500, false]] as const) {
+      FileSystem.uploadAsync.mockResolvedValueOnce({ status });
+      if (accepted) await expect(upload('android')).resolves.toBeUndefined();
+      else await expect(upload('android')).rejects.toThrow(`업로드 실패 (status ${status})`);
+    }
+    expect(FileSystem.uploadAsync).toHaveBeenCalledTimes(3);
+    expect(FileSystem.uploadAsync).toHaveBeenCalledWith(signedUpload.signedUrl, 'blob:synthetic', {
+      httpMethod: 'PUT', uploadType: 'synthetic-binary', headers: { 'Content-Type': 'application/pdf' },
+    });
+    expect(uploadToSignedUrl).toHaveBeenCalledTimes(2);
+  });
+
+  it('Hanwha PDF opens through a signOwnDocument URL and shows only the fixed failure copy', async () => {
+    const pdfPath = 'hanwha-url-pdf/synthetic-fc/approved.pdf';
+    const invokeAdminAction = jest.fn(async () => ({ signedUrl: 'https://synthetic.invalid/signed' }));
+    const resolvePdfUrl = (path: string | null) => routeHandler<() => Promise<string>>('app/hanwha-commission.tsx', 'resolvePdfUrl', {
+      pdfPath: path, residentId: '00000000002', invokeAdminAction,
+    })();
+    await expect(resolvePdfUrl(pdfPath)).resolves.toBe('https://synthetic.invalid/signed');
+    expect(invokeAdminAction).toHaveBeenCalledWith('00000000002', 'signOwnDocument', { storagePath: pdfPath });
+    invokeAdminAction.mockRejectedValueOnce(new Error('Edge Function returned a non-2xx status code'));
+    await expect(resolvePdfUrl(pdfPath)).rejects.toThrow(new Error('PDF URL을 생성하지 못했습니다.'));
+    await expect(resolvePdfUrl(null)).rejects.toThrow(new Error('열 수 있는 다위촉 URL PDF가 없습니다.'));
+    expect(invokeAdminAction).toHaveBeenCalledTimes(2);
   });
 
   it.each([[false, 'signOwnDocument'], [true, 'signFcDocument']])('document viewer opens an admin-action signed URL (staff=%s)', async (isAdmin, action) => {

@@ -25,6 +25,7 @@ import {
   resolveAppointmentCompletionStatus,
 } from '@/lib/fc-workflow';
 import { normalizeFcDocumentStoragePath } from '@/lib/admin-fc-doc-storage';
+import { isPlainFcDocumentPath } from '@shared/supabase/functions/_shared/fc-document-path';
 import { validateHanwhaPdfPayload } from '@/lib/admin-hanwha-pdf-payload';
 import { logger } from '@/lib/logger';
 import { parseNotificationTargetV1 } from '@/lib/notification-target';
@@ -1354,6 +1355,11 @@ async function runAdminFcAction(
       const { path, fcId: requestedFcId } = payload as { path?: string; fcId?: string };
       const normalizedPath = normalizeFcDocumentStoragePath(path);
       if (!normalizedPath) return badRequest('path is required');
+      // The path is decoded here, and Storage collapses dot segments, so an owned row value
+      // such as "<fc>/../<other fc>/x.pdf" would sign another member's file.
+      if (!isPlainFcDocumentPath(normalizedPath)) {
+        return NextResponse.json({ error: 'Document not found' }, { status: 404 });
+      }
       let fcId = requestedFcId;
       if (!fcId) {
         const { data: doc, error: docError } = await adminSupabase.from('fc_documents')

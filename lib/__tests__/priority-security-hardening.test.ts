@@ -51,8 +51,7 @@ describe('priority security hardening source contracts', () => {
     for (const file of ['app/docs-upload.tsx', 'app/hanwha-commission.tsx', 'app/dashboard.tsx']) {
       expect(readRepoFile(file)).not.toMatch(/\.(createSignedUrl|createSignedUrls|download|list|listBuckets)\(/);
     }
-    expect(readRepoFile('app/hanwha-commission.tsx')).toContain("'signOwnDocument'");
-    expect(readRepoFile('app/dashboard.tsx')).toContain("'signFcDocument'");
+    // The signOwnDocument/signFcDocument calls run in mobile-acceptance-runtime.test.ts.
     // A just-picked Hanwha PDF is not recorded yet, so its open button names the FC for the server draft check.
     expect(readRepoFile('app/dashboard.tsx')).toMatch(/openFile\(hanwhaPdfPath \?\? undefined, hanwhaDraft \? fc\.id : undefined\)/);
   });

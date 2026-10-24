@@ -10,11 +10,10 @@ const root = new URL('../../../', import.meta.url);
 
 test('document writes require database receipts and admin handoff reuses the guarded action', async () => {
   const source = await readFile(new URL('app/docs-upload.tsx', root), 'utf8');
-  assert.match(source, /requireMutationRowReceipt/);
+  // The staff upload receipt check runs in lib/__tests__/mobile-acceptance-runtime.test.ts.
   assert.match(source, /loadAllDocuments\(targetId\)/);
   assert.match(source, /collectSupabaseRows<DocumentRow>/);
   assert.match(source, /\.range\(from, to\)/);
-  assert.match(source, /requireMutationRowReceipt\(documentReceipt, documentMutation\)/);
   assert.match(source, /invokeAdminAction\(residentId \?\? '', 'updateStatus'/);
   assert.doesNotMatch(source, /const requestedDocs = allDocs \?\? \[\]/);
   assert.doesNotMatch(source, /updated \?\? \{ id:/);
@@ -891,8 +890,10 @@ async function adminActionDocumentClient(database, session) {
     verifyManager: async () => session.role === 'manager',
     getFcIdsForPhone: async () => [],
   };
+  // The admin web signDoc route uses the same path-shape rule.
+  context.isPlainFcDocumentPath = await extract('supabase/functions/_shared/fc-document-path.ts', 'isPlainFcDocumentPath', context);
   for (const name of ['FC_DOCUMENTS_BUCKET', 'FC_DOCUMENT_SIGNED_URL_SECONDS', 'json', 'fail', 'cleanPhone', 'readFcDocumentField',
-    'isPlainFcDocumentPath', 'isFcFolderObjectPath', 'findFcDocumentPathOwner', 'fcDocumentObjectExists', 'isStaffHanwhaPdfDraft',
+    'isFcFolderObjectPath', 'findFcDocumentPathOwner', 'fcDocumentObjectExists', 'isStaffHanwhaPdfDraft',
     'signFcDocumentPath', 'rejectUnuploadableOwnDocument', 'handler']) {
     context[name] = await extract(file, name, context);
   }

@@ -312,6 +312,23 @@ test('signing rejects unregistered paths and mismatched document ownership', asy
   assert.equal(h.signatures.length, 0);
 });
 
+test('signing refuses dot-segment and encoded paths even when the FC row stores that value', async () => {
+  // signDoc decodes the path and Storage collapses dot segments, so these could reach another member's file.
+  for (const storedPath of [
+    `${FC_ID}/../other/private.pdf`, `${FC_ID}/./document.pdf`, `${FC_ID}/%2e%2e/other/private.pdf`,
+    `${FC_ID}/%252e%252e/other/private.pdf`, `%2F${FC_ID}/document.pdf`, `${FC_ID}//document.pdf`,
+    `${FC_ID}/..\\other\\private.pdf`, `${FC_ID}/document.pdf%3Fdownload`, `${FC_ID}/document.pdf%23x`,
+    `${FC_ID}/doc\tument.pdf`, `${FC_ID}/`,
+  ]) {
+    for (const payload of [{ fcId: FC_ID, path: storedPath }, { path: storedPath }]) {
+      const h = harness({ storedPath });
+      const response = await h.callFc({ action: 'signDoc', payload });
+      assert.equal(response.status, 404, storedPath);
+      assert.deepEqual(h.signatures, [], storedPath);
+    }
+  }
+});
+
 test('path-only dashboard previews retain existing document access', async () => {
   const h = harness();
   const response = await h.callFc({ action: 'signDoc', payload: { path: DOC_PATH } });
