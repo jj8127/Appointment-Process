@@ -12,6 +12,7 @@ source_of_truth: supabase/schema.sql + supabase/functions/board-attachment-* + m
 - `fc-documents`(비공개): `20261024120100_close_anon_document_reads` 뒤 anon SELECT는 업로드 작업(`object.upload`, `object.upload_update`, `object.sign_upload_url`, `object.upload_signed`)의 RETURNING에서만 참이다. anon은 목록·내려받기·서명 URL 발급을 할 수 없다. 서류 열람은 서버가 소유를 확인한 뒤 service role로 서명한다(관리자 웹은 이미 이 방식). 앱은 admin-action `signOwnDocument`(FC 본인)·`signFcDocument`(직원)로 300초 URL을 받는다. FC 업로드는 `prepareOwnDocumentUpload`가 만든 `<fcId>/<uuid>.pdf` 서명 업로드 URL로 올리고 `submitOwnDocument`가 객체를 확인한 뒤 행을 기록한다. service role 서명 전에는 admin-action과 관리자 웹 `signDoc`이 같은 경로 모양 규칙(`supabase/functions/_shared/fc-document-path.ts`: 빈 조각, `.`·`..` 조각, 맨 앞 `/`, `%`·`\`·`?`·`#`·제어 문자 거부)을 검사한다. `20261024120200_restrict_anon_document_path_shape`(2026-10-24 13:10Z 운영 적용)는 anon의 `fc_documents` 쓰기를 `<fc_id>/` 아래 한 조각 이름과 묘비로 좁히고, 승인된 행은 anon이 바꿀 수 없게 한다(upsert·묘비 모두 42501). 계약은 [관리자 운영 API](../backend/admin-operations-api.md#2026-10-24-서류-서명-urlfc-업로드-제출-액션-2026-10-24-운영-배포)에 있다. Supabase Auth 세션용 정책은 없다.
 - `notice-attachments`(공개): anon은 이름 `^((images|files)/)?[0-9]{13}_`인 객체를 올리고(upsert 없음) 볼 수만 있다. 덮어쓰기·이동·삭제는 없다. 버킷 크기 제한 50MB.
 - `chat-uploads`(공개): API 쓰기 정책이 없다. 기존 객체는 공개 URL로만 읽힌다.
+- 앱 서류 화면(`app/docs-upload.tsx`)의 삭제 아이콘 버튼은 삭제 중에 아이콘 자리에 열기·업로드 버튼과 같은 작은 스피너를 보이고, 접근성 이름 `서류 삭제`와 busy 상태를 가진다. 44px 버튼 안에 글자를 넣지 않는다(2026-10-24 에뮬레이터에서 글자가 아이콘과 겹친 것을 고침, 다음 OTA에 포함).
 
 ## 2026-07-23 Upload notification boundary
 
