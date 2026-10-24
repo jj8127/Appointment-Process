@@ -1,5 +1,16 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261024-fc-self-service-hotfix"></a>
+## 2026-10-24 FC 본인 제출 함수 3개 긴급 배포
+
+- 문제(운영 소스와 운영 DB 정책을 읽기 전용으로 확인, 반박 검증 통과): 운영 fc-consent v17·fc-submit-appointment v16·fc-submit-hanwha-commission v9는 세션을 보지 않고 `body.phone`으로 대상을 고른 뒤 service role로 썼다. verify_jwt=true는 공개 anon JWT로 통과한다. 공개 키와 FC 전화번호만으로 동의일·위촉일·한화 위촉 상태를 덮어쓰고 반려 사유를 지울 수 있었고, 응답에 대상의 이름(fc-submit-appointment는 fc_profiles 행 전체)이 담겼다.
+- 앱 고장: cba6593c(10-13) 이후 앱은 `x-app-session-token`만 보내고 phone을 보내지 않는다. 운영 함수는 400 'Phone number must be 11 digits.'를 돌려줬다. 운영 로그 10-21 13:29Z·13:32Z에 실제 앱 요청 2건이 이 400으로 끝났다.
+- 배포: 깨끗한 worktree `.codex-tmp/align-prod-20261024`, 커밋 149682a8(origin에 push된 것과 같음)에서 `npx supabase@2.122.0 functions deploy fc-consent fc-submit-appointment fc-submit-hanwha-commission --project-ref ubeginyxaotcamuqpmud --use-api`(03:51Z). config.toml에 세 함수 항목이 없어 verify_jwt=true(운영과 같음).
+- 배포 전 확인: `fc-self-service-auth-boundary.test.mjs` 6/6, `fc-submit-notification-source.test.ts` 4/4, `deno check` 세 entry 통과. 세션 서명 키(FC_APP_SESSION_TOKEN_SECRET)는 다른 운영 함수가 이미 쓰는 프로젝트 비밀값이다.
+- 배포 후 확인: 세 함수 ACTIVE, v18/v17/v10, `get_edge_function` 파일 6/7/7개가 149682a8과 모두 같음. 공개 키만 보낸 요청 5종(현재 앱 형식, 옛 앱의 body phone 형식, 위조 세션 헤더)이 모두 401 invalid_app_session. 배포 후 함수 로그에 오류 수준 기록 없음.
+- 미확인: 실제 FC 세션으로 제출이 성공하는지(해당 단계에 있는 테스트 FC가 없음). 운영 로그에 다음 실제 제출이 200으로 남는지 확인해야 한다.
+- 영향: 10-13 이전 앱 바이너리는 세 단계에서 401을 받는다(앱에 강제 업데이트 장치 없음). 관리자 웹으로 대신 입력할 수 있다. 되돌리기: `recovered/prod-edge-20261024`의 옛 bundle(v17/v16/v9)을 다시 배포한다.
+
 <a id="20261024-prod-baseline-alignment"></a>
 ## 2026-10-24 로컬 최신과 운영 출시 상태 맞추기
 

@@ -1,5 +1,9 @@
 # 작업 로그
 
+## 2026-10-24 FC 본인 제출 함수 3개 긴급 배포
+
+운영의 fc-consent·fc-submit-appointment·fc-submit-hanwha-commission은 8~10월의 옛 코드로, 본문 전화번호만 믿고 다른 FC의 기록을 바꿀 수 있었다. 현재 스토어 앱(세션 토큰만 보냄)의 보증보험 동의일·위촉 완료일·한화 위촉일 제출은 400으로 실패했다. 사용자 승인으로 `align/prod-baseline-20261024`(149682a8)의 세션 기반 버전을 배포했다(v18/v17/v10). 10-13 이전 앱은 이 세 단계가 401로 실패한다. [→ 상세](WORK_DETAIL.md#20261024-fc-self-service-hotfix)
+
 ## 2026-10-24 로컬 최신과 운영 출시 상태 맞추기
 
 전체 검토 기준을 정하려고 운영(스토어·OTA·Vercel·Supabase)과 로컬 브랜치를 대조했다. 정렬 브랜치 `align/prod-baseline-20261024`는 origin/release/all-surfaces-20261004(7dd906e8)에 운영에서 이미 실행 중인데 push되지 않았던 커밋 3개(시험 등록 복구 마이그레이션, platform-service v11 소스)를 얹었다. 운영 JWT 검증 설정 2개(invite, device-token-register)도 config.toml에 적었다. 마이그레이션 130개는 운영과 같다. Edge Function 55개 중 bundle이 같은 것은 2개뿐이다. 17개는 운영이 저장소의 옛 버전을 실행하고, 3개(fc-notify v111, docs-deadline-reminder v15, device-token-register v9)는 git에 없는 소스로 배포되어 있어 `recovered/prod-edge-20261024`에 보존했다. 운영 배포·push는 하지 않았다. [→ 상세](WORK_DETAIL.md#20261024-prod-baseline-alignment)
