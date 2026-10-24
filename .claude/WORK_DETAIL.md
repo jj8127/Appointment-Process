@@ -11,7 +11,14 @@
 - 배포 뒤 확인(13:10~13:24Z): Supabase function·edge·storage 로그는 smoke 401 4건과 CLI 요청뿐이고 Postgres ERROR는 0건이다. Sentry `hanhwa-lifelab` 새 issue 0건(최근 2시간). 관리자 웹 로그는 smoke 요청과 아래 cron 401뿐이다.
 - 기존 문제(이번 배포와 무관): Vercel cron `/api/cron/messenger-attachment-cleanup`(5분마다)이 이전 배포 `dpl_CNh4EkLQ…`에서도 계속 401이다. 운영 Vercel env 이름 목록에 `CRON_SECRET`이 없어 route가 모든 호출을 거부한다. 메신저 첨부 정리가 실행되지 않는다. 고치려면 Vercel env 추가(외부 쓰기, 별도 승인)가 필요하다.
 - 롤백(역순): OTA `update:republish --group f79eb33a-f9e6-465c-b1d2-76f78495a444 --platform android`, `--group b8025f14-a759-42fc-8355-5b47efdf422e --platform ios` → admin-action v32 원본(`7ac094ee` worktree) 재배포 → 관리자 웹 `vercel promote dpl_CNh4EkLQcAaGs2nYhCK1TnA7zu4R` → 마이그레이션은 정방향 보정 마이그레이션만 쓴다.
-- 미확인: 실기기 FC 업로드·열기, 실제 Storage 서명 업로드, 관리자 실세션 signDoc. 주말 밤이라 표본이 적다. 앱은 다시 열 때 새 OTA를 받으며, 그 전의 앱은 0b단계 뒤처럼 앱 안 서류 열기가 실패한다.
+- 에뮬레이터 확인(사용자 승인: 테스트 서류 행·관리자 알림 허용, 끝나면 원래대로): Hanhwa_FC 에뮬레이터의 10-18 로컬 빌드는 expo-updates가 꺼져 있어 OTA를 받지 못했다. 같은 커밋 `89d94911`을 prebuild해 production 채널 헤더를 넣은 로컬 릴리스 APK(x86_64, 같은 debug 서명)를 `adb install -r`로 설치했다. 내장 번들이 OTA보다 늦게 만들어져 expo-updates는 "No update available"로 내장 번들을 실행했다(같은 소스, OTA 자체 전달은 서빙 manifest로 따로 확인함). 테스트 FC(draft, 요청 서류 없음)에 `update_fc_document_requests_atomic_v1`을 관리자 테스트 계정 행위자로 service_role에서 실행해 서류 1건을 요청했다(13:46:47Z, docs-requested). 저장된 비밀번호가 거부되어 사용자가 직접 로그인했다.
+  - 업로드(13:55:41Z): 앱에 "등록 완료" 표시, 오류 알림 없음. 독립 검증(DB·로그·알림/Sentry 3개 + 반박 1개, workflow `wf_8b8039b2-014`): admin-action v33 호출 5건 모두 200. 서버가 `<fcId>/<uuid>.pdf` 서명 업로드 URL을 만들고, 앱이 그 URL로 PUT(677B, 200)했으며, 서버가 객체 확인 뒤 service_role로 `fc_documents` upsert(기존 행 갱신, pending, reviewer_note null)와 `fc_profiles.status='docs-pending'` PATCH를 했다. 같은 구간 anon의 `fc_documents`·`fc_profiles` 쓰기와 직접 Storage 업로드는 0건이다. 관리자 알림 2건(서류별·전체 제출)이 fc-notify 200으로 저장됐다. 4xx·5xx는 문서 흐름에 없다. Sentry 새 issue 0건.
+  - 열기(13:56:06Z 서명, 13:57:16Z 조회): `signOwnDocument`가 300초 서명 URL을 만들고 Chrome이 `/object/sign/`으로 200, application/pdf 677B를 받아 화면에 PDF를 그렸다(Chrome 첫 실행 약관 동의는 사용자 승인).
+  - 삭제·복원(14:09Z): 앱 삭제 버튼 → admin-action 200, 서버 Storage DELETE 200, 객체 0·정리 대기열 0. 이어서 같은 함수로 요청 목록을 비우고 상태를 draft로 되돌렸다. 최종 상태는 시험 전 스냅샷과 같다(draft, 마감 null, 서류·객체·대기열 0). 관리자 알림 2건은 남겼다(사용자 동의).
+  - 확인하지 못한 것: 관리자 기기의 push 수신(fc-notify가 push 결과를 기록하지 않음), action 이름(로그에 본문 없음, 하위 요청 모양으로 추정), 관리자 실세션 signDoc, iOS.
+  - 본 김에 찾은 것(이번 배포와 무관, 검토 보고서로 넘김): fc-notify가 열린 클라이언트에서 약 4초마다 2건씩 호출된다. 홈 로드 때 `get-my-referral-allowance` 403, 로그인 직전 `device-token-register` DELETE 401이 있다. 유일한 제출 서류를 지워도 상태가 `docs-pending`으로 남는다. 앱은 여전히 `fc_profiles`·`fc_documents`를 anon으로 읽는다(1단계 나머지 범위).
+- 화면 수정(로컬 커밋, 다음 OTA 전 미배포): 서류 삭제 중 44px 아이콘 버튼 안에 "삭제 중" 글자가 줄바꿈되어 아이콘과 겹쳤다. `app/docs-upload.tsx` 삭제 버튼은 이제 삭제 중에 열기·업로드 버튼과 같은 `BrandedLoadingSpinner`(sm, 18px)를 아이콘 자리에 보이고, 접근성 이름 "서류 삭제"와 busy 상태를 가진다. `npm run typecheck` 통과, `mobile-acceptance-runtime` 165/165. 수정 뒤 화면 캡처는 운영 업로드·삭제를 다시 해야 해서 하지 않았다.
+- 미확인(남음): 관리자 실세션 signDoc, iOS 실기기. 앱은 다시 열 때 새 OTA를 받으며, 그 전의 앱은 0b단계 뒤처럼 앱 안 서류 열기가 실패한다.
 
 <a id="20261024-anon-stage1-hardening"></a>
 ## 2026-10-24 서류 경로 보안 검토 마무리 4건 (2026-10-24 운영 배포)

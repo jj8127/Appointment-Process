@@ -896,9 +896,15 @@ function DocsUploadScreenContent() {
                         style={({ pressed }) => [styles.iconDanger, pressed && styles.pressed]}
                         onPress={() => handleDelete(doc.type, doc.storagePath)}
                         disabled={isUploading || isLocked || !!deletingType || profileLoadState !== 'success'}
+                        accessibilityRole="button"
+                        accessibilityLabel="서류 삭제"
+                        accessibilityState={{ busy: deletingType === doc.type }}
                       >
-                        {deletingType === doc.type ? <Text>삭제 중</Text> : null}
-                        <Feather name="trash-2" size={18} color="#EF4444" />
+                        {deletingType === doc.type ? (
+                          <BrandedLoadingSpinner size="sm" color="#EF4444" />
+                        ) : (
+                          <Feather name="trash-2" size={18} color="#EF4444" />
+                        )}
                       </Pressable>
                     )}
                   </View>
