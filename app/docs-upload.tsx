@@ -84,6 +84,42 @@ const DOC_WORKFLOW_RESET_FIELDS = {
 
 const randomKey = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
+type SignedDocumentUpload = { path: string; token: string; signedUrl: string };
+
+async function createStaffDocumentUpload(fcId: string): Promise<SignedDocumentUpload> {
+  const path = `${fcId}/${randomKey()}.pdf`;
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUploadUrl(path);
+  if (error || !data?.signedUrl) {
+    logger.warn('[upload] createSignedUploadUrl error', { error: error?.message ?? 'unknown' });
+    throw error ?? new Error('Signed upload URL 생성 실패');
+  }
+  return { path, token: data.token, signedUrl: data.signedUrl };
+}
+
+async function uploadToSignedDocumentUrl(upload: SignedDocumentUpload, uri: string, contentType: string) {
+  if (Platform.OS === 'web') {
+    const response = await fetch(uri);
+    const byteArray = new Uint8Array(await (await response.blob()).arrayBuffer());
+    const { error } = await supabase.storage
+      .from(BUCKET)
+      .uploadToSignedUrl(upload.path, upload.token, byteArray, { contentType });
+    if (error) {
+      logger.warn('[upload] storage upload error', { error: error.message });
+      throw error;
+    }
+    return;
+  }
+  const uploadResult = await FileSystem.uploadAsync(upload.signedUrl, uri, {
+    httpMethod: 'PUT',
+    uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+    headers: { 'Content-Type': contentType },
+  });
+  if (uploadResult.status < 200 || uploadResult.status >= 300) {
+    logger.warn('[upload] signed upload failed', { status: uploadResult.status });
+    throw new Error(`업로드 실패 (status ${uploadResult.status})`);
+  }
+}
+
 const normalizeDocStatus = (status: string | null | undefined): DocItem['status'] => {
   if (status === 'approved' || status === 'rejected' || status === 'pending') {
     return status;
@@ -175,7 +211,6 @@ function DocsUploadScreenContent() {
   const [openingType, setOpeningType] = useState<string | null>(null);
   const pickingRef = useRef(false);
   const uploadingRef = useRef(false);
-  const storageDebuggedRef = useRef(false);
   const keyboardPadding = useKeyboardPadding();
   const [refreshing, setRefreshing] = useState(false);
   const [profileLoadState, setProfileLoadState] = useState<
@@ -305,33 +340,6 @@ function DocsUploadScreenContent() {
     loadState: identityGateAccepted ? profileLoadState : 'loading',
   });
 
-  useEffect(() => {
-    if (storageDebuggedRef.current) return;
-    storageDebuggedRef.current = true;
-    (async () => {
-      try {
-        logger.debug('[supabase env]', { url: process.env.EXPO_PUBLIC_SUPABASE_URL });
-        const { data, error } = await supabase.storage.listBuckets();
-        if (error) {
-          logger.warn('[storage] listBuckets error', { error: error.message });
-          return;
-        }
-        const names = (data ?? []).map((b: any) => b.name);
-        logger.debug('[storage] buckets', { names });
-        const { data: listData, error: listError } = await supabase.storage
-          .from(BUCKET)
-          .list('', { limit: 1 });
-        if (listError) {
-          logger.warn('[storage] list bucket error', { error: listError.message });
-        } else {
-          logger.debug('[storage] list bucket ok', { bucket: BUCKET, count: listData?.length ?? 0 });
-        }
-      } catch (err: any) {
-        logger.warn('[storage] listBuckets exception', { error: err?.message ?? err });
-      }
-    })();
-  }, []);
-
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -399,74 +407,49 @@ function DocsUploadScreenContent() {
     setUploadingType(type as string);
     let uploadStateCleared = false;
     try {
-      logger.debug('[upload] start', {
-        docType: type,
-        uri: asset.uri,
-        name: asset.name,
-        size: asset.size,
-        mimeType: asset.mimeType,
-      });
-      const objectPath = `${fc.id}/${randomKey()}.pdf`;
+      logger.debug('[upload] start', { docType: type, size: asset.size, mimeType: asset.mimeType });
       const contentType = asset.mimeType ?? 'application/pdf';
-      if (Platform.OS === 'web') {
-        const response = await fetch(asset.uri);
-        const blob = await response.blob();
-        const byteArray = new Uint8Array(await blob.arrayBuffer());
-        const { error: uploadError } = await supabase.storage
-          .from(BUCKET)
-          .upload(objectPath, byteArray, { contentType, upsert: true });
-        if (uploadError) {
-          logger.warn('[upload] storage upload error', { error: uploadError.message });
-          throw uploadError;
-        }
-      } else {
-        const { data, error } = await supabase.storage.from(BUCKET).createSignedUploadUrl(objectPath);
-        if (error || !data?.signedUrl) {
-          logger.warn('[upload] createSignedUploadUrl error', { error: error?.message ?? 'unknown' });
-          throw error ?? new Error('Signed upload URL 생성 실패');
-        }
-        const uploadResult = await FileSystem.uploadAsync(data.signedUrl, asset.uri, {
-          httpMethod: 'PUT',
-          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-          headers: { 'Content-Type': contentType },
-        });
-        if (uploadResult.status < 200 || uploadResult.status >= 300) {
-          logger.warn('[upload] signed upload failed', { status: uploadResult.status });
-          throw new Error(`업로드 실패 (status ${uploadResult.status})`);
-        }
-      }
-
       const fileName = asset.name ?? 'document.pdf';
-      const documentMutation = {
-        fc_id: fc.id,
-        doc_type: type,
-        storage_path: objectPath,
-        file_name: fileName,
-        status: 'pending',
-        reviewer_note: null,
-      } as const;
-      const { data: documentReceipt, error: dbError } = await supabase.from('fc_documents').upsert(
-        {
-          ...documentMutation,
-        },
-        { onConflict: 'fc_id,doc_type' },
-      )
-        .select('fc_id,doc_type,storage_path,file_name,status,reviewer_note')
-        .maybeSingle();
-      if (dbError) {
-        logger.warn('[upload] db upsert error', { error: dbError.message });
-        throw dbError;
-      }
-      requireMutationRowReceipt(documentReceipt, documentMutation);
+      // FCs upload to a server-issued path and the server records the submission and status.
+      const upload = isAdmin
+        ? await createStaffDocumentUpload(fc.id)
+        : (await invokeAdminAction<{ upload: SignedDocumentUpload }>(
+          residentId ?? '',
+          'prepareOwnDocumentUpload',
+          { docType: type },
+        )).upload;
+      await uploadToSignedDocumentUrl(upload, asset.uri, contentType);
+      const objectPath = upload.path;
 
-      const { data: profileReceipt, error: profileUpdateError } = await supabase
-        .from('fc_profiles')
-        .update({ status: 'docs-pending' })
-        .eq('id', fc.id)
-        .select('id,status')
-        .maybeSingle();
-      if (profileUpdateError) throw profileUpdateError;
-      requireMutationRowReceipt(profileReceipt, { id: fc.id, status: 'docs-pending' });
+      if (isAdmin) {
+        const documentMutation = {
+          fc_id: fc.id,
+          doc_type: type,
+          storage_path: objectPath,
+          file_name: fileName,
+          status: 'pending',
+          reviewer_note: null,
+        } as const;
+        const { data: documentReceipt, error: dbError } = await supabase.from('fc_documents').upsert(
+          {
+            ...documentMutation,
+          },
+          { onConflict: 'fc_id,doc_type' },
+        )
+          .select('fc_id,doc_type,storage_path,file_name,status,reviewer_note')
+          .maybeSingle();
+        if (dbError) {
+          logger.warn('[upload] db upsert error', { error: dbError.message });
+          throw dbError;
+        }
+        requireMutationRowReceipt(documentReceipt, documentMutation);
+      } else {
+        await invokeAdminAction(residentId ?? '', 'submitOwnDocument', {
+          docType: type,
+          storagePath: objectPath,
+          fileName,
+        });
+      }
       const markUploaded = (doc: DocItem): DocItem =>
         doc.type === type
           ? {
@@ -532,7 +515,7 @@ function DocsUploadScreenContent() {
       uploadingRef.current = false;
       setUploadingType(null);
       uploadStateCleared = true;
-      logger.debug('[upload] success', { objectPath });
+      logger.debug('[upload] success', { docType: type });
       presentPostCommitNotificationDelivery({
         delivery: combineFcNotifyDeliveryResults(deliveryResults),
         retryNotification: retryFailedNotifications,
@@ -551,6 +534,25 @@ function DocsUploadScreenContent() {
         uploadingRef.current = false;
         setUploadingType(null);
       }
+    }
+  };
+
+  const openDocument = async (doc: DocItem) => {
+    if (!doc.storagePath || openingType) return;
+    setOpeningType(doc.type);
+    try {
+      const { signedUrl } = await invokeAdminAction<{ signedUrl: string }>(
+        residentId ?? '',
+        isAdmin ? 'signFcDocument' : 'signOwnDocument',
+        { storagePath: doc.storagePath },
+      );
+      await openExternalUrl(signedUrl).catch(() => {
+        Alert.alert('파일 열기 실패', '링크를 열 수 없습니다.');
+      });
+    } catch {
+      Alert.alert('파일 열기 실패', '링크 생성에 실패했습니다.');
+    } finally {
+      setOpeningType(null);
     }
   };
 
@@ -833,31 +835,7 @@ function DocsUploadScreenContent() {
                           pressed && styles.pressed,
                         ]}
                         disabled={openingType === doc.type}
-                        onPress={() => {
-                          if (!doc.storagePath || openingType) return;
-                          logger.debug('[storage] open file', {
-                            bucket: BUCKET,
-                            storagePath: doc.storagePath,
-                            uploadedUrl: doc.uploadedUrl,
-                          });
-                          setOpeningType(doc.type);
-                          (async () => {
-                            try {
-                              const { data: signed, error } = await supabase.storage
-                                .from(BUCKET)
-                                .createSignedUrl(doc.storagePath!, 300);
-                              if (error || !signed?.signedUrl) {
-                                Alert.alert('파일 열기 실패', error?.message ?? '링크 생성에 실패했습니다.');
-                                return;
-                              }
-                              await openExternalUrl(signed.signedUrl).catch(() => {
-                                Alert.alert('파일 열기 실패', '링크를 열 수 없습니다.');
-                              });
-                            } finally {
-                              setOpeningType(null);
-                            }
-                          })();
-                        }}
+                        onPress={() => void openDocument(doc)}
                       >
                         {openingType === doc.type ? (
                           <BrandedLoadingSpinner size="sm" color={COLORS.text.primary} />

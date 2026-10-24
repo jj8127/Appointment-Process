@@ -15,7 +15,6 @@ test('document writes require database receipts and admin handoff reuses the gua
   assert.match(source, /collectSupabaseRows<DocumentRow>/);
   assert.match(source, /\.range\(from, to\)/);
   assert.match(source, /requireMutationRowReceipt\(documentReceipt, documentMutation\)/);
-  assert.match(source, /requireMutationRowReceipt\(profileReceipt, \{ id: fc\.id, status: 'docs-pending' \}\)/);
   assert.match(source, /invokeAdminAction\(residentId \?\? '', 'updateStatus'/);
   assert.doesNotMatch(source, /const requestedDocs = allDocs \?\? \[\]/);
   assert.doesNotMatch(source, /updated \?\? \{ id:/);
@@ -802,6 +801,165 @@ test('cleanup actor revalidation stops before Storage when the current FC facts 
   const run=await extract('supabase/functions/admin-action/index.ts','assertDocumentCleanupScope',{supabase:{rpc:async(name,args)=>{checked={name,args};return {error:new Error('synthetic actor rejected')};}}});
   await assert.rejects(run('00000000002','fc','synthetic'),/actor rejected/);
   assert.equal(checked.name,'assert_ux_mutation_actor_v1');assert.equal(checked.args.p_fc_id,'synthetic');
+});
+
+const FC_A = '10000000-0000-4000-8000-00000000000a';
+const FC_B = '10000000-0000-4000-8000-00000000000b';
+const plain = (value) => JSON.parse(JSON.stringify(value));
+
+function fcDocumentDatabase() {
+  const state = {
+    fc_documents: [
+      { fc_id: FC_A, doc_type: 'synthetic-id', storage_path: `${FC_A}/own.pdf`, file_name: 'own.pdf', status: 'pending', reviewer_note: null },
+      { fc_id: FC_A, doc_type: 'synthetic-approved', storage_path: `${FC_A}/approved.pdf`, file_name: 'approved.pdf', status: 'approved', reviewer_note: null },
+      { fc_id: FC_B, doc_type: 'synthetic-id', storage_path: `${FC_B}/other.pdf`, file_name: 'other.pdf', status: 'pending', reviewer_note: null },
+    ],
+    fc_profiles: [
+      { id: FC_A, status: 'docs-requested', hanwha_commission_pdf_path: `hanwha-url-pdf/${FC_A}/own.pdf` },
+      { id: FC_B, status: 'docs-requested', hanwha_commission_pdf_path: `hanwha-url-pdf/${FC_B}/other.pdf` },
+    ],
+    objects: [`${FC_A}/own.pdf`, `${FC_A}/uploaded.pdf`],
+  };
+  const writes = [];
+  const storageCalls = [];
+  const database = {
+    from(table) {
+      const query = { filters: [], mode: 'read' };
+      const pick = (row) => Object.fromEntries(query.selected.split(',').map((field) => [field, row[field]]));
+      const run = () => {
+        if (query.mode === 'upsert') {
+          const keys = query.options.onConflict.split(',');
+          let row = state[table].find((candidate) => keys.every((key) => candidate[key] === query.payload[key]));
+          if (row) Object.assign(row, query.payload); else state[table].push(row = { ...query.payload });
+          return [row];
+        }
+        const rows = state[table].filter((row) => query.filters.every(([field, value]) => row[field] === value));
+        if (query.mode === 'update') rows.forEach((row) => Object.assign(row, query.payload));
+        return rows;
+      };
+      const builder = {
+        select(fields) { query.selected = fields; return builder; },
+        eq(field, value) { query.filters.push([field, value]); return builder; },
+        upsert(payload, options) { Object.assign(query, { mode: 'upsert', payload, options }); writes.push({ table, mode: 'upsert', payload, options }); return builder; },
+        update(payload) { Object.assign(query, { mode: 'update', payload }); writes.push({ table, mode: 'update', payload, filters: query.filters }); return builder; },
+        limit: async (count) => ({ data: run().slice(0, count).map(pick), error: null }),
+        maybeSingle: async () => { const [row] = run(); return { data: row ? pick(row) : null, error: null }; },
+      };
+      return builder;
+    },
+    storage: {
+      from: (bucket) => ({
+        createSignedUrl: async (path, expiresIn) => {
+          storageCalls.push({ bucket, kind: 'sign', path, expiresIn });
+          return { data: { signedUrl: `https://synthetic.invalid/signed/${path}` }, error: null };
+        },
+        createSignedUploadUrl: async (path) => {
+          storageCalls.push({ bucket, kind: 'upload', path });
+          return { data: { path, token: 'synthetic-upload-token', signedUrl: `https://synthetic.invalid/upload/${path}` }, error: null };
+        },
+        list: async (folder, { search }) => {
+          storageCalls.push({ bucket, kind: 'list', folder });
+          const names = state.objects.filter((path) => path.startsWith(`${folder}/`)).map((path) => path.slice(folder.length + 1));
+          return { data: names.filter((name) => name.startsWith(search)).map((name) => ({ name })), error: null };
+        },
+      }),
+    },
+  };
+  return { database, state, writes, storageCalls };
+}
+
+async function adminActionDocumentClient(database, session) {
+  const file = 'supabase/functions/admin-action/index.ts';
+  const { requireMutationRowReceipt } = await loadUxMutationContract();
+  const context = {
+    corsHeaders: {}, serviceKey: 'synthetic-service-key', supabase: database, Response, crypto: webcrypto, requireMutationRowReceipt,
+    parseAppSessionTokenDetailed: async () => ({ ok: true, payload: session }),
+    verifyAdmin: async () => session.role === 'admin',
+    verifyManager: async () => session.role === 'manager',
+    getFcIdsForPhone: async () => [],
+  };
+  for (const name of ['FC_DOCUMENTS_BUCKET', 'FC_DOCUMENT_SIGNED_URL_SECONDS', 'json', 'fail', 'cleanPhone', 'readFcDocumentField',
+    'findFcDocumentPathOwner', 'signFcDocumentPath', 'rejectUnuploadableOwnDocument', 'fcDocumentObjectExists', 'handler']) {
+    context[name] = await extract(file, name, context);
+  }
+  return async (action, payload) => {
+    const response = await context.handler(new Request('https://synthetic.invalid/admin-action', {
+      method: 'POST',
+      body: JSON.stringify({ adminPhone: session.phone, appSessionToken: 'synthetic-signed-session', action, payload }),
+    }));
+    return { status: response.status, body: await response.json() };
+  };
+}
+
+test('document signing returns short server URLs only for paths an FC row still owns', async () => {
+  const { database, writes, storageCalls } = fcDocumentDatabase();
+  const fc = await adminActionDocumentClient(database, { phone: '00000000001', role: 'fc', fcId: FC_A });
+  const manager = await adminActionDocumentClient(database, { phone: '00000000002', role: 'manager' });
+  const admin = await adminActionDocumentClient(database, { phone: '00000000003', role: 'admin', staffType: 'admin' });
+
+  for (const storagePath of [`${FC_A}/own.pdf`, `hanwha-url-pdf/${FC_A}/own.pdf`]) {
+    const signed = await fc('signOwnDocument', { storagePath });
+    assert.equal(signed.status, 200);
+    assert.equal(signed.body.signedUrl, `https://synthetic.invalid/signed/${storagePath}`);
+  }
+  assert.deepEqual(storageCalls.map(({ bucket, kind, expiresIn }) => [bucket, kind, expiresIn]), [
+    ['fc-documents', 'sign', 300], ['fc-documents', 'sign', 300],
+  ]);
+  for (const storagePath of [`${FC_B}/other.pdf`, `hanwha-url-pdf/${FC_B}/other.pdf`, 'deleted', `${FC_A}/unknown.pdf`]) {
+    assert.equal((await fc('signOwnDocument', { storagePath })).status, 404);
+  }
+  assert.equal((await fc('signFcDocument', { storagePath: `${FC_A}/own.pdf` })).status, 403);
+  assert.equal(storageCalls.length, 2);
+
+  assert.equal((await manager('signFcDocument', { storagePath: `${FC_B}/other.pdf` })).status, 200);
+  assert.equal((await admin('signFcDocument', { storagePath: `hanwha-url-pdf/${FC_B}/other.pdf` })).status, 200);
+  assert.equal((await admin('signFcDocument', { storagePath: 'synthetic/unknown.pdf' })).status, 404);
+  for (const action of ['signOwnDocument', 'prepareOwnDocumentUpload', 'submitOwnDocument']) {
+    const payload = { docType: 'synthetic-id', storagePath: `${FC_A}/uploaded.pdf`, fileName: 'synthetic.pdf' };
+    assert.equal((await manager(action, payload)).status, 403);
+    assert.equal((await admin(action, payload)).status, 403);
+  }
+  assert.equal(storageCalls.length, 4);
+  assert.deepEqual(writes, []);
+});
+
+test('FC upload uses a server-made folder path and a retried verified submission keeps one receipt', async () => {
+  const { database, state, writes, storageCalls } = fcDocumentDatabase();
+  const fc = await adminActionDocumentClient(database, { phone: '00000000001', role: 'fc', fcId: FC_A });
+
+  const prepared = await fc('prepareOwnDocumentUpload', { docType: 'synthetic-id', storagePath: `${FC_B}/client.pdf` });
+  assert.equal(prepared.status, 200);
+  assert.match(prepared.body.upload.path, new RegExp(`^${FC_A}/[0-9a-f-]{36}\\.pdf$`));
+  assert.equal(prepared.body.upload.token, 'synthetic-upload-token');
+  assert.deepEqual(storageCalls.at(-1), { bucket: 'fc-documents', kind: 'upload', path: prepared.body.upload.path });
+  assert.equal((await fc('prepareOwnDocumentUpload', { docType: 'synthetic-missing' })).status, 404);
+  assert.equal((await fc('prepareOwnDocumentUpload', { docType: 'synthetic-approved' })).status, 409);
+
+  const submit = (storagePath, docType = 'synthetic-id') =>
+    fc('submitOwnDocument', { docType, storagePath, fileName: 'synthetic.pdf' });
+  assert.equal((await submit(`${FC_B}/other.pdf`)).status, 403);
+  assert.equal((await submit(`${FC_A}/nested/uploaded.pdf`)).status, 403);
+  assert.equal((await submit(`${FC_A}/not-uploaded.pdf`)).status, 409);
+  assert.equal((await submit(`${FC_A}/uploaded.pdf`, 'synthetic-approved')).status, 409);
+  assert.deepEqual(writes, []);
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const submitted = await submit(`${FC_A}/uploaded.pdf`);
+    assert.equal(submitted.status, 200);
+    assert.deepEqual(submitted.body.document, {
+      fc_id: FC_A, doc_type: 'synthetic-id', storage_path: `${FC_A}/uploaded.pdf`,
+      file_name: 'synthetic.pdf', status: 'pending', reviewer_note: null,
+    });
+    assert.deepEqual(submitted.body.profile, { id: FC_A, status: 'docs-pending' });
+  }
+  assert.equal(state.fc_documents.filter((row) => row.fc_id === FC_A && row.doc_type === 'synthetic-id').length, 1);
+  assert.deepEqual(plain(writes.map(({ table, mode, options }) => [table, mode, options?.onConflict ?? null])), [
+    ['fc_documents', 'upsert', 'fc_id,doc_type'], ['fc_profiles', 'update', null],
+    ['fc_documents', 'upsert', 'fc_id,doc_type'], ['fc_profiles', 'update', null],
+  ]);
+  assert.deepEqual(plain(writes[1].payload), { status: 'docs-pending' });
+  assert.deepEqual(writes[1].filters, [['id', FC_A]]);
+  assert.equal(state.fc_profiles.find((row) => row.id === FC_B).status, 'docs-requested');
 });
 
 async function bridgeSyncFixture({ role = 'fc', data, error = null, parsed, token = 'synthetic-bridge' } = {}) {

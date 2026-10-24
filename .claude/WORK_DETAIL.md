@@ -1,5 +1,21 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261024-anon-stage1-documents"></a>
+## 2026-10-24 앱 서류 열기·FC 업로드를 서버 서명 URL로 전환 (로컬 커밋, 미배포)
+
+- 목적: anon 노출 차단 1단계. 0b단계 마이그레이션(`20261024120100_close_anon_document_reads`)이 적용되어도 현재 앱이 fc-documents의 anon 읽기(목록·내려받기·서명)를 쓰지 않게 한다. worktree `.codex-tmp/anon-stage1-20261024`, 브랜치 `security/anon-stage1-documents-20261024`(기준 6ab1cc85).
+- 서버 `supabase/functions/admin-action/index.ts`: 액션 4개. 모두 서명된 앱 세션에서 행위자를 정하고 본문 FC ID를 받지 않는다. 계약 표는 [관리자 운영 API](../docs/handbook/backend/admin-operations-api.md#2026-10-24-서류-서명-urlfc-업로드-제출-액션-로컬-운영-미배포).
+  - `signOwnDocument {storagePath}`(FC 본인): 경로가 본인 `fc_documents.storage_path`이거나 본인 `hanwha_commission_pdf_path`일 때만 service role 300초 URL. 아니면 404 `Document not found`. `deleted` 묘비 값은 서명하지 않는다.
+  - `signFcDocument {storagePath}`(관리자·본부장, `allowManagerRead`): 관리자 웹 signDoc처럼 어떤 FC 서류 행이나 한화 PDF 경로일 때만 서명한다. 관리자 웹의 소속 범위 검사는 현재 제한이 없어 같다.
+  - `prepareOwnDocumentUpload {docType}`(FC 본인): 요청된 서류 행이 있고 승인 전일 때만 `<fcId>/<uuid>.pdf` 경로로 `createSignedUploadUrl`을 만들어 `{path, token, signedUrl}`을 준다. 행 없음 404, 승인됨 409.
+  - `submitOwnDocument {docType, storagePath, fileName}`(FC 본인): 경로가 `<fcId>/<한 단계 이름>`인지(아니면 403), 객체가 있는지(service role list, 없으면 409), 행이 있고 승인 전인지 확인한 뒤 앱이 쓰던 것과 같은 upsert(`fc_id,doc_type`, pending, reviewer_note null)와 `fc_profiles.status='docs-pending'`을 쓰고 두 receipt를 확인한다. 같은 요청의 재시도는 같은 값을 다시 쓴다. 두 쓰기는 한 트랜잭션이 아니다.
+- 앱: `lib/admin-action-api.ts`가 새 액션 응답을 확인한다(서명 URL 문자열, 업로드 `path/token/signedUrl`, 제출 행이 보낸 값과 같고 프로필이 같은 FC의 `docs-pending`인지). `app/docs-upload.tsx`는 FC 업로드를 prepare → 서명 URL 업로드(웹 `uploadToSignedUrl`, 네이티브 기존 `FileSystem.uploadAsync`) → submit으로 바꾸고, 열기를 `openDocument`(FC `signOwnDocument`, 직원 `signFcDocument`)로 옮겼다. 버킷 목록 디버그 effect와 저장 경로·파일 URI 로그를 지웠다. `app/hanwha-commission.tsx`는 `signOwnDocument`, `app/dashboard.tsx` 직원 열기는 `signFcDocument`를 쓴다. 실패 알림 문구는 기존 기본 문구로 고정했다.
+- 고친 기존 버그: FC 업로드가 anon으로 `fc_profiles`를 갱신해 RLS 0행 → receipt 오류 알림, 관리자 알림 생략. 이제 서버가 상태를 쓰고 성공한 뒤에만 관리자 알림을 보낸다. 주의: 운영에서는 이 상태 변경이 그동안 한 번도 적용되지 않았다. 배포 뒤에는 FC 업로드가 `docs-requested` 등을 실제로 `docs-pending`으로 바꾼다(앱이 원래 의도한 동작).
+- 범위 밖으로 남긴 것: 앱의 직원 업로드(서류 화면에서 다른 FC 대신 올리기)는 FC 전용 액션을 쓸 수 없어 anon 업로드와 `fc_documents` upsert를 유지하고, 직접 `fc_profiles` 갱신만 지웠다(운영에서 늘 0행이던 동작). 직원 모바일 한화 PDF 업로드(dashboard)도 anon 업로드 그대로다. 4단계에서 anon 쓰기를 막기 전에 직원용 서버 경로가 필요하다. 교체된 이전 서류 객체는 지금처럼 Storage에 남는다.
+- 검증: `deno check` 통과. `ux-priority-one-handlers.test.mjs` 36/36(새 2개: admin-action 처리기 전체를 가짜 Supabase로 실행. 본인 경로·본인 한화 PDF 서명, 다른 FC 경로·묘비·미등록 경로 404, FC의 직원 서명 403, 본부장 서명 200·업로드 액션 403, 관리자 업로드 액션 403, 서버 경로 형식, 행 없음 404·승인 409, 다른 폴더·하위 폴더 403, 객체 없음 409, 재시도 시 같은 receipt와 한 행). 소유 조건과 객체 확인을 빼는 변형에서 두 테스트가 실패함을 확인. edge-node 145/145, edge-deno 102/102. jest 관련 9개 suite 202/202(제출 receipt 거부 5종, FC 업로드 순서·실패 시 알림 없음·직접 표/Storage 호출 없음, 열기 액션 선택·실패 문구). `priority-security-hardening` 새 경계 테스트 통과(같은 suite의 기존 실패 2건은 기준과 같음). `npm run typecheck` 통과. eslint는 admin-action의 esm.sh import 해석 오류 1건만(기준 파일도 같음).
+- 전체 jest: 실패 suite·실패 테스트(24건) 목록이 기준 6ab1cc85와 같다(같은 worktree에서 변경 파일만 기준 내용으로 바꿔 실행 후 복원). `web/` suite는 `web/node_modules`가 없어 실행되지 않는다.
+- 미확인: 실제 Storage에서 서명 업로드·`list` 확인·서명 URL 열기, 실기기 업로드, 운영 배포. 배포 순서는 admin-action 배포 → 앱 OTA → 0b단계 적용이다. 0b를 먼저 적용하면 구버전과 같이 열기가 실패한다.
+
 <a id="20261024-anon-lockdown-stage0"></a>
 ## 2026-10-24 공개 anon 키 노출 차단 0·0b단계 운영 적용
 

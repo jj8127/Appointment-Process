@@ -25,6 +25,7 @@ import CompactHeader, { FallbackBackButton } from '@/components/CompactHeader';
 import { OnboardingStepNowCard } from '@/components/OnboardingStepNowCard';
 import { getHanwhaStepNow } from '@/lib/onboarding-step-now';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
+import { invokeAdminAction } from '@/lib/admin-action-api';
 import { invokeFcNotifyForDelivery } from '@/lib/fc-notify-client';
 import { presentPostCommitNotificationDelivery } from '@/lib/fc-notify-post-commit';
 import { hasHanwhaApprovalEvidence, hasHanwhaPdfMetadata } from '@/lib/fc-workflow';
@@ -39,7 +40,6 @@ import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { useNotificationReceiptCompletion } from '@/lib/use-notification-receipt';
 import type { FcStatus } from '@/types/fc';
 
-const BUCKET = 'fc-documents';
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
 
 const formatKoreanDate = (date: Date) =>
@@ -338,12 +338,17 @@ function HanwhaCommissionScreenContent() {
     if (!pdfPath) {
     throw new Error('열 수 있는 다위촉 URL PDF가 없습니다.');
     }
-    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(pdfPath, 300);
-    if (error || !data?.signedUrl) {
-      throw new Error(error?.message ?? 'PDF URL을 생성하지 못했습니다.');
+    try {
+      const { signedUrl } = await invokeAdminAction<{ signedUrl: string }>(
+        residentId ?? '',
+        'signOwnDocument',
+        { storagePath: pdfPath },
+      );
+      return signedUrl;
+    } catch {
+      throw new Error('PDF URL을 생성하지 못했습니다.');
     }
-    return data.signedUrl;
-  }, [pdfPath]);
+  }, [pdfPath, residentId]);
 
   const openPdf = useCallback(async () => {
     if (!pdfPath) {

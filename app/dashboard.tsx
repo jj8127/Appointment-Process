@@ -1580,12 +1580,14 @@ export default function DashboardScreen() {
     openingFileRef.current = true;
     setOpeningPath(path);
     try {
-      const { data: signed, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 300);
-      if (error || !signed?.signedUrl) {
-        Alert.alert('열기 실패', error?.message ?? 'URL 생성 실패: 버킷 설정을 확인해주세요.');
+      let signedUrl: string;
+      try {
+        ({ signedUrl } = await invokeAdminAction<{ signedUrl: string }>(residentId ?? '', 'signFcDocument', { storagePath: path }));
+      } catch {
+        Alert.alert('열기 실패', 'URL 생성 실패: 버킷 설정을 확인해주세요.');
         return;
       }
-      await WebBrowser.openBrowserAsync(signed.signedUrl);
+      await WebBrowser.openBrowserAsync(signedUrl);
     } finally {
       openingFileRef.current = false;
       setOpeningPath(null);

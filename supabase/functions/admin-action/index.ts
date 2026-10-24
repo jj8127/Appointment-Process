@@ -545,6 +545,68 @@ async function getDocumentCleanupPending(fcId: string): Promise<boolean> {
   return count > 0;
 }
 
+const FC_DOCUMENTS_BUCKET = 'fc-documents';
+const FC_DOCUMENT_SIGNED_URL_SECONDS = 300;
+
+/** Exact stored values only: callers echo storage_path and doc_type as read, and receipts compare them. */
+function readFcDocumentField(value: unknown, maxLength: number): string | null {
+  return typeof value === 'string' && value.trim() && value.length <= maxLength ? value : null;
+}
+
+/** A path is signable only while an FC document row or that FC's Hanwha PDF field names it. */
+async function findFcDocumentPathOwner(storagePath: string, fcId?: string): Promise<string | null> {
+  let documentQuery = supabase.from('fc_documents').select('fc_id').eq('storage_path', storagePath);
+  if (fcId) documentQuery = documentQuery.eq('fc_id', fcId);
+  const { data: documents, error: documentError } = await documentQuery.limit(1);
+  if (documentError) throw documentError;
+  if (!Array.isArray(documents)) throw new Error('fc_document_query_contract_invalid');
+  if (documents[0]?.fc_id) return String(documents[0].fc_id);
+
+  let profileQuery = supabase.from('fc_profiles').select('id').eq('hanwha_commission_pdf_path', storagePath);
+  if (fcId) profileQuery = profileQuery.eq('id', fcId);
+  const { data: profiles, error: profileError } = await profileQuery.limit(1);
+  if (profileError) throw profileError;
+  if (!Array.isArray(profiles)) throw new Error('fc_profile_query_contract_invalid');
+  return profiles[0]?.id ? String(profiles[0].id) : null;
+}
+
+async function signFcDocumentPath(storagePath: string, fcId?: string) {
+  if (storagePath === 'deleted' || !(await findFcDocumentPathOwner(storagePath, fcId))) {
+    return fail('Document not found', 404);
+  }
+  const { data, error } = await supabase.storage
+    .from(FC_DOCUMENTS_BUCKET)
+    .createSignedUrl(storagePath, FC_DOCUMENT_SIGNED_URL_SECONDS);
+  if (error || !data?.signedUrl) return fail('Signed URL creation failed', 500);
+  return json({ ok: true, signedUrl: data.signedUrl, expiresInSeconds: FC_DOCUMENT_SIGNED_URL_SECONDS });
+}
+
+/** FC uploads target a document type staff requested and have not approved yet. */
+async function rejectUnuploadableOwnDocument(fcId: string, docType: string) {
+  const { data: doc, error } = await supabase
+    .from('fc_documents')
+    .select('status')
+    .eq('fc_id', fcId)
+    .eq('doc_type', docType)
+    .maybeSingle();
+  if (error) throw error;
+  if (!doc) return fail('Document row not found', 404);
+  if (doc.status === 'approved') return fail('이 서류는 승인되어 수정할 수 없습니다.', 409);
+  return null;
+}
+
+async function fcDocumentObjectExists(storagePath: string): Promise<boolean> {
+  const separator = storagePath.lastIndexOf('/');
+  const folder = storagePath.slice(0, separator);
+  const objectName = storagePath.slice(separator + 1);
+  if (separator <= 0 || !objectName) return false;
+  const { data, error } = await supabase.storage
+    .from(FC_DOCUMENTS_BUCKET)
+    .list(folder, { limit: 10, search: objectName });
+  if (error) throw error;
+  return Array.isArray(data) && data.some((object) => object?.name === objectName);
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -566,8 +628,8 @@ serve(async (req: Request) => {
   }
 
   const normalizedBodyPhone = cleanPhone(adminPhone);
-  const allowManagerRead = action === 'getResidentNumbers' || action === 'getInviteeReferralCode';
-  const allowFcSelfProfile = action === 'getOwnProfile' || action === 'updateOwnProfile' || action === 'removeOwnDocument' || action === 'retryOwnDocumentCleanup' || action === 'getOwnDocumentCleanupStatus';
+  const allowManagerRead = action === 'getResidentNumbers' || action === 'getInviteeReferralCode' || action === 'signFcDocument';
+  const allowFcSelfProfile = action === 'getOwnProfile' || action === 'updateOwnProfile' || action === 'removeOwnDocument' || action === 'retryOwnDocumentCleanup' || action === 'getOwnDocumentCleanupStatus' || action === 'signOwnDocument' || action === 'prepareOwnDocumentUpload' || action === 'submitOwnDocument';
   const allowFcRead = action === 'getResidentNumbers' || allowFcSelfProfile;
   const authHeader = req.headers.get('Authorization') ?? '';
   const isServiceCaller = authHeader === `Bearer ${serviceKey}`;
@@ -1315,6 +1377,73 @@ serve(async (req: Request) => {
       const receipt = requireDocumentReceipt(data, 'deleted');
       const cleanupPending = await drainDocumentCleanup(fcId);
       return json({ ok: true, ...receipt, cleanupPending });
+    }
+    if (action === 'signFcDocument') {
+      const storagePath = readFcDocumentField(payload.storagePath, 1024);
+      if (!storagePath) return fail('storagePath is required');
+      return await signFcDocumentPath(storagePath);
+    }
+    // The app client is anon, so FC document reads and uploads run on server-signed Storage URLs.
+    if (action === 'signOwnDocument' || action === 'prepareOwnDocumentUpload' || action === 'submitOwnDocument') {
+      if (trustedRole !== 'fc' || !ownFcId) {
+        return fail('Unauthorized: signed FC session is required', 403);
+      }
+      if (action === 'signOwnDocument') {
+        const storagePath = readFcDocumentField(payload.storagePath, 1024);
+        if (!storagePath) return fail('storagePath is required');
+        return await signFcDocumentPath(storagePath, ownFcId);
+      }
+
+      const docType = readFcDocumentField(payload.docType, 150);
+      if (!docType) return fail('docType is required');
+      const rejection = await rejectUnuploadableOwnDocument(ownFcId, docType);
+      if (rejection) return rejection;
+
+      if (action === 'prepareOwnDocumentUpload') {
+        const storagePath = `${ownFcId}/${crypto.randomUUID()}.pdf`;
+        const { data, error } = await supabase.storage
+          .from(FC_DOCUMENTS_BUCKET)
+          .createSignedUploadUrl(storagePath);
+        if (error || !data?.signedUrl || !data.token) return fail('Signed upload URL creation failed', 500);
+        return json({ ok: true, upload: { path: storagePath, token: data.token, signedUrl: data.signedUrl } });
+      }
+
+      const storagePath = readFcDocumentField(payload.storagePath, 1024);
+      const fileName = readFcDocumentField(payload.fileName, 255);
+      if (!storagePath || !fileName) return fail('storagePath and fileName are required');
+      const objectName = storagePath.slice(ownFcId.length + 1);
+      if (!storagePath.startsWith(`${ownFcId}/`) || !objectName || objectName.includes('/')) {
+        return fail('Unauthorized: upload path does not belong to the signed FC', 403);
+      }
+      if (!(await fcDocumentObjectExists(storagePath))) return fail('Uploaded file not found', 409);
+
+      // Same row and status the app wrote before; a retried submission rewrites identical values.
+      const documentMutation = {
+        fc_id: ownFcId,
+        doc_type: docType,
+        storage_path: storagePath,
+        file_name: fileName,
+        status: 'pending',
+        reviewer_note: null,
+      };
+      const { data: documentReceipt, error: documentError } = await supabase
+        .from('fc_documents')
+        .upsert(documentMutation, { onConflict: 'fc_id,doc_type' })
+        .select('fc_id,doc_type,storage_path,file_name,status,reviewer_note')
+        .maybeSingle();
+      if (documentError) throw documentError;
+      requireMutationRowReceipt(documentReceipt, documentMutation);
+
+      const { data: profileReceipt, error: profileError } = await supabase
+        .from('fc_profiles')
+        .update({ status: 'docs-pending' })
+        .eq('id', ownFcId)
+        .select('id,status')
+        .maybeSingle();
+      if (profileError) throw profileError;
+      requireMutationRowReceipt(profileReceipt, { id: ownFcId, status: 'docs-pending' });
+
+      return json({ ok: true, document: documentReceipt, profile: profileReceipt });
     }
     if (action === 'createNotice') {
       const { requestId, notice } = payload;

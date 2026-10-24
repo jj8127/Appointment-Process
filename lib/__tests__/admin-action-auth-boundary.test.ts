@@ -95,7 +95,8 @@ describe('admin-action privileged authentication boundary', () => {
     }
   });
 
-  it.each(['deleteExamRound','updateDocReqs','deleteDocFile','removeOwnDocument','createNotice','getOwnDocumentCleanupStatus'])(
+  it.each(['deleteExamRound','updateDocReqs','deleteDocFile','removeOwnDocument','createNotice','getOwnDocumentCleanupStatus',
+    'signOwnDocument','signFcDocument','prepareOwnDocumentUpload','submitOwnDocument'])(
     'rejects malformed %s receipts even when the HTTP result says ok', async action => {
       await expect(invokeAdminActionWithDeps('00000000002', action, {}, {
         getStoredAppSessionToken: async () => 'synthetic-signed-session',
@@ -136,5 +137,29 @@ describe('admin-action privileged authentication boundary', () => {
     expect(readRepoFile('app/dashboard.tsx')).not.toContain(
       'result.dawichok_url_sent_at ?? new Date().toISOString()',
     );
+  });
+
+  it('confirms an FC document submission only with the submitted row and that FC docs-pending status', async () => {
+    const payload = { docType: 'synthetic-doc', storagePath: 'fc-1/synthetic.pdf', fileName: 'synthetic.pdf' };
+    const document = {
+      fc_id: 'fc-1', doc_type: 'synthetic-doc', storage_path: 'fc-1/synthetic.pdf',
+      file_name: 'synthetic.pdf', status: 'pending', reviewer_note: null,
+    };
+    const profile = { id: 'fc-1', status: 'docs-pending' };
+    const submit = (data: Record<string, unknown>) => invokeAdminActionWithDeps('00000000002', 'submitOwnDocument', payload, {
+      getStoredAppSessionToken: async () => 'synthetic-signed-session',
+      invoke: async () => ({ data, error: null }),
+    });
+
+    await expect(submit({ ok: true, document, profile })).resolves.toMatchObject({ document, profile });
+    for (const data of [
+      { ok: true, document: { ...document, storage_path: 'fc-1/other.pdf' }, profile },
+      { ok: true, document: { ...document, status: 'approved' }, profile },
+      { ok: true, document, profile: { ...profile, id: 'fc-2' } },
+      { ok: true, document, profile: { ...profile, status: 'docs-requested' } },
+      { ok: true, document: { ...document, fc_id: undefined }, profile: { status: 'docs-pending' } },
+    ]) {
+      await expect(submit(data)).rejects.toThrow(/unverified/);
+    }
   });
 });

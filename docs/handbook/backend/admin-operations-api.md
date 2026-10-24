@@ -2,10 +2,26 @@ doc_id: FC-BACKEND-ADMIN-OPS
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-10-04
+last_verified: 2026-10-24
 source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admin/* + web/src/app/api/fc-delete/route.ts
 
 # Backend Runbook: Admin Operations API
+
+## 2026-10-24 서류 서명 URL·FC 업로드 제출 액션 (로컬, 운영 미배포)
+
+앱 클라이언트는 anon이므로 `20261024120100_close_anon_document_reads` 뒤에는 `fc-documents`를 직접 목록·내려받기·서명할 수 없다. 앱 안의 서류 열기와 FC 제출은 아래 admin-action 액션을 쓴다. 모든 액션은 서명된 앱 세션에서 행위자를 정하고, 본문 FC ID는 받지 않는다.
+
+| 액션 | 허용 | 입력 | 성공 응답 | 실패 |
+|---|---|---|---|---|
+| `signOwnDocument` | 서명된 FC 본인 | `storagePath` | `signedUrl`, `expiresInSeconds: 300` | 본인 `fc_documents.storage_path`나 본인 `hanwha_commission_pdf_path`가 아니면 404 `Document not found` |
+| `signFcDocument` | 활성 관리자·본부장(조회 전용 포함) | `storagePath` | 같음 | 어떤 `fc_documents` 행이나 `hanwha_commission_pdf_path`도 가리키지 않으면 404 |
+| `prepareOwnDocumentUpload` | 서명된 FC 본인 | `docType` | `upload: { path: "<fcId>/<uuid>.pdf", token, signedUrl }` | 요청 행 없음 404, 승인된 서류 409 |
+| `submitOwnDocument` | 서명된 FC 본인 | `docType`, `storagePath`, `fileName` | `document`(제출 행), `profile: { id, status: "docs-pending" }` | 경로가 `<fcId>/<이름>`이 아니면 403, 객체 없음 409, 요청 행 없음 404, 승인된 서류 409 |
+
+- 서명은 service role로 300초 URL을 만든다. 경로는 DB 행의 저장값과 정확히 같아야 하며, 묘비 값 `deleted`는 서명하지 않는다.
+- `submitOwnDocument`는 service role로 Storage 객체를 확인한 뒤 앱이 쓰던 것과 같은 `fc_documents` upsert(`fc_id,doc_type`, `status='pending'`, `reviewer_note=null`)와 `fc_profiles.status='docs-pending'`을 쓰고 두 receipt를 확인한다. 같은 요청을 다시 보내면 같은 값을 다시 쓰므로 결과가 같다. 두 쓰기는 한 트랜잭션이 아니다. 두 번째가 실패하면 오류를 돌려주고, 재시도가 둘 다 다시 쓴다.
+- 이전 앱은 anon으로 `fc_profiles`를 바꾸려 했고 RLS가 0행으로 끝내 업로드마다 오류가 뜨고 관리자 알림이 빠졌다. 이 상태 변경은 이제 서버가 한다.
+- 관리자·본부장은 FC 전용 업로드 액션을 쓸 수 없다(403). 앱의 직원 업로드(서류 화면에서 다른 FC 대신 올리기)는 아직 anon 업로드와 `fc_documents` upsert를 쓰고 프로필 상태는 바꾸지 않는다. 4단계에서 anon 쓰기를 막기 전에 직원용 서버 경로가 필요하다.
 
 ## 2026-10-15 탈퇴 정리 운영 확인 축소
 

@@ -1,5 +1,9 @@
 # 작업 로그
 
+## 2026-10-24 앱 서류 열기·FC 업로드를 서버 서명 URL로 전환 (로컬 커밋, 미배포)
+
+0b단계가 anon의 서류 버킷 읽기를 막아도 앱 기능이 남도록, admin-action에 서명된 앱 세션을 확인하는 액션 4개를 더했다. FC 본인 서류·한화 PDF 열기는 `signOwnDocument`, 직원 모바일 열기는 `signFcDocument`(본부장 포함)가 300초 URL을 준다. FC 업로드는 `prepareOwnDocumentUpload`가 만든 `<fcId>/<uuid>.pdf` 서명 업로드 URL로 올리고 `submitOwnDocument`가 객체를 확인한 뒤 서류 행과 `docs-pending` 상태를 service role로 쓴다. 그래서 업로드마다 오류가 뜨고 관리자 알림이 빠지던 기존 버그도 고쳐진다. 서류 화면의 버킷 목록 디버그 코드는 지웠다. 화면 문구는 그대로다. Edge 배포·OTA 전에는 운영에 반영되지 않는다. [→ 상세](WORK_DETAIL.md#20261024-anon-stage1-documents)
+
 ## 2026-10-24 공개 anon 키 노출 차단 0·0b단계 운영 적용
 
 앱이 자체 세션을 쓰므로 모든 클라이언트 요청이 anon으로 DB·Storage에 닿고, 정책이 anon에게 FC 개인정보(fc_profiles 66개 컬럼)와 제출 서류 PDF를 열어 두었다. 0단계 마이그레이션은 어떤 앱 버전도 쓰지 않는 anon/authenticated 권한을 모두 회수하고(이후 생성 표의 기본 권한 포함), 민감 컬럼 24개를 빼며, 서류 자가 승인·삭제·공지 삭제·공지 첨부 덮어쓰기를 막는다. 0b단계는 서류 버킷의 anon 목록·내려받기·서명을 막고 업로드만 남긴다(앱 안 서류 열기는 서버 서명 URL 전환 전까지 실패). 사용자 승인으로 2026-10-24 08:00Z 운영 DB에 적용했고, 공개 키 시험 22/22와 카탈로그 확인을 통과했다. [→ 상세](WORK_DETAIL.md#20261024-anon-lockdown-stage0)

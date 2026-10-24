@@ -77,6 +77,26 @@ export async function invokeAdminActionWithDeps<
   }
   if (['retryDocumentCleanup', 'retryOwnDocumentCleanup', 'getDocumentCleanupStatus', 'getOwnDocumentCleanupStatus'].includes(action)
     && typeof data.cleanupPending !== 'boolean') throw new Error('cleanup_state_unverified');
+  if ((action === 'signOwnDocument' || action === 'signFcDocument')
+    && (typeof data.signedUrl !== 'string' || !data.signedUrl)) throw new Error('signed_url_unverified');
+  if (action === 'prepareOwnDocumentUpload') {
+    const upload = data.upload as Record<string, unknown> | null | undefined;
+    if (!upload || typeof upload !== 'object'
+      || [upload.path, upload.token, upload.signedUrl].some((value) => typeof value !== 'string' || !value)) {
+      throw new Error('signed_url_unverified');
+    }
+  }
+  if (action === 'submitOwnDocument') {
+    const document = requireMutationRowReceipt(data.document, {
+      doc_type: payload.docType,
+      storage_path: payload.storagePath,
+      file_name: payload.fileName,
+      status: 'pending',
+      reviewer_note: null,
+    });
+    if (typeof document.fc_id !== 'string' || !document.fc_id) throw new Error('mutation_receipt_unverified');
+    requireMutationRowReceipt(data.profile, { id: document.fc_id, status: 'docs-pending' });
+  }
 
   return data as { ok: true } & T;
 }

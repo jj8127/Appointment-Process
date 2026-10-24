@@ -46,6 +46,15 @@ describe('priority security hardening source contracts', () => {
     expect(schema).toContain('20260721052837_allow_manager_device_tokens.sql');
   });
 
+  it('opens FC documents only through admin-action signed URLs, never anon Storage reads', () => {
+    // Migration 20261024120100 closes anon list/download/sign on fc-documents; uploads stay.
+    for (const file of ['app/docs-upload.tsx', 'app/hanwha-commission.tsx', 'app/dashboard.tsx']) {
+      expect(readRepoFile(file)).not.toMatch(/\.(createSignedUrl|createSignedUrls|download|list|listBuckets)\(/);
+    }
+    expect(readRepoFile('app/hanwha-commission.tsx')).toContain("'signOwnDocument'");
+    expect(readRepoFile('app/dashboard.tsx')).toContain("'signFcDocument'");
+  });
+
   it('retires web push subscriptions only for the verified server-session actor', () => {
     const source = readRepoFile('web/src/app/api/web-push/subscribe/route.ts');
 
