@@ -7,7 +7,7 @@ source_of_truth: code + tests + request_board/docs/handbook/feature-contract-mat
 
 # Feature Contract Matrix
 
-## 2026-10-24 FC 서류 저장 경로 (로컬, 운영 미배포)
+## 2026-10-24 FC 서류 저장 경로 (2026-10-24 운영 배포)
 
 | Domain | Contract | Primary sources | Regression evidence |
 | --- | --- | --- | --- |

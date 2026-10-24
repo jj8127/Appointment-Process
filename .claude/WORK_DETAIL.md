@@ -1,7 +1,20 @@
 # 작업 상세 로그 (Work Detail)
 
+<a id="20261024-anon-stage1-release"></a>
+## 2026-10-24 anon 노출 차단 1단계 운영 배포 (서류 서버 서명·FC 업로드)
+
+- 출처: 깨끗한 worktree `.codex-tmp/anon-stage1-20261024`, 브랜치 `security/anon-stage1-documents-20261024`, 커밋 `89d9491195d522e8eb83052f6c8d2c40f2b86044`(origin과 같음, 변경 0건). 사용자 승인: "admin-action 함수 배포, 앱 OTA(4.2.21/4.2.22), DB 경로 가드 마이그레이션, 관리자 웹 배포", 브랜치 push "올림". 순서는 admin-action을 OTA보다 먼저 배포한다(새 앱이 새 액션을 부름).
+- DB: `npx supabase@2.122.0 db push --linked`로 `20261024120200_restrict_anon_document_path_shape`를 적용했다(13:10:34~13:10:39Z). schema_migrations에 파일 버전 그대로 기록됐다.
+- admin-action: `functions deploy admin-action --use-api`(13:11:04~13:11:10Z). ACTIVE v33, verify_jwt true, 번들 15개 파일이 커밋과 같다. 새 액션 4개는 세션 없이 401이다.
+- 관리자 웹: 로컬 no-upload 빌드 gate는 새 worktree에 `web/.env.local`이 없어 처음에 page data 수집에서 `Missing Supabase admin credentials`로 실패했다(컴파일은 성공). 메인 checkout의 pull env에서 앱 키만 빌드 프로세스 환경에 넣고 `SENTRY_AUTH_TOKEN`은 빼서 다시 빌드해 통과했다(값은 출력·저장하지 않음). 저장소 루트에서 `vercel deploy --prod --archive=tgz`(13:16:46~13:17:31Z): `dpl_HV5aKC8ub9BLKfVk5AHcn8j34com`, READY, target production, meta gitCommitSha `89d94911`, alias `adminweb-red.vercel.app`. 로그아웃 경로: `/auth` 200, `/dashboard`·`/dashboard/docs` 307 → `/auth`, `POST /api/admin/fc` signDoc 401.
+- OTA: `eas env:exec production`으로 android·ios export(`EXPO_PUBLIC_HOSPITAL_DEMO=true`, Sentry DSN·environment, 자동 업로드 끔)와 flag 없는 대조 export를 했다. android hbc 해시가 대조와 다르고(`e4905dc7…` / `511271ec…`), 두 플랫폼 hbc에 supabase·sentry 문자열과 새 액션 3개가 있다. 플랫폼별 `eas update --skip-bundler`(13:19:24~13:20:48Z): android group `d9714188-57da-45e9-b206-634efc6e6d60`(update `01a16e11-b6de-7f9b-8e77-e863302677f2`, runtime 4.2.21), ios group `400e5732-99b9-4c0f-822f-70738727425e`(update `01a16e12-308a-7769-82e5-d447985774f5`, runtime 4.2.22), gitCommitHash `89d94911`. u.expo.dev가 서빙하는 manifest id가 두 update id와 같다. Sentry 새 release는 생기지 않았다.
+- 배포 뒤 확인(13:10~13:24Z): Supabase function·edge·storage 로그는 smoke 401 4건과 CLI 요청뿐이고 Postgres ERROR는 0건이다. Sentry `hanhwa-lifelab` 새 issue 0건(최근 2시간). 관리자 웹 로그는 smoke 요청과 아래 cron 401뿐이다.
+- 기존 문제(이번 배포와 무관): Vercel cron `/api/cron/messenger-attachment-cleanup`(5분마다)이 이전 배포 `dpl_CNh4EkLQ…`에서도 계속 401이다. 운영 Vercel env 이름 목록에 `CRON_SECRET`이 없어 route가 모든 호출을 거부한다. 메신저 첨부 정리가 실행되지 않는다. 고치려면 Vercel env 추가(외부 쓰기, 별도 승인)가 필요하다.
+- 롤백(역순): OTA `update:republish --group f79eb33a-f9e6-465c-b1d2-76f78495a444 --platform android`, `--group b8025f14-a759-42fc-8355-5b47efdf422e --platform ios` → admin-action v32 원본(`7ac094ee` worktree) 재배포 → 관리자 웹 `vercel promote dpl_CNh4EkLQcAaGs2nYhCK1TnA7zu4R` → 마이그레이션은 정방향 보정 마이그레이션만 쓴다.
+- 미확인: 실기기 FC 업로드·열기, 실제 Storage 서명 업로드, 관리자 실세션 signDoc. 주말 밤이라 표본이 적다. 앱은 다시 열 때 새 OTA를 받으며, 그 전의 앱은 0b단계 뒤처럼 앱 안 서류 열기가 실패한다.
+
 <a id="20261024-anon-stage1-hardening"></a>
-## 2026-10-24 서류 경로 보안 검토 마무리 4건 (로컬 커밋, 미배포)
+## 2026-10-24 서류 경로 보안 검토 마무리 4건 (2026-10-24 운영 배포)
 
 - 승인된 서류 행(DB 가드): `20261024120200_restrict_anon_document_path_shape`는 아직 운영에 적용하지 않았으므로 파일과 schema mirror를 그 자리에서 고쳤다. `fc_documents_anon_write_guard`가 anon의 UPDATE에서 `old.status = 'approved'`이면 42501로 거부한다. PostgREST upsert(`on conflict do update`)와 예전 앱의 묘비 쓰기 모두 이 UPDATE 경로다. 모든 앱 버전은 승인된 서류의 재업로드(`app/docs-upload.tsx` handlePick, 4.2.2 `28560ae5`·4.2.17 `83b747dd`의 299행)와 삭제(같은 버전 471행)를 먼저 막으므로 정상 쓰기는 깨지지 않는다. 묘비·새 행 INSERT·service role 경로는 그대로다. 반려 뒤 다시 제출하는 것은 통과한다.
 - 제출 경로 중복(admin-action `submitOwnDocument`): 같은 FC의 다른 `doc_type` 행이 이미 가리키는 경로나 그 FC의 `hanwha_commission_pdf_path`와 같은 경로를 409 `Uploaded file is already linked to another record`로 거부한다. 한 파일을 두 기록이 가리키면 한쪽의 `removeOwnDocument`가 다른 기록의 파일을 삭제 대기열에 넣는다. 특히 모바일 직원 한화 PDF는 `<fcId>/dawichok-…` 경로라 폴더 검사를 통과했다. 같은 `doc_type` 재시도는 그대로 된다. 검사는 Storage 확인과 쓰기 전에 한다.
@@ -12,7 +25,7 @@
 - 미확인: 마이그레이션 운영 적용, admin-action·관리자 웹 배포, 실기기 업로드, 운영의 기존 행 중 규칙에 맞지 않는 경로 수(읽기 전용 확인도 별도 승인).
 
 <a id="20261024-anon-stage1-minor-fixes"></a>
-## 2026-10-24 서류 업로드 이름·오류 문구와 관리자 웹 signDoc 경로 검사 (로컬 커밋, 미배포)
+## 2026-10-24 서류 업로드 이름·오류 문구와 관리자 웹 signDoc 경로 검사 (2026-10-24 운영 배포)
 
 - 파일 이름: `submitOwnDocument`는 공백뿐이거나 255자를 넘는 `fileName`을 거부하는데, 이 검사는 파일을 올린 뒤에 실행된다. `app/docs-upload.tsx` `normalizeDocumentFileName`이 prepare 전에 이름을 맞춘다(앞뒤 공백 제거, 비면 `document.pdf`, 기존 `.pdf`/`.PDF` 유지·없으면 `.pdf` 추가, 255자 제한, 잘린 자리의 반쪽 서로게이트 제거). 같은 값을 submit에 보내므로 앱 receipt의 `file_name` 정확 비교가 그대로 맞는다. 하나의 `fileName` 변수라 직원 업로드 행에도 같은 이름이 쓰인다. 서버 검사는 그대로다.
 - 오류 문구: admin-action 호출이 HTTP 오류로 끝나면 클라이언트는 영어 일반 메시지(`Edge Function returned a non-2xx status code`)나 receipt 코드를 받는다. 업로드 처리기는 prepare·submit 실패를 표시해 두고 `오류` 알림에 그 처리기의 기존 기본 문구 `업로드 실패`를 쓴다. 저장소 업로드 실패 등 다른 단계의 메시지와 로그는 그대로다. 새 안내 문구는 없다.
@@ -22,7 +35,7 @@
 - 미확인: 실기기·웹 업로드, 실제 Storage 서명, 운영 배포(admin-action, 관리자 웹, OTA). 운영 `fc_documents.storage_path`·`hanwha_commission_pdf_path`에 규칙에 맞지 않는 값이 있는지 읽기 전용 확인은 아직 하지 않았다(운영 접근은 별도 승인).
 
 <a id="20261024-anon-stage1-review-fixes"></a>
-## 2026-10-24 서류 서명 경로 검토 지적 반영 (로컬 커밋, 미배포)
+## 2026-10-24 서류 서명 경로 검토 지적 반영 (2026-10-24 운영 배포)
 
 - 경로 모양(차단 요인): `signOwnDocument`·`signFcDocument`는 행이 가리키는 값이면 모양을 보지 않고 서명했다. 0단계 가드는 `<fc_id>/` 접두만 보므로 anon이 자기 행에 `<본인>/../<다른 FC>/x.pdf`나 `%2e%2e` 형태를 저장할 수 있고, Storage 요청 URL은 점 조각을 접는다. 그래서 다른 FC 파일이 서명될 수 있었다. 이제 admin-action `isPlainFcDocumentPath`가 서명과 제출 전에 빈 조각, `.`·`..` 조각, 맨 앞 `/`, `%`·`\`·`?`·`#`·제어 문자를 거부한다(서명 404, 제출 403). FC 본인 서류 행은 경로가 `<fcId>/<이름>`일 때만 인정한다(`isFcFolderObjectPath`, 제출 검사와 공용). 현재 형식 `<fcId>/<이름>.pdf`, `hanwha-url-pdf/<fcId>/<YYYYMMDD-HHmmss>-<n>-<정리한 원래 파일 이름>`은 통과한다(관리자 웹 이름 정리에 `%`·`#`·제어 문자는 [후속](#20261024-anon-stage1-hardening)에서 추가).
 - DB 가드: 지적은 `20261024120000`의 가드를 고치라고 했다. 그러나 0·0b단계는 2026-10-24 08:00Z 운영에 적용되었다(기록 7ac094ee, `security/anon-lockdown-20261024` 브랜치). 적용된 파일을 고치면 운영과 어긋나므로 새 마이그레이션 `20261024120200_restrict_anon_document_path_shape`(+ schema mirror)로 나눴다. anon 쓰기 경로를 `<fc_id>/` 아래 한 조각 이름으로 좁히고 묘비는 유지한다. 모든 앱 버전의 경로 형식은 통과한다. 운영 적용은 별도 승인이며 admin-action 배포·OTA 순서와 무관하다.
@@ -32,10 +45,10 @@
 - 남은 위험: 관리자 웹 `signDoc`(web/, 이 작업에서 바꾸지 않음)은 경로를 디코딩해 저장값과 비교한 뒤 서명한다. 새 가드 적용 전에 저장된 점 조각 행이 있으면 관리자가 한 FC 서류를 열 때 다른 FC 파일이 보일 수 있다. 적용 전 운영에서 규칙에 맞지 않는 `fc_documents.storage_path` 행 수만 읽기 전용으로 세고, web `signDoc`에도 같은 검사를 넣는 후속이 필요하다.
 
 <a id="20261024-anon-stage1-documents"></a>
-## 2026-10-24 앱 서류 열기·FC 업로드를 서버 서명 URL로 전환 (로컬 커밋, 미배포)
+## 2026-10-24 앱 서류 열기·FC 업로드를 서버 서명 URL로 전환 (2026-10-24 운영 배포)
 
 - 목적: anon 노출 차단 1단계. 0b단계 마이그레이션(`20261024120100_close_anon_document_reads`)이 적용되어도 현재 앱이 fc-documents의 anon 읽기(목록·내려받기·서명)를 쓰지 않게 한다. worktree `.codex-tmp/anon-stage1-20261024`, 브랜치 `security/anon-stage1-documents-20261024`(기준 6ab1cc85).
-- 서버 `supabase/functions/admin-action/index.ts`: 액션 4개. 모두 서명된 앱 세션에서 행위자를 정하고 본문 FC ID를 받지 않는다. 계약 표는 [관리자 운영 API](../docs/handbook/backend/admin-operations-api.md#2026-10-24-서류-서명-urlfc-업로드-제출-액션-로컬-운영-미배포).
+- 서버 `supabase/functions/admin-action/index.ts`: 액션 4개. 모두 서명된 앱 세션에서 행위자를 정하고 본문 FC ID를 받지 않는다. 계약 표는 [관리자 운영 API](../docs/handbook/backend/admin-operations-api.md#2026-10-24-서류-서명-urlfc-업로드-제출-액션-2026-10-24-운영-배포).
   - `signOwnDocument {storagePath}`(FC 본인): 경로가 본인 `fc_documents.storage_path`이거나 본인 `hanwha_commission_pdf_path`일 때만 service role 300초 URL. 아니면 404 `Document not found`. `deleted` 묘비 값은 서명하지 않는다.
   - `signFcDocument {storagePath}`(관리자·본부장, `allowManagerRead`): 관리자 웹 signDoc처럼 어떤 FC 서류 행이나 한화 PDF 경로일 때만 서명한다. 관리자 웹의 소속 범위 검사는 현재 제한이 없어 같다.
   - `prepareOwnDocumentUpload {docType}`(FC 본인): 요청된 서류 행이 있고 승인 전일 때만 `<fcId>/<uuid>.pdf` 경로로 `createSignedUploadUrl`을 만들어 `{path, token, signedUrl}`을 준다. 행 없음 404, 승인됨 409.

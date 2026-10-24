@@ -7,7 +7,7 @@ source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admi
 
 # Backend Runbook: Admin Operations API
 
-## 2026-10-24 서류 서명 URL·FC 업로드 제출 액션 (로컬, 운영 미배포)
+## 2026-10-24 서류 서명 URL·FC 업로드 제출 액션 (2026-10-24 운영 배포)
 
 앱 클라이언트는 anon이므로 `20261024120100_close_anon_document_reads` 뒤에는 `fc-documents`를 직접 목록·내려받기·서명할 수 없다. 앱 안의 서류 열기와 FC 제출은 아래 admin-action 액션을 쓴다. 모든 액션은 서명된 앱 세션에서 행위자를 정한다. 본문 `fcId`는 관리자의 한화 PDF 초안 열기에서만 쓰고, 행위자 권한을 바꾸지 않는다.
 
