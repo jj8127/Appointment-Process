@@ -1,0 +1,810 @@
+import {
+  verifySessionGeneration,
+  sessionGenerationClaims,
+  parseSessionGenerationClaims,
+  type OptionalSessionGenerationClaims,
+  type SessionGenerationClaims,
+  type SessionGenerationLookup,
+} from './session-generation.ts';
+
+const encoder = new TextEncoder();
+
+export type RequestBoardBridgeRole = 'fc' | 'designer' | 'admin' | 'manager';
+export type RequestBoardPasswordSyncRole = Exclude<RequestBoardBridgeRole, 'admin'>;
+export type AppSessionSourceRole = 'fc' | 'admin' | 'manager';
+export type AppSessionStaffType = 'admin' | 'developer';
+
+type SignedTokenKind =
+  | 'request_board_bridge'
+  | 'request_board_password_sync'
+  | 'request_board_password_sync_v2'
+  | 'request_board_account_retirement'
+  | 'fc_onboarding_session'
+  | 'platform_member_session'
+  | 'fc_assisted_password_change';
+
+type SignedTokenPayloadBase = {
+  kind: SignedTokenKind;
+  phone: string;
+  iat: number;
+  exp: number;
+};
+
+export type BridgeTokenPayload = SignedTokenPayloadBase & OptionalSessionGenerationClaims & {
+  kind: 'request_board_bridge';
+  role: RequestBoardBridgeRole;
+  affiliation?: string | null;
+};
+
+export type RequestBoardPasswordSyncAssertionPayload = SignedTokenPayloadBase & {
+  kind: 'request_board_password_sync';
+  purpose: 'password_sync';
+  role: RequestBoardPasswordSyncRole;
+  nonce: string;
+};
+
+export type RequestBoardPasswordSyncV2AssertionPayload = SignedTokenPayloadBase & {
+  kind: 'request_board_password_sync_v2';
+  purpose: 'password_sync_v2';
+  role: RequestBoardPasswordSyncRole;
+  nonce: string;
+  upstream_account_id: string;
+  upstream_credential_version: number;
+  operation_id: string;
+};
+
+export type AppSessionTokenPayload = SignedTokenPayloadBase & OptionalSessionGenerationClaims & {
+  kind: 'fc_onboarding_session';
+  role: AppSessionSourceRole;
+  staffType?: AppSessionStaffType;
+  fcId?: string;
+};
+
+export type PlatformMemberTokenPayload = SignedTokenPayloadBase & {
+  kind: 'platform_member_session';
+  memberId: string;
+  sessionVersion: number;
+  source?: { role: AppSessionSourceRole; accountKind: SessionGenerationClaims['accountKind']; accountId: string };
+};
+
+/** The purpose is deliberately incompatible with FC and Request Board tokens. */
+export async function createPlatformMemberToken(phone: string, memberId: string, sessionVersion: number,
+  source?: PlatformMemberTokenPayload['source']) {
+  const secret = getAppSessionSigningSecret();
+  if (!secret) return null;
+  const iat = Math.floor(Date.now() / 1000);
+  return buildSignedToken<PlatformMemberTokenPayload>({
+    kind: 'platform_member_session', phone, memberId, sessionVersion, ...(source ? {source} : {}), iat, exp: iat + 86400,
+  }, secret);
+}
+
+export async function parsePlatformMemberToken(token: string) {
+  if (!token || token.length > 8192 || token.split('.').length !== 2) return null;
+  const result = await verifySignedTokenWithSecrets<PlatformMemberTokenPayload>(token, getAppSessionVerificationSecrets());
+  if (!result.ok || result.payload.kind !== 'platform_member_session'
+    || !/^[0-9a-f-]{36}$/i.test(result.payload.memberId)
+    || !Number.isSafeInteger(result.payload.sessionVersion) || result.payload.sessionVersion < 0) return null;
+  return result.payload;
+}
+
+export type AssistedPasswordChangeTokenPayload = SignedTokenPayloadBase & {
+  kind: 'fc_assisted_password_change';
+  purpose: 'replace_temporary_password';
+  fcId: string;
+  nonce: string;
+};
+
+export type AssistedPasswordChangeChallenge = {
+  token: string;
+  nonceHash: string;
+  expiresAt: string;
+};
+
+type SignedTokenVerificationResult<TPayload extends SignedTokenPayloadBase> =
+  | { ok: true; payload: TPayload }
+  | { ok: false; reason: 'invalid_token' | 'expired_token' };
+
+type AppSessionTokenParseResult =
+  | { ok: true; payload: AppSessionTokenPayload & SessionGenerationClaims }
+  | {
+    ok: false;
+    code: 'invalid_app_session' | 'expired_app_session' | 'session_verification_unavailable';
+    message: string;
+    status?: number;
+  };
+
+type BridgeTokenParseResult =
+  | { ok: true; payload: BridgeTokenPayload & SessionGenerationClaims; signedGeneration?: SessionGenerationClaims }
+  | {
+    ok: false;
+    code: 'invalid_bridge_token' | 'expired_bridge_token' | 'session_verification_unavailable';
+    message: string;
+    status?: number;
+  };
+
+type RequiredAppSessionResult =
+  | { ok: true; session: AppSessionTokenPayload }
+  | {
+    ok: false;
+    code: 'missing_app_session' | 'invalid_app_session' | 'expired_app_session' | 'session_verification_unavailable';
+    message: string;
+    status: number;
+  };
+
+type AssistedPasswordChangeTokenParseResult =
+  | { ok: true; payload: AssistedPasswordChangeTokenPayload }
+  | {
+    ok: false;
+    code: 'invalid_password_change_token' | 'expired_password_change_token';
+    message: string;
+  };
+
+export function getEnv(name: string): string | undefined {
+  const g = globalThis as unknown as {
+    Deno?: { env?: { get?: (key: string) => string | undefined } };
+    process?: { env?: Record<string, string | undefined> };
+  };
+  if (g?.Deno?.env?.get) return g.Deno.env.get(name);
+  if (g?.process?.env) return g.process.env[name];
+  return undefined;
+}
+
+const LEGACY_SHARED_BRIDGE_SECRET = 'REQUEST_BOARD_AUTH_BRIDGE_SECRET';
+
+function getTrimmedEnv(name: string) {
+  return (getEnv(name) ?? '').trim();
+}
+
+function uniqueSecrets(values: (string | undefined | null)[]) {
+  const seen = new Set<string>();
+  const secrets: string[] = [];
+  values.forEach((value) => {
+    const secret = String(value ?? '').trim();
+    if (!secret || seen.has(secret)) return;
+    seen.add(secret);
+    secrets.push(secret);
+  });
+  return secrets;
+}
+
+function getBridgeSigningSecret() {
+  return getTrimmedEnv('REQUEST_BOARD_BRIDGE_TOKEN_SECRET') || getTrimmedEnv(LEGACY_SHARED_BRIDGE_SECRET);
+}
+
+const lookupSessionGeneration: SessionGenerationLookup = (input, purpose) =>
+  verifySessionGeneration(input, purpose, {
+    supabaseUrl: getEnv('SUPABASE_URL'),
+    serviceRoleKey: getEnv('SUPABASE_SERVICE_ROLE_KEY'),
+  });
+
+const unavailableSession = {
+  ok: false as const,
+  code: 'session_verification_unavailable' as const,
+  message: '세션을 확인하지 못했습니다. 잠시 후 다시 시도해주세요.',
+  status: 503,
+};
+
+function getPasswordSyncAssertionSigningSecret() {
+  return getTrimmedEnv('REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_SECRET');
+}
+
+function getBridgeVerificationSecrets() {
+  return uniqueSecrets([
+    getTrimmedEnv('REQUEST_BOARD_BRIDGE_TOKEN_SECRET'),
+    getTrimmedEnv('REQUEST_BOARD_BRIDGE_TOKEN_PREVIOUS_SECRET'),
+    getTrimmedEnv(LEGACY_SHARED_BRIDGE_SECRET),
+  ]);
+}
+
+function getAppSessionSigningSecret() {
+  return getTrimmedEnv('FC_APP_SESSION_TOKEN_SECRET');
+}
+
+function getAppSessionVerificationSecrets() {
+  return uniqueSecrets([
+    getTrimmedEnv('FC_APP_SESSION_TOKEN_SECRET'),
+    getTrimmedEnv('FC_APP_SESSION_TOKEN_PREVIOUS_SECRET'),
+  ]);
+}
+
+function toBase64(bytes: Uint8Array) {
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary);
+}
+
+function toBase64Url(bytes: Uint8Array) {
+  return toBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function decodeBase64Url(value: string) {
+  try {
+    const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+    const padLength = (4 - (base64.length % 4)) % 4;
+    const binary = atob(base64 + '='.repeat(padLength));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
+async function signPayload(payloadPart: string, secret: string) {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(payloadPart));
+  return toBase64Url(new Uint8Array(signatureBuffer));
+}
+
+export async function sha256Hex(value: string) {
+  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(value));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function buildSignedToken<TPayload extends Pick<SignedTokenPayloadBase, 'kind' | 'iat' | 'exp'>>(
+  payload: TPayload,
+  secret: string,
+) {
+  const payloadPart = toBase64Url(encoder.encode(JSON.stringify(payload)));
+  const signaturePart = await signPayload(payloadPart, secret);
+  return `${payloadPart}.${signaturePart}`;
+}
+
+async function verifySignedToken<TPayload extends SignedTokenPayloadBase>(
+  token: string,
+  secret: string,
+) : Promise<SignedTokenVerificationResult<TPayload>> {
+  const [payloadPart, signaturePart] = token.split('.');
+  if (!payloadPart || !signaturePart) {
+    return { ok: false, reason: 'invalid_token' };
+  }
+
+  const expectedSignature = await signPayload(payloadPart, secret);
+  const expectedBytes = decodeBase64Url(expectedSignature);
+  const providedBytes = decodeBase64Url(signaturePart);
+  if (!expectedBytes || !providedBytes) {
+    return { ok: false, reason: 'invalid_token' };
+  }
+  if (expectedBytes.length !== providedBytes.length) {
+    return { ok: false, reason: 'invalid_token' };
+  }
+
+  let mismatch = 0;
+  for (let i = 0; i < expectedBytes.length; i += 1) {
+    mismatch |= expectedBytes[i] ^ providedBytes[i];
+  }
+  if (mismatch !== 0) {
+    return { ok: false, reason: 'invalid_token' };
+  }
+
+  const payloadBytes = decodeBase64Url(payloadPart);
+  if (!payloadBytes) {
+    return { ok: false, reason: 'invalid_token' };
+  }
+
+  try {
+    const parsed = JSON.parse(new TextDecoder().decode(payloadBytes)) as Partial<TPayload>;
+    if (typeof parsed.phone !== 'string' || typeof parsed.exp !== 'number') {
+      return { ok: false, reason: 'invalid_token' };
+    }
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (parsed.exp <= nowSec) {
+      return { ok: false, reason: 'expired_token' };
+    }
+    return { ok: true, payload: parsed as TPayload };
+  } catch {
+    return { ok: false, reason: 'invalid_token' };
+  }
+}
+
+async function verifySignedTokenWithSecrets<TPayload extends SignedTokenPayloadBase>(
+  token: string,
+  secrets: string[],
+): Promise<SignedTokenVerificationResult<TPayload>> {
+  let sawExpiredToken = false;
+  for (const secret of secrets) {
+    const parsed = await verifySignedToken<TPayload>(token, secret);
+    if (parsed.ok === true) return parsed;
+    if (parsed.reason === 'expired_token') sawExpiredToken = true;
+  }
+  return { ok: false, reason: sawExpiredToken ? 'expired_token' : 'invalid_token' };
+}
+
+export async function createRequestBoardBridgeToken(
+  phone: string,
+  role: RequestBoardBridgeRole,
+  affiliation: string | null | undefined,
+  generation: SessionGenerationClaims,
+) {
+  const secret = getBridgeSigningSecret();
+  if (!secret) return null;
+
+  const ttlRaw = Number((getEnv('REQUEST_BOARD_AUTH_BRIDGE_TTL_SEC') ?? '2592000').trim());
+  const ttlSec = Number.isFinite(ttlRaw) && ttlRaw > 0 ? Math.floor(ttlRaw) : 2592000;
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  const payload: BridgeTokenPayload = {
+    kind: 'request_board_bridge',
+    phone,
+    role,
+    ...sessionGenerationClaims(generation),
+    ...((role === 'fc' || role === 'manager') && String(affiliation ?? '').trim()
+      ? { affiliation: String(affiliation ?? '').trim() }
+      : {}),
+    iat: nowSec,
+    exp: nowSec + ttlSec,
+  };
+
+  return buildSignedToken(payload, secret);
+}
+
+export function buildRequestBoardPasswordSyncAssertionPayload({
+  phone,
+  role,
+  nonce,
+  nowSec,
+  ttlSec,
+}: {
+  phone: string;
+  role: RequestBoardPasswordSyncRole;
+  nonce: string;
+  nowSec: number;
+  ttlSec: number;
+}): RequestBoardPasswordSyncAssertionPayload {
+  const normalizedIdentity = String(phone ?? '').replace(/\D/g, '');
+  return {
+    kind: 'request_board_password_sync',
+    purpose: 'password_sync',
+    phone: normalizedIdentity,
+    role,
+    nonce,
+    iat: nowSec,
+    exp: nowSec + ttlSec,
+  };
+}
+
+export function buildRequestBoardPasswordSyncV2AssertionPayload({
+  phone,
+  role,
+  nonce,
+  upstreamAccountId,
+  upstreamCredentialVersion,
+  operationId,
+  nowSec,
+  ttlSec,
+}: {
+  phone: string;
+  role: RequestBoardPasswordSyncRole;
+  nonce: string;
+  upstreamAccountId: string;
+  upstreamCredentialVersion: number;
+  operationId: string;
+  nowSec: number;
+  ttlSec: number;
+}): RequestBoardPasswordSyncV2AssertionPayload {
+  return {
+    kind: 'request_board_password_sync_v2',
+    purpose: 'password_sync_v2',
+    phone: String(phone ?? '').replace(/\D/g, ''),
+    role,
+    nonce,
+    upstream_account_id: String(upstreamAccountId ?? '').trim(),
+    upstream_credential_version: upstreamCredentialVersion,
+    operation_id: String(operationId ?? '').trim().toLowerCase(),
+    iat: nowSec,
+    exp: nowSec + ttlSec,
+  };
+}
+
+function requestBoardPasswordSyncAssertionTtlSec() {
+  const ttlRaw = Number(
+    (getEnv('REQUEST_BOARD_PASSWORD_SYNC_ASSERTION_TTL_SEC') ?? '60').trim(),
+  );
+  return Number.isFinite(ttlRaw)
+    ? Math.min(120, Math.max(15, Math.floor(ttlRaw)))
+    : 60;
+}
+
+export async function createRequestBoardPasswordSyncAssertion(
+  phone: string,
+  role: RequestBoardPasswordSyncRole,
+) {
+  const secret = getPasswordSyncAssertionSigningSecret();
+  if (!secret) return null;
+
+  const ttlSec = requestBoardPasswordSyncAssertionTtlSec();
+  const nowSec = Math.floor(Date.now() / 1000);
+  const payload = buildRequestBoardPasswordSyncAssertionPayload({
+    phone,
+    role,
+    nonce: crypto.randomUUID(),
+    nowSec,
+    ttlSec,
+  });
+
+  return buildSignedToken(payload, secret);
+}
+
+export async function createRequestBoardPasswordSyncV2Assertion(
+  phone: string,
+  role: RequestBoardPasswordSyncRole,
+  upstreamAccountId: string,
+  upstreamCredentialVersion: number,
+  operationId: string,
+) {
+  const secret = getPasswordSyncAssertionSigningSecret();
+  if (!secret) return null;
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const payload = buildRequestBoardPasswordSyncV2AssertionPayload({
+    phone,
+    role,
+    nonce: crypto.randomUUID(),
+    upstreamAccountId,
+    upstreamCredentialVersion,
+    operationId,
+    nowSec,
+    ttlSec: requestBoardPasswordSyncAssertionTtlSec(),
+  });
+  return buildSignedToken(payload, secret);
+}
+
+/** Domain-separated destructive authority; never reuse a password/bridge token. */
+/** The optional source phone lets GaramLink claim a lone direct FC account. */
+export async function createRequestBoardAccountRetirementAssertion(upstreamAccountId: string, operationId: string, phone?: string) {
+  const secret = getPasswordSyncAssertionSigningSecret();
+  if (!secret) return null;
+  const iat = Math.floor(Date.now() / 1000);
+  return buildSignedToken({ kind: 'request_board_account_retirement', purpose: 'retire_all_affiliates',
+    upstream_account_id: upstreamAccountId, operation_id: operationId, role: 'fc',
+    policyVersion: '2026-10-14', ...(phone && /^01[0-9]{9}$/.test(phone) ? { phone } : {}), iat, exp: iat + 60 }, secret);
+}
+
+export async function createAppSessionToken(
+  phone: string,
+  role: AppSessionSourceRole,
+  staffType: AppSessionStaffType | undefined,
+  fcId: string | null | undefined,
+  generation: SessionGenerationClaims,
+) {
+  const secret = getAppSessionSigningSecret();
+  if (!secret) return null;
+
+  const ttlRaw = Number((getEnv('FC_APP_SESSION_TTL_SEC') ?? '2592000').trim());
+  const ttlSec = Number.isFinite(ttlRaw) && ttlRaw > 0 ? Math.floor(ttlRaw) : 2592000;
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  const payload: AppSessionTokenPayload = {
+    kind: 'fc_onboarding_session',
+    phone,
+    role,
+    ...sessionGenerationClaims(generation),
+    ...(role === 'admin' && staffType ? { staffType } : {}),
+    ...(role === 'fc' && String(fcId ?? '').trim() ? { fcId: String(fcId ?? '').trim() } : {}),
+    iat: nowSec,
+    exp: nowSec + ttlSec,
+  };
+
+  return buildSignedToken(payload, secret);
+}
+
+export function buildAssistedPasswordChangeTokenPayload({
+  phone,
+  fcId,
+  nonce,
+  nowSec,
+  ttlSec,
+}: {
+  phone: string;
+  fcId: string;
+  nonce: string;
+  nowSec: number;
+  ttlSec: number;
+}): AssistedPasswordChangeTokenPayload {
+  return {
+    kind: 'fc_assisted_password_change',
+    purpose: 'replace_temporary_password',
+    phone: String(phone ?? '').replace(/\D/g, ''),
+    fcId: String(fcId ?? '').trim(),
+    nonce,
+    iat: nowSec,
+    exp: nowSec + ttlSec,
+  };
+}
+
+export async function createAssistedPasswordChangeChallenge(
+  phone: string,
+  fcId: string,
+): Promise<AssistedPasswordChangeChallenge | null> {
+  const secret = getAppSessionSigningSecret();
+  if (!secret) return null;
+
+  const ttlRaw = Number((getEnv('FC_ASSISTED_PASSWORD_CHANGE_TTL_SEC') ?? '900').trim());
+  const ttlSec = Number.isFinite(ttlRaw)
+    ? Math.min(1800, Math.max(300, Math.floor(ttlRaw)))
+    : 900;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const nonce = crypto.randomUUID();
+  const payload = buildAssistedPasswordChangeTokenPayload({
+    phone,
+    fcId,
+    nonce,
+    nowSec,
+    ttlSec,
+  });
+
+  return {
+    token: await buildSignedToken(payload, secret),
+    nonceHash: await sha256Hex(nonce),
+    expiresAt: new Date(payload.exp * 1000).toISOString(),
+  };
+}
+
+export async function parseAssistedPasswordChangeTokenDetailed(
+  token: string,
+): Promise<AssistedPasswordChangeTokenParseResult> {
+  const secrets = getAppSessionVerificationSecrets();
+  if (secrets.length === 0) {
+    return {
+      ok: false,
+      code: 'invalid_password_change_token',
+      message: '비밀번호 변경 요청이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
+
+  const parsed = await verifySignedTokenWithSecrets<AssistedPasswordChangeTokenPayload>(token, secrets);
+  if (parsed.ok === false) {
+    return parsed.reason === 'expired_token'
+      ? {
+        ok: false,
+        code: 'expired_password_change_token',
+        message: '비밀번호 변경 시간이 만료되었습니다. 다시 로그인해주세요.',
+      }
+      : {
+        ok: false,
+        code: 'invalid_password_change_token',
+        message: '비밀번호 변경 요청이 유효하지 않습니다. 다시 로그인해주세요.',
+      };
+  }
+
+  const payload = parsed.payload;
+  const isValid = payload.kind === 'fc_assisted_password_change'
+    && payload.purpose === 'replace_temporary_password'
+    && /^01[0-9]{9}$/.test(payload.phone)
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(payload.fcId)
+    && typeof payload.nonce === 'string'
+    && payload.nonce.length >= 32
+    && typeof payload.iat === 'number'
+    && payload.exp > payload.iat
+    && payload.exp - payload.iat <= 1800;
+
+  if (!isValid) {
+    return {
+      ok: false,
+      code: 'invalid_password_change_token',
+      message: '비밀번호 변경 요청이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
+
+  return { ok: true, payload };
+}
+
+export async function hashAssistedPasswordChangeNonce(nonce: string) {
+  return sha256Hex(String(nonce ?? ''));
+}
+
+export async function parseAppSessionTokenDetailed(
+  token: string,
+  lookup: SessionGenerationLookup = lookupSessionGeneration,
+): Promise<AppSessionTokenParseResult> {
+  const secrets = getAppSessionVerificationSecrets();
+  if (secrets.length === 0) {
+    return {
+      ok: false,
+      code: 'invalid_app_session',
+      message: '세션이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
+
+  const parsed = await verifySignedTokenWithSecrets<AppSessionTokenPayload>(token, secrets);
+  if (parsed.ok === false) {
+    return parsed.reason === 'expired_token'
+      ? {
+        ok: false,
+        code: 'expired_app_session',
+        message: '세션이 만료되었습니다. 다시 로그인해주세요.',
+      }
+      : {
+        ok: false,
+        code: 'invalid_app_session',
+        message: '세션이 유효하지 않습니다. 다시 로그인해주세요.',
+      };
+  }
+
+  const payload = parsed.payload;
+  if (payload.kind !== 'fc_onboarding_session') {
+    return {
+      ok: false,
+      code: 'invalid_app_session',
+      message: '세션이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
+  if (payload.role !== 'fc' && payload.role !== 'admin' && payload.role !== 'manager') {
+    return {
+      ok: false,
+      code: 'invalid_app_session',
+      message: '세션이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
+  if (
+    payload.staffType !== undefined
+    && payload.staffType !== 'admin'
+    && payload.staffType !== 'developer'
+  ) {
+    return {
+      ok: false,
+      code: 'invalid_app_session',
+      message: '세션이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
+  if (payload.fcId !== undefined && typeof payload.fcId !== 'string') {
+    return {
+      ok: false,
+      code: 'invalid_app_session',
+      message: '세션이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
+  const generation = await lookup(payload, 'app');
+  if (generation.ok === false) {
+    return generation.reason === 'unavailable' ? unavailableSession : {
+      ok: false,
+      code: 'invalid_app_session',
+      message: '세션이 유효하지 않습니다. 다시 로그인해주세요.',
+      status: 401,
+    };
+  }
+  return { ok: true, payload: { ...payload, ...generation.claims } };
+}
+
+export async function parseAppSessionToken(token: string) {
+  const result = await parseAppSessionTokenDetailed(token);
+  return result.ok ? result.payload : null;
+}
+
+export async function parseRequestBoardBridgeTokenDetailed(
+  token: string,
+  lookup: SessionGenerationLookup = lookupSessionGeneration,
+): Promise<BridgeTokenParseResult> {
+  const secrets = getBridgeVerificationSecrets();
+  if (secrets.length === 0) {
+    return {
+      ok: false,
+      code: 'invalid_bridge_token',
+      message: '브릿지 세션이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
+
+  const parsed = await verifySignedTokenWithSecrets<BridgeTokenPayload>(token, secrets);
+  if (parsed.ok === false) {
+    return parsed.reason === 'expired_token'
+      ? {
+        ok: false,
+        code: 'expired_bridge_token',
+        message: '세션이 만료되었습니다. 다시 로그인해주세요.',
+      }
+      : {
+        ok: false,
+        code: 'invalid_bridge_token',
+        message: '브릿지 세션이 유효하지 않습니다. 다시 로그인해주세요.',
+      };
+  }
+
+  const payload = parsed.payload;
+  if (payload.kind !== 'request_board_bridge') {
+    return {
+      ok: false,
+      code: 'invalid_bridge_token',
+      message: '브릿지 세션이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
+  if (
+    payload.role !== 'fc'
+    && payload.role !== 'designer'
+    && payload.role !== 'admin'
+    && payload.role !== 'manager'
+  ) {
+    return {
+      ok: false,
+      code: 'invalid_bridge_token',
+      message: '브릿지 세션이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
+
+  const generation = await lookup(payload, 'bridge');
+  if (generation.ok === false) {
+    return generation.reason === 'unavailable' ? unavailableSession : {
+      ok: false,
+      code: 'invalid_bridge_token',
+      message: '브릿지 세션이 유효하지 않습니다. 다시 로그인해주세요.',
+      status: 401,
+    };
+  }
+  const signed = parseSessionGenerationClaims(payload);
+  return { ok: true, payload: { ...payload, ...generation.claims },
+    ...(signed && signed.legacy === false ? { signedGeneration: generation.claims } : {}) };
+}
+
+export async function parseRequestBoardBridgeToken(token: string) {
+  const result = await parseRequestBoardBridgeTokenDetailed(token);
+  return result.ok ? result.payload : null;
+}
+
+export function getAppSessionTokenFromRequest(req: Request) {
+  const headerToken = req.headers.get('x-app-session-token')?.trim();
+  if (headerToken) {
+    return headerToken;
+  }
+
+  const authHeader = req.headers.get('Authorization') ?? '';
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!bearerMatch) {
+    return null;
+  }
+
+  const bearerToken = bearerMatch[1]?.trim();
+  return bearerToken || null;
+}
+
+export async function requireAppSessionFromRequest(
+  req: Request,
+): Promise<RequiredAppSessionResult> {
+  const token = getAppSessionTokenFromRequest(req);
+  if (!token) {
+    return {
+      ok: false,
+      code: 'missing_app_session',
+      message: '추천인 기능을 사용하려면 다시 로그인해주세요.',
+      status: 401,
+    };
+  }
+
+  const parsed = await parseAppSessionTokenDetailed(token);
+  if (parsed.ok === false) {
+    return {
+      ok: false,
+      code: parsed.code,
+      message: parsed.message,
+      status: parsed.status ?? 401,
+    };
+  }
+
+  return { ok: true, session: parsed.payload };
+}
+
+export function parseDesignerCompanyNameFromAffiliation(affiliation?: string | null) {
+  const raw = String(affiliation ?? '').trim();
+  if (!raw) return null;
+
+  const marker = '설계매니저';
+  const markerIndex = raw.lastIndexOf(marker);
+  if (markerIndex < 0) return null;
+
+  const companyName = raw
+    .slice(0, markerIndex)
+    .replace(/[:\-\s]+$/g, '')
+    .trim();
+
+  return companyName || null;
+}

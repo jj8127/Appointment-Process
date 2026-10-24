@@ -1,0 +1,166 @@
+import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+
+type Payload = {
+  phone: string;
+  name: string;
+  password: string;
+  active?: boolean;
+};
+
+function getEnv(name: string): string | undefined {
+  const g: any = globalThis as any;
+  if (g?.Deno?.env?.get) return g.Deno.env.get(name);
+  if (g?.process?.env) return g.process.env[name];
+  return undefined;
+}
+
+// Security: Restrict CORS to specific origins
+const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
+const corsHeaders = {
+  'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Credentials': 'true',
+};
+
+// Security: Validate required environment variables
+const supabaseUrl = getEnv('SUPABASE_URL');
+const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY');
+const adminSecret = getEnv('ADMIN_CONFIG_SECRET');
+
+if (!supabaseUrl) {
+  throw new Error('Missing required environment variable: SUPABASE_URL');
+}
+if (!serviceKey) {
+  throw new Error('Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY');
+}
+if (!adminSecret) {
+  throw new Error('Missing required environment variable: ADMIN_CONFIG_SECRET');
+}
+const supabase = createClient(supabaseUrl, serviceKey);
+const encoder = new TextEncoder();
+
+function json(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+  });
+}
+
+function fail(code: string, message: string, extra: Record<string, unknown> = {}) {
+  return json({ ok: false, code, message, ...extra });
+}
+
+function cleanPhone(input: string) {
+  return (input ?? '').replace(/[^0-9]/g, '');
+}
+
+function toBase64(bytes: Uint8Array) {
+  let binary = '';
+  bytes.forEach((b) => (binary += String.fromCharCode(b)));
+  return btoa(binary);
+}
+
+async function hashPassword(password: string, saltBytes: Uint8Array) {
+  const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: saltBytes.buffer as ArrayBuffer, iterations: 100000, hash: 'SHA-256' },
+    key,
+    256,
+  );
+  return toBase64(new Uint8Array(bits));
+}
+
+serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+  if (req.method !== 'POST') {
+    return json({ ok: false, code: 'method_not_allowed', message: 'Method not allowed' }, 405);
+  }
+  if (!supabaseUrl || !serviceKey || !adminSecret) {
+    return json({ ok: false, code: 'server_misconfigured', message: 'Missing server credentials' }, 500);
+  }
+
+  const providedSecret = req.headers.get('x-admin-secret') ?? '';
+  if (providedSecret !== adminSecret) {
+    return json({ ok: false, code: 'unauthorized', message: 'Unauthorized' }, 401);
+  }
+
+  let body: Payload;
+  try {
+    body = await req.json();
+  } catch {
+    return fail('invalid_json', 'Invalid JSON');
+  }
+
+  const phone = cleanPhone(body.phone ?? '');
+  const name = (body.name ?? '').trim();
+  const password = (body.password ?? '').trim();
+  const active = body.active ?? true;
+
+  if (phone.length !== 11) {
+    return fail('invalid_phone', '휴대폰 번호는 숫자 11자리로 입력해주세요.');
+  }
+  if (!name) {
+    return fail('missing_name', '관리자 이름을 입력해주세요.');
+  }
+  const hasLetter = /[A-Za-z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  const hasSpecial = /[^A-Za-z0-9]/.test(password);
+  if (password.length < 8 || !hasLetter || !hasNumber || !hasSpecial) {
+    return fail('weak_password', '비밀번호는 8자 이상이며 영문+숫자+특수문자를 포함해야 합니다.');
+  }
+
+  // 역할 충돌 방지: 총무 계정은 FC/본부장 계정과 휴대폰 번호를 공유할 수 없다.
+  const { data: managerAccount, error: managerError } = await supabase
+    .from('manager_accounts')
+    .select('id')
+    .eq('phone', phone)
+    .maybeSingle();
+  if (managerError) {
+    return json({ ok: false, code: 'db_error', message: managerError.message }, 500);
+  }
+  if (managerAccount) {
+    return fail('already_exists', '해당 번호로 본부장 계정이 이미 있습니다.');
+  }
+
+  const { data: fcProfile, error: fcError } = await supabase
+    .from('fc_profiles')
+    .select('id')
+    .eq('phone', phone)
+    .maybeSingle();
+  if (fcError) {
+    return json({ ok: false, code: 'db_error', message: fcError.message }, 500);
+  }
+  if (fcProfile) {
+    return fail('already_exists', '해당 번호로 FC 계정이 이미 있습니다.');
+  }
+
+  const saltBytes = crypto.getRandomValues(new Uint8Array(16));
+  const passwordHash = await hashPassword(password, saltBytes);
+  const passwordSalt = toBase64(saltBytes);
+
+  const { error } = await supabase
+    .from('admin_accounts')
+    .upsert(
+      {
+        name,
+        phone,
+        password_hash: passwordHash,
+        password_salt: passwordSalt,
+        password_set_at: new Date().toISOString(),
+        failed_count: 0,
+        locked_until: null,
+        active,
+      },
+      { onConflict: 'phone' },
+    );
+
+  if (error) {
+    return json({ ok: false, code: 'db_error', message: error.message }, 500);
+  }
+
+  return json({ ok: true, phone, name, active });
+});

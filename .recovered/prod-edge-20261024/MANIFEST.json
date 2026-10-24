@@ -1,0 +1,767 @@
+[
+  {
+    "slug": "admin-action",
+    "version": 32,
+    "updated_at": "2026-10-17T16:50:40.983Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "5ae02584c3baeade0876e7c13ec916f2aff67aa40407298df0b9f64ec084c8d5",
+    "entry": "same",
+    "same": 14,
+    "differs": [],
+    "missing_in_head": []
+  },
+  {
+    "slug": "board-attachment-delete",
+    "version": 20,
+    "updated_at": "2026-10-13T09:02:04.672Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "6449981a1e3edc22096ec5e656f2db74ead2cf5fd11cc2ff6058a5dc1500d2ef",
+    "entry": "same",
+    "same": 7,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts",
+      "supabase/functions/_shared/board-read-contract.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "board-attachment-finalize",
+    "version": 20,
+    "updated_at": "2026-10-13T09:02:08.289Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "a39691d19ceb7abfe0d2b524b9338a47f7a6fa5aa9195ac3ed27f0d45a7d0779",
+    "entry": "same",
+    "same": 8,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts",
+      "supabase/functions/_shared/board-read-contract.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "board-attachment-sign",
+    "version": 21,
+    "updated_at": "2026-10-13T09:02:12.281Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "c99b5d20e2489aed128250eb9bdf2bea92cee789b6cb094b8eb3a8df5aaa6064",
+    "entry": "same",
+    "same": 7,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "board-categories-list",
+    "version": 23,
+    "updated_at": "2026-10-13T09:01:29.602Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "d104f735b9b61cd6295c4185f06678522ff3c92bdddb119677d7091d145bbc31",
+    "entry": "same",
+    "same": 8,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts",
+      "supabase/functions/_shared/board-read-contract.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "board-category-create",
+    "version": 22,
+    "updated_at": "2026-10-13T09:02:15.488Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "9aaae3836168061a75286e38d5803ecfc5a35c0e2b4a1d257b2a780487f63295",
+    "entry": "same",
+    "same": 8,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "board-category-update",
+    "version": 22,
+    "updated_at": "2026-10-13T09:02:18.614Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "0b34a2d49d5e527bade026ee44eff8283cfbcef53042128456b68634603d3663",
+    "entry": "same",
+    "same": 9,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts",
+      "supabase/functions/_shared/board-read-contract.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "board-comment-create",
+    "version": 22,
+    "updated_at": "2026-10-13T09:02:29.971Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "ce6a628d2b45ac867efb686d2b92621625d16a7eb3bab295c695c744ee8cac1f",
+    "entry": "same",
+    "same": 7,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "board-comment-delete",
+    "version": 19,
+    "updated_at": "2026-10-13T09:02:33.568Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "5b2b60a5b8c51079853163f465ab3e87724f07fa9cef94598896d227bb458588",
+    "entry": "same",
+    "same": 8,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts",
+      "supabase/functions/_shared/board-read-contract.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "board-comment-like-toggle",
+    "version": 21,
+    "updated_at": "2026-10-13T09:02:39.458Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "b1178e8645e2dc75b4830769476ca88ddf40e13fe9dbdfd3d332317be48e6468",
+    "entry": "same",
+    "same": 10,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts",
+      "supabase/functions/_shared/board-read-contract.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "board-comment-update",
+    "version": 19,
+    "updated_at": "2026-10-13T09:02:42.672Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "6fe9997a4e9ebd6672a29dfc36b92fd14c7f7d9935da175eb521e685a0ee569d",
+    "entry": "same",
+    "same": 8,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts",
+      "supabase/functions/_shared/board-read-contract.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "board-create",
+    "version": 28,
+    "updated_at": "2026-10-13T09:02:46.411Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "ba2b18676db1e2d5c1dde872748c8f129fe5a362aad32a7561972e88d5247daf",
+    "entry": "same",
+    "same": 12,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "board-delete",
+    "version": 20,
+    "updated_at": "2026-10-13T09:02:50.223Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "f914e466dcd6b765c1a677ce4a7b6ae3a9b6d3ef7e6190009b79e7cdd9f8b0e6",
+    "entry": "same",
+    "same": 8,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts",
+      "supabase/functions/_shared/board-read-contract.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "board-detail",
+    "version": 25,
+    "updated_at": "2026-10-13T09:03:05.138Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "6fd789d8ffc0ef9d80fe1e92d0ccefb43e8f247b471db3ddb54cc01113c09688",
+    "entry": "same",
+    "same": 7,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts",
+      "supabase/functions/_shared/board-read-contract.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "board-list",
+    "version": 31,
+    "updated_at": "2026-10-17T16:50:28.918Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "082bac37192754222fa9176c3273fcbc818d40551a486b2959fce1c10b6f32cf",
+    "entry": "same",
+    "same": 10,
+    "differs": [
+      "supabase/functions/_shared/edge-diagnostic.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "board-notification-retry",
+    "version": 8,
+    "updated_at": "2026-10-13T09:03:13.337Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "45c49fe56b0ca3e32bb8d677001597a93f90c7e65dad627506469f8f2433828d",
+    "entry": "same",
+    "same": 10,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "board-pin",
+    "version": 20,
+    "updated_at": "2026-10-13T09:03:16.961Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "f4cb63038fefd6c405c5a5a27a6bc61649fee60aff1e3d48313310cbf01d65c9",
+    "entry": "same",
+    "same": 8,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts",
+      "supabase/functions/_shared/board-read-contract.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "board-reaction-toggle",
+    "version": 20,
+    "updated_at": "2026-10-13T09:03:21.440Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "4bd03ec0aae18346230fef0a0397849ed91356af93d77c34930ba429caf00b77",
+    "entry": "same",
+    "same": 8,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts",
+      "supabase/functions/_shared/board-read-contract.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "board-update",
+    "version": 26,
+    "updated_at": "2026-10-13T09:03:25.015Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "be15995fa44b8aa076ee4b7602e82a86ff2a0a4860ef7d841eb120a4c92fc670",
+    "entry": "same",
+    "same": 11,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "complete-assisted-password",
+    "version": 6,
+    "updated_at": "2026-10-13T09:03:37.066Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "06771f0b6f62b6b222a53e3378fe74f1087019434027e080f1e535db799934a1",
+    "entry": "differs",
+    "same": 2,
+    "differs": [
+      "supabase/functions/complete-assisted-password/index.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts",
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/request-board-password-sync.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "delete-account",
+    "version": 48,
+    "updated_at": "2026-10-17T16:50:35.030Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "1f1d98ee543845ecdec6a85e92aed9ce2b17e71ee448819997639bf8e45db608",
+    "entry": "same",
+    "same": 9,
+    "differs": [
+      "supabase/functions/_shared/edge-diagnostic.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "device-token-register",
+    "version": 9,
+    "updated_at": "2026-10-19T14:09:40.930Z",
+    "verify_jwt": false,
+    "ezbr_sha256": "ec98ad58015b4480a74931d7ae3ead8326f92acd6e487d96afee1ad702dd831f",
+    "entry": "differs",
+    "same": 1,
+    "differs": [
+      "supabase/functions/device-token-register/index.ts",
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "docs-deadline-reminder",
+    "version": 15,
+    "updated_at": "2026-10-19T11:54:06.979Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "9d8cdda3f25cdb48a8811322761d89ea9b5d44eb3de80b7951453923c6d0ada4",
+    "entry": "differs",
+    "same": 7,
+    "differs": [
+      "supabase/functions/docs-deadline-reminder/index.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "exam-payment-proof",
+    "version": 18,
+    "updated_at": "2026-10-13T09:03:47.911Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "d3d6cb673c0f509e2ab8fa659b839afe828b9891fc3c58c111e958fe995f3269",
+    "entry": "same",
+    "same": 10,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "fc-consent",
+    "version": 17,
+    "updated_at": "2026-08-05T01:38:11.831Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "094853870d51f76e638f1d0d32eb597b8bbc84eb925b88786ebe651a3c2e22dc",
+    "entry": "differs",
+    "same": 0,
+    "differs": [
+      "supabase/functions/fc-consent/index.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "fc-notify",
+    "version": 111,
+    "updated_at": "2026-10-19T14:09:47.490Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "aa90bf62adff7a8455eea18e6530b642b8b6c3966da61ac5df1a56f6b25cff53",
+    "entry": "differs",
+    "same": 20,
+    "differs": [
+      "supabase/functions/fc-notify/index.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts",
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "fc-submit-appointment",
+    "version": 16,
+    "updated_at": "2026-08-05T01:38:11.831Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "21d0c1e174adc57c6157f4dfce670b752571c295de44d64bc82975cd363dbb77",
+    "entry": "differs",
+    "same": 1,
+    "differs": [
+      "supabase/functions/fc-submit-appointment/index.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "fc-submit-hanwha-commission",
+    "version": 9,
+    "updated_at": "2026-10-13T09:03:50.876Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "c78abdca24d3f72dd02d78a7ebc11e4ff3b4f4ce1941a0b2eae5522ac4a4a60b",
+    "entry": "differs",
+    "same": 2,
+    "differs": [
+      "supabase/functions/fc-submit-hanwha-commission/index.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "get-fc-referral-code",
+    "version": 11,
+    "updated_at": "2026-10-04T13:36:58.636Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "c7baa9d71ab0ff2e4326e9057b48a7004eda1c4e45dd31920e73aca14475ef92",
+    "entry": "differs",
+    "same": 2,
+    "differs": [
+      "supabase/functions/get-fc-referral-code/index.ts",
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "get-my-invitees",
+    "version": 17,
+    "updated_at": "2026-10-13T09:04:15.454Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "3c9632d4b29a2786110cb44d4d32163fb9e5e8e1ee15489d8023f71a039a30e1",
+    "entry": "differs",
+    "same": 4,
+    "differs": [
+      "supabase/functions/get-my-invitees/index.ts",
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "get-my-referral-allowance",
+    "version": 6,
+    "updated_at": "2026-10-13T09:04:19.525Z",
+    "verify_jwt": false,
+    "ezbr_sha256": "98725ba3c7cfdd0939ad1beb85e53334c866dd848633f3fcfa0d6baf6bc483e3",
+    "entry": "same",
+    "same": 8,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "get-my-referral-code",
+    "version": 19,
+    "updated_at": "2026-10-13T09:04:23.445Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "38bd505595d8dda64094f96f2e554e99521a7ec72aa1732c17f8ac4351d4b2a4",
+    "entry": "differs",
+    "same": 3,
+    "differs": [
+      "supabase/functions/get-my-referral-code/index.ts",
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "get-referral-tree",
+    "version": 15,
+    "updated_at": "2026-10-18T15:08:03.793Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "3a44745f32e6cb5d1c7a83ed7d838f3700e3e24b792fb20cacce014813f34c9f",
+    "entry": "differs",
+    "same": 6,
+    "differs": [
+      "supabase/functions/get-referral-tree/index.ts",
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "group-chat",
+    "version": 32,
+    "updated_at": "2026-10-19T11:15:23.742Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "1f1613f93504136fa19851437616fb03af5e537c94237d4f58cd2bf061db41dd",
+    "entry": "same",
+    "same": 15,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "invite",
+    "version": 8,
+    "updated_at": "2026-08-05T01:38:11.831Z",
+    "verify_jwt": false,
+    "ezbr_sha256": "59b805973d5a79f875937234fbc964074473fa3309ed4fc302347e6ff95622e1",
+    "entry": "same",
+    "same": 1,
+    "differs": [],
+    "missing_in_head": []
+  },
+  {
+    "slug": "login-with-password",
+    "version": 63,
+    "updated_at": "2026-10-17T05:45:21.252Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "bfbfc7c70da4ba873fe815ef41e1eae172725646f43839c85f4e9e43cef2209a",
+    "entry": "same",
+    "same": 8,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "messenger-attachments",
+    "version": 9,
+    "updated_at": "2026-10-13T09:04:49.043Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "24cc70e0a5f8cb3cb698e7a84aaaed119e0d5f4a2522cd365ee105c8b99ab4b6",
+    "entry": "same",
+    "same": 8,
+    "differs": [
+      "supabase/functions/_shared/fc-notify-auth-policy.ts",
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/messenger-attachment-policy.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "notification-preferences",
+    "version": 9,
+    "updated_at": "2026-10-13T09:04:52.486Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "a72d2551f65864529b4b4c4ed1c4c00981166956fdbb1feca280bdb144f84b81",
+    "entry": "differs",
+    "same": 5,
+    "differs": [
+      "supabase/functions/notification-preferences/index.ts",
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "platform-service",
+    "version": 11,
+    "updated_at": "2026-10-21T09:33:21.771Z",
+    "verify_jwt": false,
+    "ezbr_sha256": "e551b96e9aee02adf63822d2b055f2c3ad10af8b1820c43e68b1e6c1710b7b18",
+    "entry": "same",
+    "same": 21,
+    "differs": [
+      "supabase/functions/_shared/edge-diagnostic.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "refresh-app-session",
+    "version": 9,
+    "updated_at": "2026-10-04T13:33:39.543Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "634e7d43e48f718f62bbc18486d2b0e055da58419975487b281e66c0f6524d3b",
+    "entry": "differs",
+    "same": 2,
+    "differs": [
+      "supabase/functions/refresh-app-session/index.ts",
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "request-password-reset",
+    "version": 49,
+    "updated_at": "2026-10-14T12:26:56.477Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "ec289bfaad3aab6f463cb7fca1a3de908ea83f225b679b8fe67c69c476396412",
+    "entry": "same",
+    "same": 9,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "request-signup-otp",
+    "version": 47,
+    "updated_at": "2026-10-13T09:57:51.195Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "485f0e7b24880444a783abe2c43395a40f498807204c985b276cec398120a174",
+    "entry": "same",
+    "same": 8,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "reset-password",
+    "version": 51,
+    "updated_at": "2026-10-14T12:26:56.477Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "8a0715132234000eb0764b83de4088102453e6d23983ed42706202ac73621069",
+    "entry": "same",
+    "same": 8,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "search-fc-for-referral",
+    "version": 14,
+    "updated_at": "2026-10-04T13:37:50.142Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "e5b4a5cc0133ad2373ba2fb29035e94faddef6ef0f0cf1bda8b45eb1fc718013",
+    "entry": "differs",
+    "same": 4,
+    "differs": [
+      "supabase/functions/search-fc-for-referral/index.ts",
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "search-signup-referral",
+    "version": 11,
+    "updated_at": "2026-10-13T09:05:03.244Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "1e5010a4c83b07f6d143446133fbd8f4c9ef5df3a5f8c3e021fa98d7ea195a93",
+    "entry": "differs",
+    "same": 5,
+    "differs": [
+      "supabase/functions/search-signup-referral/index.ts",
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "set-admin-password",
+    "version": 41,
+    "updated_at": "2026-08-05T01:38:11.831Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "1dc36ab7b3292a36e1ca3f6b34ae3f5e85227a7dd53a68a35ff6206018ebae1f",
+    "entry": "differs",
+    "same": 0,
+    "differs": [
+      "supabase/functions/set-admin-password/index.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "set-password",
+    "version": 61,
+    "updated_at": "2026-10-13T09:57:31.578Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "b564748b29fd08b2c8f11df7c387d16ceadc20110e98b36fc7df3df935d28bc6",
+    "entry": "same",
+    "same": 8,
+    "differs": [
+      "supabase/functions/_shared/edge-diagnostic.ts",
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "store-identity",
+    "version": 48,
+    "updated_at": "2026-10-13T09:58:01.613Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "09d0ba912461b723e06d312520c4b8ee6a036c8aaecccfb300be28aa1fca0e4a",
+    "entry": "same",
+    "same": 6,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "sync-request-board-session",
+    "version": 12,
+    "updated_at": "2026-10-04T13:33:42.792Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "dd8426bdf24945d2b42cc6be9e2c545350e12f6f4c6de4f49bebf5263fa8039c",
+    "entry": "differs",
+    "same": 3,
+    "differs": [
+      "supabase/functions/sync-request-board-session/index.ts",
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "update-my-recommender",
+    "version": 16,
+    "updated_at": "2026-10-04T13:37:56.798Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "9352ab46c88b5321dc52870482d1e0516f04dea237502a1e1d2229fc3c10c6f6",
+    "entry": "differs",
+    "same": 2,
+    "differs": [
+      "supabase/functions/update-my-recommender/index.ts",
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "user-presence",
+    "version": 10,
+    "updated_at": "2026-10-13T09:05:06.393Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "3234e521112ba9477f8d0098fddd8599ac4a76ac58c0e3cfddd8399510ea4ae5",
+    "entry": "differs",
+    "same": 4,
+    "differs": [
+      "supabase/functions/user-presence/index.ts",
+      "supabase/functions/_shared/edge-diagnostic.ts",
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "validate-referral-code",
+    "version": 10,
+    "updated_at": "2026-08-05T01:38:11.831Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "ced349b45a6fae00651393d63a208b9e106ecc84bb83fe5d9d9f842740a6588b",
+    "entry": "differs",
+    "same": 0,
+    "differs": [
+      "supabase/functions/validate-referral-code/index.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "verify-app-session",
+    "version": 3,
+    "updated_at": "2026-10-06T10:55:41.303Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "f71e31401cd08e5f458fdc43cd96402dc7dc69083f7534c06d87e6833297f823",
+    "entry": "same",
+    "same": 4,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "verify-request-board-session",
+    "version": 4,
+    "updated_at": "2026-10-14T12:26:56.477Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "de378e96954f3dd9b4feffa05daf79e79d5590d4eed91fe2c4f1d8237f6bfa6c",
+    "entry": "same",
+    "same": 3,
+    "differs": [
+      "supabase/functions/_shared/request-board-auth.ts"
+    ],
+    "missing_in_head": []
+  },
+  {
+    "slug": "verify-signup-otp",
+    "version": 41,
+    "updated_at": "2026-10-13T09:57:40.754Z",
+    "verify_jwt": true,
+    "ezbr_sha256": "64adfddc966bdce3c420d48809471c43b91784d720b51e4ede61e241db215752",
+    "entry": "same",
+    "same": 5,
+    "differs": [
+      "supabase/functions/_shared/edge-diagnostic.ts"
+    ],
+    "missing_in_head": []
+  }
+]

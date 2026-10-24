@@ -1,0 +1,410 @@
+import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import {
+  buildCorsHeaders,
+  json,
+  parseJson,
+  previewContent,
+  requireActor,
+  supabase,
+  dbError,
+  resolveDeveloperResidentIds,
+  toBoardDisplayRole,
+  redactSensitiveText,
+} from '../_shared/board.ts';
+import {
+  AUTOMATION_BOARD_LIST_LIMIT,
+  AUTOMATION_BOARD_LIST_SELECT,
+  isCanonicalGeneralBoardCategory,
+  validateAutomationBoardListRequest,
+} from '../_shared/board-list-policy.ts';
+import {
+  boardListCursorFilter,
+  boardListNextCursor,
+  boardListSortOrders,
+  parseBoardListPagination,
+} from '../_shared/board-list-pagination.ts';
+import {
+  hasUniqueStringField,
+  isBoardAttachmentQueryRow,
+  isBoardAutomationListQueryRow,
+  isBoardListQueryRow,
+  isBoardPostReactionQueryRow,
+  isBoardPostViewQueryRow,
+  type BoardListQueryRow,
+} from '../_shared/board-read-contract.ts';
+import {
+  collectGroupChatDataApiBatches,
+  collectGroupChatDataApiPages,
+} from '../_shared/group-chat-data-api-batching.ts';
+import { parseQueryRows } from '../_shared/query-result-contract.ts';
+
+type Payload = {
+  actor?: {
+    role: 'admin' | 'manager' | 'fc';
+    residentId: string;
+    displayName?: string;
+  };
+  categoryId?: string;
+  search?: string;
+  sort?: 'created' | 'latest' | 'comments' | 'reactions';
+  order?: 'asc' | 'desc';
+  cursor?: string;
+  limit?: number;
+};
+
+serve(async (req: Request) => {
+  const origin = req.headers.get('origin') ?? undefined;
+  const corsHeaders = buildCorsHeaders(origin);
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+  if (req.method !== 'POST') {
+    return json({ ok: false, code: 'method_not_allowed', message: 'Method not allowed' }, 405, origin);
+  }
+
+  const body = await parseJson<Payload>(req);
+  if (!body) return json({ ok: false, code: 'invalid_json', message: 'Invalid JSON' }, 400, origin);
+
+  const actorCheck = await requireActor(req, body, 'board-list', origin);
+  if (actorCheck.ok === false) return actorCheck.response;
+
+  if (actorCheck.authMode === 'automation') {
+    const policy = validateAutomationBoardListRequest(body);
+    if (policy.ok === false) {
+      return json({
+        ok: false,
+        code: 'automation_forbidden',
+        message: 'board automation may list only recent canonical general digest posts',
+      }, 403, origin);
+    }
+
+    const { data: category, error: categoryError } = await supabase
+      .from('board_categories')
+      .select('id,slug,is_active')
+      .eq('id', policy.categoryId)
+      .maybeSingle();
+
+    if (categoryError) return dbError(categoryError, origin);
+    if (!isCanonicalGeneralBoardCategory(category, policy.categoryId)) {
+      return json({
+        ok: false,
+        code: 'automation_forbidden',
+        message: 'board automation may list only the canonical general category',
+      }, 403, origin);
+    }
+
+    const { data, error } = await supabase
+      .from('board_posts_with_stats')
+      .select(AUTOMATION_BOARD_LIST_SELECT)
+      .eq('category_id', policy.categoryId)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(AUTOMATION_BOARD_LIST_LIMIT);
+
+    if (error) return dbError(error, origin);
+
+    const rows = parseQueryRows(data, isBoardAutomationListQueryRow);
+    if (!rows || !hasUniqueStringField(rows, 'id')) {
+      return dbError({ message: 'invalid automation board list query result' }, origin);
+    }
+
+    return json({
+      ok: true,
+      data: {
+        items: rows.map((row) => ({
+          id: row.id,
+          title: redactSensitiveText(row.title, '게시글'),
+          createdAt: row.created_at,
+        })),
+      },
+    }, 200, origin);
+  }
+
+  const paginationResult = parseBoardListPagination(body);
+  if (!paginationResult.ok) {
+    return json({ ok: false, code: 'invalid_pagination', message: '게시글 조회 조건을 확인해주세요.' }, 400, origin);
+  }
+  const pagination = paginationResult.pagination;
+  const { limit } = pagination;
+  const categoryId = body.categoryId;
+  const search = (body.search ?? '').trim();
+
+  const baseSelect =
+    'id,category_id,title,content,author_name,author_role,author_resident_id,created_at,updated_at,edited_at,is_pinned,pinned_at,comment_count,reaction_count,attachment_count,view_count';
+
+  const applyFilters = (query: any) => {
+    if (categoryId) query = query.eq('category_id', categoryId);
+    if (search) query = query.textSearch('search_vector', search, { type: 'plain' });
+    return query;
+  };
+
+  const pinnedPagesPromise = collectGroupChatDataApiPages(async (from, to) => {
+    let query = supabase
+      .from('board_posts_with_stats')
+      .select(baseSelect)
+      .eq('is_pinned', true)
+      .order('pinned_at', { ascending: false })
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
+
+    query = applyFilters(query);
+    return query.range(from, to);
+  }, 200);
+
+  let listQuery = supabase
+    .from('board_posts_with_stats')
+    .select(baseSelect)
+    .eq('is_pinned', false);
+
+  listQuery = applyFilters(listQuery);
+
+  const cursorFilter = boardListCursorFilter(pagination);
+  if (cursorFilter) listQuery = listQuery.or(cursorFilter);
+  for (const { field, ascending } of boardListSortOrders(pagination)) {
+    listQuery = listQuery.order(field, { ascending });
+  }
+
+  // One extra row distinguishes a full final page from a page with more posts.
+  listQuery = listQuery.limit(limit + 1);
+
+  const [pinnedPages, listResult] = await Promise.all([pinnedPagesPromise, listQuery]);
+
+  if (!pinnedPages.ok) {
+    return dbError({ message: 'failed to load pinned board posts' }, origin);
+  }
+  if (listResult.error) {
+    return dbError(listResult.error, origin);
+  }
+
+  const pinnedRows = parseQueryRows(pinnedPages.data, isBoardListQueryRow);
+  const listQueryRows = parseQueryRows(listResult.data, isBoardListQueryRow);
+  if (!pinnedRows
+    || !listQueryRows
+    || pinnedRows.some((row) => !row.is_pinned)
+    || listQueryRows.some((row) => row.is_pinned)
+    || (categoryId && [...pinnedRows, ...listQueryRows].some((row) => row.category_id !== categoryId))
+    || !hasUniqueStringField([...pinnedRows, ...listQueryRows], 'id')) {
+    return dbError({ message: 'invalid board list query result' }, origin);
+  }
+
+  const listRows = listQueryRows.slice(0, limit);
+  const developerResidentIds = await resolveDeveloperResidentIds([
+    ...pinnedRows,
+    ...listRows,
+  ]);
+
+  const normalize = (row: BoardListQueryRow) => ({
+    id: row.id,
+    categoryId: row.category_id,
+    title: redactSensitiveText(row.title, '게시글'),
+    contentPreview: previewContent(row.content),
+    authorName: redactSensitiveText(row.author_name, '작성자'),
+    authorRole: toBoardDisplayRole(row.author_role, row.author_resident_id, developerResidentIds),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    editedAt: row.edited_at ?? undefined,
+    isPinned: row.is_pinned,
+    isMine: row.author_resident_id === actorCheck.actor.residentId,
+    isRead: row.author_resident_id === actorCheck.actor.residentId,
+    stats: {
+      commentCount: row.comment_count ?? 0,
+      reactionCount: row.reaction_count ?? 0,
+      attachmentCount: row.attachment_count ?? 0,
+      viewCount: row.view_count ?? 0,
+    },
+  });
+
+  const pinnedItems = pinnedRows.map(normalize);
+  const items = listRows.map(normalize);
+
+  const postIds = Array.from(new Set([...pinnedItems, ...items].map((item) => item.id)));
+  const reactionMap = new Map<string, { like: number; heart: number; check: number; smile: number }>();
+  const attachmentMap = new Map<
+    string,
+    Array<{
+      id: string;
+      fileType: 'image' | 'file';
+      fileName: string;
+      fileSize: number;
+      storagePath: string;
+      signedUrl?: string;
+    }>
+  >();
+
+  const viewedPostIds = new Set<string>();
+
+  if (postIds.length > 0) {
+    const [reactionsRes, attachmentsRes, viewsRes] = await Promise.all([
+      collectGroupChatDataApiBatches(postIds, async (postIdBatch) => {
+        const pages = await collectGroupChatDataApiPages(async (from, to) => {
+          const result = await supabase
+            .from('board_post_reactions')
+            .select('post_id,resident_id,reaction_type')
+            .in('post_id', postIdBatch)
+            .order('post_id', { ascending: true })
+            .order('resident_id', { ascending: true })
+            .range(from, to);
+          const rows = parseQueryRows(result.data, isBoardPostReactionQueryRow);
+          return {
+            data: rows,
+            error: result.error ?? (rows ? null : new Error('board_reaction_query_invalid')),
+          };
+        });
+        return pages.ok
+          ? { data: pages.data, error: null }
+          : { data: null, error: new Error('board_reaction_query_failed') };
+      }),
+      collectGroupChatDataApiBatches(postIds, async (postIdBatch) => {
+        const pages = await collectGroupChatDataApiPages(async (from, to) => {
+          const result = await supabase
+            .from('board_attachments')
+            .select('id,post_id,file_type,file_name,file_size,storage_path,sort_order,created_at')
+            .in('post_id', postIdBatch)
+            .order('post_id', { ascending: true })
+            .order('sort_order', { ascending: true })
+            .order('created_at', { ascending: true })
+            .order('id', { ascending: true })
+            .range(from, to);
+          const rows = parseQueryRows(result.data, isBoardAttachmentQueryRow);
+          return {
+            data: rows,
+            error: result.error ?? (rows ? null : new Error('board_attachment_query_invalid')),
+          };
+        });
+        return pages.ok
+          ? { data: pages.data, error: null }
+          : { data: null, error: new Error('board_attachment_query_failed') };
+      }),
+      collectGroupChatDataApiBatches(postIds, async (postIdBatch) => {
+        const pages = await collectGroupChatDataApiPages(async (from, to) => {
+          const result = await supabase
+            .from('board_post_views')
+            .select('post_id')
+            .eq('resident_id', actorCheck.actor.residentId)
+            .in('post_id', postIdBatch)
+            .order('post_id', { ascending: true })
+            .order('id', { ascending: true })
+            .range(from, to);
+          const rows = parseQueryRows(result.data, isBoardPostViewQueryRow);
+          return {
+            data: rows,
+            error: result.error ?? (rows ? null : new Error('board_view_query_invalid')),
+          };
+        });
+        return pages.ok
+          ? { data: pages.data, error: null }
+          : { data: null, error: new Error('board_view_query_failed') };
+      }),
+    ]);
+
+    if (!reactionsRes.ok) {
+      return dbError({ message: 'board reaction query failed' }, origin);
+    }
+    if (!attachmentsRes.ok) {
+      return dbError({ message: 'board attachment query failed' }, origin);
+    }
+    // Read state only decorates the list, so a failed lookup leaves posts unmarked.
+    if (viewsRes.ok) {
+      viewsRes.data.forEach((row) => viewedPostIds.add(row.post_id));
+    }
+
+    const reactionRows = reactionsRes.data;
+    const attachmentRows = attachmentsRes.data;
+    const requestedPostIds = new Set(postIds);
+    const reactionKeys = reactionRows.map((row) => `${row.post_id}:${row.resident_id ?? ''}`);
+    if (reactionRows.some((row) => (
+        !requestedPostIds.has(row.post_id) || row.resident_id === undefined
+      ))
+      || attachmentRows.some((row) => !requestedPostIds.has(row.post_id))
+      || new Set(reactionKeys).size !== reactionKeys.length
+      || !hasUniqueStringField(attachmentRows, 'id')) {
+      return dbError({ message: 'invalid board list relation query result' }, origin);
+    }
+
+    reactionRows.forEach((row) => {
+      const key = row.post_id;
+      const current = reactionMap.get(key) ?? { like: 0, heart: 0, check: 0, smile: 0 };
+      if (row.reaction_type === 'like') current.like += 1;
+      if (row.reaction_type === 'heart') current.heart += 1;
+      if (row.reaction_type === 'check') current.check += 1;
+      if (row.reaction_type === 'smile') current.smile += 1;
+      reactionMap.set(key, current);
+    });
+
+    const signedUrlMap = new Map<string, string>();
+    const imageCounts = new Map<string, number>();
+    const createSignedUrlWithRetry = async (storagePath: string) => {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const { data, error } = await supabase.storage
+          .from('board-attachments')
+          .createSignedUrl(storagePath, 60 * 60 * 6);
+        if (!error && data?.signedUrl) {
+          return data.signedUrl;
+        }
+      }
+      return null;
+    };
+
+    for (const row of attachmentRows) {
+      if (row.file_type !== 'image') continue;
+      const current = imageCounts.get(row.post_id) ?? 0;
+      if (current >= 4) continue;
+      const signedUrl = await createSignedUrlWithRetry(row.storage_path);
+      if (signedUrl) {
+        signedUrlMap.set(row.id, signedUrl);
+        imageCounts.set(row.post_id, current + 1);
+      }
+    }
+
+    attachmentRows.forEach((row) => {
+      const list = attachmentMap.get(row.post_id) ?? [];
+      list.push({
+        id: row.id,
+        fileType: row.file_type,
+        fileName: row.file_name,
+        fileSize: row.file_size,
+        storagePath: row.storage_path,
+        signedUrl: row.file_type === 'image' ? signedUrlMap.get(row.id) : undefined,
+      });
+      attachmentMap.set(row.post_id, list);
+    });
+
+    const itemById = new Map(
+      [...pinnedItems, ...items].map((item) => [item.id, item]),
+    );
+    for (const postId of postIds) {
+      const item = itemById.get(postId);
+      const reactionCounts = reactionMap.get(postId);
+      const returnedReactionCount = reactionCounts
+        ? reactionCounts.like + reactionCounts.heart + reactionCounts.check + reactionCounts.smile
+        : 0;
+      if (!item
+        || item.stats.reactionCount !== returnedReactionCount
+        || item.stats.attachmentCount !== (attachmentMap.get(postId)?.length ?? 0)) {
+        return dbError({ message: 'incomplete board list relation query result' }, origin);
+      }
+    }
+  }
+
+  const withExtras = (item: ReturnType<typeof normalize>) => ({
+    ...item,
+    isRead: item.isRead || viewedPostIds.has(item.id),
+    reactions: reactionMap.get(item.id) ?? { like: 0, heart: 0, check: 0, smile: 0 },
+    attachments: attachmentMap.get(item.id) ?? [],
+  });
+
+  const enrichedPinned = pinnedItems.map(withExtras);
+  const enrichedItems = items.map(withExtras);
+
+  const nextCursor = listQueryRows.length > limit
+    ? boardListNextCursor(listRows[listRows.length - 1], pagination)
+    : null;
+
+  return json({
+    ok: true,
+    data: {
+      items: [...enrichedPinned, ...enrichedItems],
+      nextCursor,
+    },
+  }, 200, origin);
+});

@@ -1,0 +1,551 @@
+import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+import {
+  createAssistedPasswordChangeChallenge,
+  createAppSessionToken,
+  createRequestBoardBridgeToken,
+  getEnv,
+  parseDesignerCompanyNameFromAffiliation,
+} from '../_shared/request-board-auth.ts';
+import {
+  canAutoIssueReferralCodeProfile,
+  ensureActiveReferralCode,
+  ensureManagerReferralShadowProfile,
+} from '../_shared/referral-code.ts';
+import { resolveManagerAffiliation } from '../_shared/manager-affiliation.ts';
+import { reportEdgeDiagnostic } from '../_shared/edge-diagnostic.ts';
+import {
+  buildFcPasswordSyncUpstream,
+  syncRequestBoardPassword,
+} from '../_shared/request-board-password-sync.ts';
+import { hashPassword } from '../_shared/password-hash.ts';
+import { mutationRowReceiptMatches } from '../_shared/ux-mutation-contract.ts';
+
+type Payload = {
+  phone: string;
+  password: string;
+};
+
+// Security: Restrict CORS to specific origins
+const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
+const defaultOrigin = allowedOrigins[0] ?? 'https://yourdomain.com';
+
+function resolveCorsOrigin(origin?: string) {
+  if (origin && allowedOrigins.includes(origin)) return origin;
+  if (origin?.includes('localhost') || origin?.includes('127.0.0.1')) return origin;
+  if (origin && allowedOrigins.length === 0) return origin;
+  return defaultOrigin;
+}
+
+function buildCorsHeaders(origin?: string) {
+  return {
+    'Access-Control-Allow-Origin': resolveCorsOrigin(origin),
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Credentials': 'true',
+    Vary: 'Origin',
+  };
+}
+
+// Security: Validate required environment variables
+const supabaseUrl = getEnv('SUPABASE_URL');
+const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY');
+
+if (!supabaseUrl) {
+  throw new Error('Missing required environment variable: SUPABASE_URL');
+}
+if (!serviceKey) {
+  throw new Error('Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY');
+}
+
+const supabase = createClient(supabaseUrl, serviceKey);
+const requestBoardPasswordSyncUrl = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_URL') ?? '').trim();
+const requestBoardPasswordSyncV2Url = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_V2_URL') ?? '').trim();
+const requestBoardPasswordSyncV2Required = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_V2_REQUIRED') ?? '').trim().toLowerCase() === 'true';
+const requestBoardPasswordSyncToken = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_TOKEN') ?? '').trim();
+const requestBoardPasswordSyncTimeoutRaw = Number((getEnv('REQUEST_BOARD_PASSWORD_SYNC_TIMEOUT_MS') ?? '5000').trim());
+const requestBoardPasswordSyncTimeoutMs =
+  Number.isFinite(requestBoardPasswordSyncTimeoutRaw) && requestBoardPasswordSyncTimeoutRaw >= 1000
+    ? Math.floor(requestBoardPasswordSyncTimeoutRaw)
+    : 5000;
+
+function json(body: Record<string, unknown>, status = 200, origin?: string) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...buildCorsHeaders(origin) },
+  });
+}
+
+function fail(code: string, message: string, extra: Record<string, unknown> = {}, origin?: string) {
+  return json({ ok: false, code, message, ...extra }, 200, origin);
+}
+
+function sessionUnavailable(origin?: string) {
+  return json({
+    ok: false,
+    code: 'session_unavailable',
+    message: '로그인 세션을 만들지 못했습니다. 잠시 후 다시 시도해주세요.',
+  }, 500, origin);
+}
+
+function cleanPhone(input: string) {
+  return (input ?? '').replace(/[^0-9]/g, '');
+}
+
+type PasswordAttemptResult =
+  | { ok: true }
+  | { ok: false; code: 'invalid_password'; remaining: number }
+  | { ok: false; code: 'locked'; lockedUntil: string }
+  | { ok: false; code: 'account_unavailable' | 'db_error' };
+
+async function processPasswordAttempt(params: {
+  accountKind: 'admin' | 'manager' | 'fc';
+  accountId: string;
+  phone: string;
+  candidateHash: string;
+}): Promise<PasswordAttemptResult> {
+  const { data, error } = await supabase.rpc('process_password_login_attempt_v1', {
+    p_account_kind: params.accountKind,
+    p_account_id: params.accountId,
+    p_expected_phone: params.phone,
+    p_candidate_hash: params.candidateHash,
+  });
+  if (error || !data || typeof data !== 'object' || Array.isArray(data)) {
+    return { ok: false, code: 'db_error' };
+  }
+  if (data.ok === true) {
+    return mutationRowReceiptMatches(data, {
+      ok: true,
+      code: 'authenticated',
+      accountKind: params.accountKind,
+      accountId: params.accountId,
+      residentId: params.phone,
+    }) ? { ok: true } : { ok: false, code: 'db_error' };
+  }
+  if (data.ok !== false || typeof data.code !== 'string') {
+    return { ok: false, code: 'db_error' };
+  }
+  if (data.code === 'invalid_password'
+    && Number.isInteger(data.remaining)
+    && data.remaining >= 0
+    && data.remaining < 5) {
+    return { ok: false, code: 'invalid_password', remaining: data.remaining };
+  }
+  if (data.code === 'locked'
+    && typeof data.lockedUntil === 'string'
+    && Number.isFinite(Date.parse(data.lockedUntil))) {
+    return { ok: false, code: 'locked', lockedUntil: data.lockedUntil };
+  }
+  if (data.code === 'account_unavailable') {
+    return { ok: false, code: 'account_unavailable' };
+  }
+  return { ok: false, code: 'db_error' };
+}
+async function autoIssueReferralCodeOnLogin(params: {
+  profile:
+    | {
+      id: string;
+      phone: string | null;
+      affiliation?: string | null;
+      signup_completed?: boolean | null;
+      is_manager_referral_shadow?: boolean | null;
+    }
+    | null
+    | undefined;
+  actorPhone: string;
+  actorRole: 'fc' | 'manager';
+  actorStaffType?: string | null;
+  reason?: string;
+}) {
+  if (!params.profile?.id) {
+    return;
+  }
+
+  const canIssue = canAutoIssueReferralCodeProfile(params.profile, {
+    allowManagerShadow: params.actorRole === 'manager',
+  });
+  if (!canIssue) {
+    return;
+  }
+
+  const result = await ensureActiveReferralCode({
+    supabase,
+    fcId: params.profile.id,
+    actorPhone: params.actorPhone,
+    actorRole: params.actorRole,
+    actorStaffType: params.actorStaffType ?? null,
+    reason: params.reason ?? 'auto_issue_on_login',
+  });
+
+  if (result.ok === false) {
+    reportEdgeDiagnostic({
+      event: 'login_with_password.referral_bootstrap',
+      reason: 'referral_code_auto_issue_failed',
+      errorClass: 'database',
+    });
+  }
+}
+
+serve(async (req: Request) => {
+  const origin = req.headers.get('origin') ?? undefined;
+
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: buildCorsHeaders(origin) });
+  }
+  if (req.method !== 'POST') {
+    return json({ ok: false, code: 'method_not_allowed', message: 'Method not allowed' }, 405, origin);
+  }
+  if (!supabaseUrl || !serviceKey) {
+    return json({ ok: false, code: 'server_misconfigured', message: 'Missing Supabase credentials' }, 500, origin);
+  }
+
+  let body: Payload;
+  try {
+    body = await req.json();
+  } catch {
+    return fail('invalid_json', 'Invalid JSON', {}, origin);
+  }
+
+  const phone = cleanPhone(body.phone ?? '');
+  const password = (body.password ?? '').trim();
+
+  if (phone.length !== 11) {
+    return fail('invalid_phone', '휴대폰 번호는 숫자 11자리로 입력해주세요.', {}, origin);
+  }
+  if (!password) {
+    return fail('missing_password', '비밀번호를 입력해주세요.', {}, origin);
+  }
+
+  const { data: admin, error: adminError } = await supabase
+    .from('admin_accounts')
+    .select('id,name,phone,password_hash,password_salt,failed_count,locked_until,password_set_at,active,staff_type,session_version')
+    .eq('phone', phone)
+    .maybeSingle();
+
+  if (adminError) {
+    return json({ ok: false, code: 'db_error', message: adminError.message }, 500, origin);
+  }
+
+  if (admin?.id) {
+    const staffType = admin.staff_type === 'developer' ? 'developer' : 'admin';
+    if (!admin.active) {
+      return fail('inactive_admin', '관리자 계정이 비활성화되었습니다.', { role: 'admin', staffType }, origin);
+    }
+    if (!admin.password_set_at) {
+      return fail('needs_password_setup', '관리자 비밀번호가 아직 설정되지 않았습니다.', { role: 'admin', staffType }, origin);
+    }
+
+    const hashed = await hashPassword(password, admin.password_salt);
+    const passwordAttempt = await processPasswordAttempt({
+      accountKind: 'admin',
+      accountId: admin.id,
+      phone: admin.phone,
+      candidateHash: hashed,
+    });
+    if (passwordAttempt.ok === false) {
+      if (passwordAttempt.code === 'locked') {
+        return fail('locked', '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.', {
+          lockedUntil: passwordAttempt.lockedUntil,
+          role: 'admin',
+          staffType,
+        }, origin);
+      }
+      if (passwordAttempt.code === 'invalid_password') {
+        return fail('invalid_password', '비밀번호가 올바르지 않습니다.', {
+          remaining: passwordAttempt.remaining,
+          role: 'admin',
+          staffType,
+        }, origin);
+      }
+      return json({ ok: false, code: 'db_error', message: '로그인 상태를 저장하지 못했습니다.' }, 500, origin);
+    }
+
+    const requestBoardBridgeRole = staffType === 'developer' ? 'fc' : 'admin';
+    const requestBoardRole = staffType === 'developer' ? 'fc' : null;
+    if (staffType === 'developer') {
+      await syncRequestBoardPassword({
+        syncUrl: requestBoardPasswordSyncUrl,
+        syncToken: requestBoardPasswordSyncToken,
+        timeoutMs: requestBoardPasswordSyncTimeoutMs,
+        logPrefix: 'login-with-password',
+        phone: admin.phone,
+        password,
+        options: {
+          role: 'fc',
+          name: '개발자',
+          initiatorRole: 'admin',
+          syncReason: 'login',
+        },
+      });
+    }
+
+    const requestBoardBridgeToken = await createRequestBoardBridgeToken(admin.phone, requestBoardBridgeRole, undefined, { accountKind: 'admin', accountId: admin.id, sessionVersion: admin.session_version });
+    const appSessionToken = await createAppSessionToken(admin.phone, 'admin', staffType, undefined, { accountKind: 'admin', accountId: admin.id, sessionVersion: admin.session_version });
+    const displayName = String(admin.name ?? '').trim();
+    if (!appSessionToken?.trim() || !displayName) {
+      return sessionUnavailable(origin);
+    }
+    return json({
+      ok: true,
+      role: 'admin',
+      residentId: admin.phone,
+      displayName,
+      staffType,
+      requestBoardRole,
+      ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
+      appSessionToken,
+    }, 200, origin);
+  }
+
+  const { data: manager, error: managerError } = await supabase
+    .from('manager_accounts')
+    .select('id,name,phone,password_hash,password_salt,failed_count,locked_until,password_set_at,active,session_version')
+    .eq('phone', phone)
+    .maybeSingle();
+
+  if (managerError) {
+    return json({ ok: false, code: 'db_error', message: managerError.message }, 500, origin);
+  }
+
+  if (manager?.id) {
+    if (!manager.active) {
+      return fail('inactive_manager', '본부장 계정이 비활성화되었습니다.', { role: 'manager' }, origin);
+    }
+    if (!manager.password_set_at) {
+      return fail('needs_password_setup', '본부장 비밀번호가 아직 설정되지 않았습니다.', { role: 'manager' }, origin);
+    }
+
+    const hashed = await hashPassword(password, manager.password_salt);
+    const passwordAttempt = await processPasswordAttempt({
+      accountKind: 'manager',
+      accountId: manager.id,
+      phone: manager.phone,
+      candidateHash: hashed,
+    });
+    if (passwordAttempt.ok === false) {
+      if (passwordAttempt.code === 'locked') {
+        return fail('locked', '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.', {
+          lockedUntil: passwordAttempt.lockedUntil,
+          role: 'manager',
+        }, origin);
+      }
+      if (passwordAttempt.code === 'invalid_password') {
+        return fail('invalid_password', '비밀번호가 올바르지 않습니다.', {
+          remaining: passwordAttempt.remaining,
+          role: 'manager',
+        }, origin);
+      }
+      return json({ ok: false, code: 'db_error', message: '로그인 상태를 저장하지 못했습니다.' }, 500, origin);
+    }
+
+    const managerAffiliation = resolveManagerAffiliation(manager.name);
+    await syncRequestBoardPassword({
+      syncUrl: requestBoardPasswordSyncUrl,
+      syncToken: requestBoardPasswordSyncToken,
+      timeoutMs: requestBoardPasswordSyncTimeoutMs,
+      logPrefix: 'login-with-password',
+      phone: manager.phone,
+      password,
+      options: {
+        role: 'manager',
+        name: manager.name ?? '',
+        affiliation: managerAffiliation,
+        initiatorRole: 'manager',
+        syncReason: 'login',
+      },
+    });
+
+    const shadowResult = await ensureManagerReferralShadowProfile(supabase, manager.phone, manager.name);
+    if (shadowResult.ok === false) {
+      reportEdgeDiagnostic({
+        event: 'login_with_password.referral_bootstrap',
+        reason: 'manager_shadow_ensure_failed',
+        errorClass: 'database',
+      });
+    } else {
+      const { data: managerReferralProfile, error: managerReferralProfileError } = await supabase
+        .from('fc_profiles')
+        .select('id, phone, affiliation, signup_completed, is_manager_referral_shadow')
+        .eq('phone', manager.phone)
+        .maybeSingle();
+
+      if (managerReferralProfileError) {
+        reportEdgeDiagnostic({
+          event: 'login_with_password.referral_bootstrap',
+          reason: 'manager_shadow_lookup_failed',
+          errorClass: 'database',
+        });
+      } else {
+        await autoIssueReferralCodeOnLogin({
+          profile: managerReferralProfile,
+          actorPhone: manager.phone,
+          actorRole: 'manager',
+        });
+      }
+    }
+
+    const requestBoardBridgeToken = await createRequestBoardBridgeToken(
+      manager.phone,
+      'manager',
+      managerAffiliation,
+      { accountKind: 'manager', accountId: manager.id, sessionVersion: manager.session_version },
+    );
+    const appSessionToken = await createAppSessionToken(manager.phone, 'manager', undefined, undefined, { accountKind: 'manager', accountId: manager.id, sessionVersion: manager.session_version });
+    const displayName = String(manager.name ?? '').trim();
+    if (!appSessionToken?.trim() || !displayName) {
+      return sessionUnavailable(origin);
+    }
+    return json({
+      ok: true,
+      role: 'manager',
+      residentId: manager.phone,
+      displayName,
+      requestBoardRole: 'fc',
+      ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
+      appSessionToken,
+    }, 200, origin);
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('fc_profiles')
+    .select('id,name,phone,signup_completed,affiliation,is_manager_referral_shadow')
+    .eq('phone', phone)
+    .maybeSingle();
+
+  if (profileError) {
+    return json({ ok: false, code: 'db_error', message: profileError.message }, 500, origin);
+  }
+  if (!profile?.id) {
+    return fail('not_found', '등록된 계정을 찾을 수 없습니다.', {}, origin);
+  }
+  if (!profile.signup_completed) {
+    return fail('not_completed', '회원가입이 완료되지 않았습니다. 회원가입을 완료해주세요.', {}, origin);
+  }
+
+  const { data: creds, error: credsError } = await supabase
+    .from('fc_credentials')
+    .select('password_hash,password_salt,failed_count,locked_until,password_set_at,must_change_password,session_version')
+    .eq('fc_id', profile.id)
+    .maybeSingle();
+
+  if (credsError) {
+    return json({ ok: false, code: 'db_error', message: credsError.message }, 500, origin);
+  }
+  if (!creds?.password_set_at) {
+    return fail('needs_password_setup', '비밀번호가 아직 설정되지 않았습니다.', {}, origin);
+  }
+
+  const hashed = await hashPassword(password, creds.password_salt);
+  const passwordAttempt = await processPasswordAttempt({
+    accountKind: 'fc',
+    accountId: profile.id,
+    phone: profile.phone,
+    candidateHash: hashed,
+  });
+  if (passwordAttempt.ok === false) {
+    if (passwordAttempt.code === 'locked') {
+      return fail('locked', '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.', {
+        lockedUntil: passwordAttempt.lockedUntil,
+      }, origin);
+    }
+    if (passwordAttempt.code === 'invalid_password') {
+      return fail('invalid_password', '비밀번호가 올바르지 않습니다.', {
+        remaining: passwordAttempt.remaining,
+      }, origin);
+    }
+    return json({ ok: false, code: 'db_error', message: '로그인 상태를 저장하지 못했습니다.' }, 500, origin);
+  }
+
+  if (creds.must_change_password === true) {
+    const challenge = await createAssistedPasswordChangeChallenge(profile.phone, profile.id);
+    if (!challenge) {
+      return json({
+        ok: false,
+        code: 'server_misconfigured',
+        message: '비밀번호 변경 요청을 생성하지 못했습니다.',
+      }, 500, origin);
+    }
+
+    const { error: challengeError } = await supabase.rpc(
+      'issue_admin_assisted_password_change_v1',
+      {
+        p_fc_id: profile.id,
+        p_nonce_hash: challenge.nonceHash,
+        p_expires_at: challenge.expiresAt,
+      },
+    );
+    if (challengeError) {
+      reportEdgeDiagnostic({
+        event: 'login_with_password.assisted_password_change',
+        reason: 'challenge_issue_failed',
+        errorClass: 'database',
+      });
+      return json({
+        ok: false,
+        code: 'password_change_unavailable',
+        message: '비밀번호 변경 요청을 준비하지 못했습니다. 잠시 후 다시 시도해주세요.',
+      }, 500, origin);
+    }
+
+    return fail(
+      'password_change_required',
+      '관리자가 발급한 임시 비밀번호입니다. 계속하려면 새 비밀번호를 설정해주세요.',
+      {
+        role: 'fc',
+        passwordChangeToken: challenge.token,
+        passwordChangeExpiresAt: challenge.expiresAt,
+      },
+      origin,
+    );
+  }
+
+  const designerCompanyName = parseDesignerCompanyNameFromAffiliation(profile.affiliation);
+  const requestBoardRole: 'fc' | 'designer' = designerCompanyName ? 'designer' : 'fc';
+
+  await syncRequestBoardPassword({
+    syncUrl: requestBoardPasswordSyncUrl,
+    syncV2Url: requestBoardPasswordSyncV2Url,
+    requireV2: requestBoardPasswordSyncV2Required,
+    syncToken: requestBoardPasswordSyncToken,
+    timeoutMs: requestBoardPasswordSyncTimeoutMs,
+    logPrefix: 'login-with-password',
+    phone: profile.phone,
+    password,
+    upstream: buildFcPasswordSyncUpstream(profile.id, creds.session_version),
+    options: {
+      role: requestBoardRole,
+      name: profile.name ?? '',
+      ...(requestBoardRole === 'fc' ? { affiliation: profile.affiliation ?? null } : {}),
+      ...(designerCompanyName ? { companyName: designerCompanyName } : {}),
+      initiatorRole: 'self',
+      syncReason: 'login',
+    },
+  });
+
+  await autoIssueReferralCodeOnLogin({
+    profile,
+    actorPhone: profile.phone,
+    actorRole: 'fc',
+  });
+
+  const requestBoardBridgeToken = await createRequestBoardBridgeToken(
+    profile.phone,
+    requestBoardRole,
+    requestBoardRole === 'fc' ? profile.affiliation ?? null : undefined,
+    { accountKind: 'fc', accountId: profile.id, sessionVersion: creds.session_version },
+  );
+  const appSessionToken = await createAppSessionToken(profile.phone, 'fc', undefined, profile.id, { accountKind: 'fc', accountId: profile.id, sessionVersion: creds.session_version });
+  const displayName = String(profile.name ?? '').trim();
+  if (!appSessionToken?.trim() || !displayName) {
+    return sessionUnavailable(origin);
+  }
+  return json({
+    ok: true,
+    role: 'fc',
+    residentId: profile.phone,
+    displayName,
+    requestBoardRole,
+    ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
+    appSessionToken,
+  }, 200, origin);
+});
